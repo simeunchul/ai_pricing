@@ -1,0 +1,20 @@
+[
+  {
+    "issue_no": 8286,
+    "issue_date": "2026-05-06",
+    "maturity_date": "2029-05-09",
+    "maturity_years": null,
+    "notional_krw": null,
+    "issue_price_krw": 10000,
+    "underlyings": [
+      "KOSPI200",
+      "S&P500",
+      "SX5E"
+    ],
+    "coupon_rate_pct_per_year": 11.31,
+    "ki_barrier_pct": null,
+    "autocall_barriers_pct": [],
+    "observation_period_months": null,
+    "_file": "dart_20260424000266_20260424000266.xml"
+  }
+]

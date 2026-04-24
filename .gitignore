@@ -30,6 +30,7 @@ models/*.pth
 models/*.zip
 data/*.npz
 data/runner_log*.json
+data/dart_corp_codes.xml
 
 # C++ build
 packages/fastmc/build/

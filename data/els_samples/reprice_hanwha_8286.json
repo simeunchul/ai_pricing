@@ -1,0 +1,87 @@
+{
+  "issue_no": 8286,
+  "notional_krw": 10000,
+  "coupon_pct": 11.31,
+  "scenarios": [
+    {
+      "scenario": "base (대표 vol)",
+      "price_krw": 10217.4,
+      "stderr_krw": 9.5,
+      "ki_hit_prob": 0.1414,
+      "expected_life_years": 1.455,
+      "vs_notional_pct": 2.17,
+      "autocall_prob_by_period": [
+        0.407,
+        0.162,
+        0.095,
+        0.04,
+        0.044,
+        0.038
+      ]
+    },
+    {
+      "scenario": "vol +3% shock",
+      "price_krw": 9813.7,
+      "stderr_krw": 11.4,
+      "ki_hit_prob": 0.228,
+      "expected_life_years": 1.543,
+      "vs_notional_pct": -1.86,
+      "autocall_prob_by_period": [
+        0.381,
+        0.153,
+        0.092,
+        0.04,
+        0.042,
+        0.037
+      ]
+    },
+    {
+      "scenario": "vol -3% shock",
+      "price_krw": 10554.6,
+      "stderr_krw": 7.1,
+      "ki_hit_prob": 0.069,
+      "expected_life_years": 1.345,
+      "vs_notional_pct": 5.55,
+      "autocall_prob_by_period": [
+        0.44,
+        0.174,
+        0.099,
+        0.038,
+        0.044,
+        0.037
+      ]
+    },
+    {
+      "scenario": "corr → 0.9",
+      "price_krw": 10299.0,
+      "stderr_krw": 8.0,
+      "ki_hit_prob": 0.1077,
+      "expected_life_years": 1.211,
+      "vs_notional_pct": 2.99,
+      "autocall_prob_by_period": [
+        0.525,
+        0.153,
+        0.082,
+        0.032,
+        0.035,
+        0.028
+      ]
+    },
+    {
+      "scenario": "corr → 0.2",
+      "price_krw": 10185.9,
+      "stderr_krw": 10.5,
+      "ki_hit_prob": 0.1638,
+      "expected_life_years": 1.682,
+      "vs_notional_pct": 1.86,
+      "autocall_prob_by_period": [
+        0.305,
+        0.162,
+        0.108,
+        0.044,
+        0.052,
+        0.047
+      ]
+    }
+  ]
+}
