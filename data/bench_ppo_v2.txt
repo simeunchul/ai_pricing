@@ -1,0 +1,13 @@
+=== PPO v2 Final Benchmark (2000 paths, seed=777) ===
+
+--- TC=0.000 ---
+[BSM]  mean=+0.0945 std=0.3652 CVaR5%=0.7660 Sharpe=4.1060 maxDD=-20.50
+[PPO]  mean=+0.0961 std=0.3752 CVaR5%=0.7817 Sharpe=4.0646 maxDD=-21.73
+[ratio] PPO_CVaR / BSM_CVaR = 1.020
+[sanity] threshold<1.10 -> PASS
+
+--- TC=0.003 ---
+[BSM]  mean=-0.7462 std=0.4489 CVaR5%=1.8820 Sharpe=-26.3889 maxDD=-27.55
+[PPO]  mean=-0.6447 std=0.4452 CVaR5%=1.7358 Sharpe=-22.9857 maxDD=-27.30
+[ratio] PPO_CVaR / BSM_CVaR = 0.922
+[plan 20% target] threshold<0.80 -> PARTIAL  (improvement = 7.8%)

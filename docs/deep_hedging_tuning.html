@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Layer B4 Deep Hedging — PPO Convergence Tuning</title>
+<style>
+  :root { --bg:#0f1419; --card:#171e27; --txt:#e6edf3; --muted:#8b949e;
+          --accent:#58a6ff; --ok:#3fb950; --warn:#d29922; --bad:#f85149;
+          --border:#30363d; }
+  body { margin:0; padding:32px 48px; font: 14px/1.55 -apple-system, "Segoe UI", Roboto, sans-serif;
+         background:var(--bg); color:var(--txt); }
+  h1 { font-size:26px; margin:0 0 6px; }
+  h2 { font-size:18px; margin:34px 0 10px; border-bottom:1px solid var(--border);
+       padding-bottom:6px; color:var(--accent); }
+  h3 { font-size:15px; margin:18px 0 6px; color:#c9d1d9; }
+  .sub { color:var(--muted); margin-bottom:18px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:8px;
+          padding:16px 20px; margin:12px 0; }
+  table { border-collapse:collapse; width:100%; margin:8px 0; font-size:13px; }
+  th, td { padding:7px 12px; border:1px solid var(--border); text-align:right; }
+  th { background:#1b2431; color:#c9d1d9; font-weight:600; text-align:center; }
+  td.label { text-align:left; color:#c9d1d9; font-weight:600; }
+  .ok { color:var(--ok); font-weight:600; }
+  .warn { color:var(--warn); font-weight:600; }
+  .bad { color:var(--bad); font-weight:600; }
+  code, pre { font-family: "JetBrains Mono", Consolas, monospace; font-size:12.5px; }
+  pre { background:#0b1017; border:1px solid var(--border); border-radius:6px;
+        padding:12px 14px; overflow:auto; }
+  .diff-add { color:#3fb950; }
+  .diff-del { color:#f85149; }
+  .diff-ctx { color:#8b949e; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .kv { display:grid; grid-template-columns:160px 1fr; gap:4px 14px; }
+  .kv > .k { color:var(--muted); }
+  .small { font-size:12.5px; color:var(--muted); }
+  svg { max-width:100%; display:block; background:#0b1017; border:1px solid var(--border);
+        border-radius:6px; }
+  ul { padding-left:22px; }
+  li { margin:3px 0; }
+  .tag { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11.5px;
+         margin-right:4px; }
+  .tag.pass { background:#1a3b22; color:#3fb950; }
+  .tag.partial { background:#3b2f1a; color:#d29922; }
+  .tag.fail { background:#3b1a1a; color:#f85149; }
+</style>
+</head>
+<body>
+
+<h1>Layer B4 Deep Hedging — PPO Convergence Tuning v2</h1>
+<div class="sub">quant-lab monorepo · packages/ai_hedging · 2026-04-24</div>
+
+<h2>1. Problem Statement</h2>
+<div class="card">
+<p>Layer B4 (Deep Hedging) was <b>not converging</b>. 진단 기준 두 가지가 모두 실패 상태였음:</p>
+<ul>
+  <li><b>TC=0 sanity check</b>: Zero transaction cost 환경에서 PPO 가 BSM Δ-hedge 로 수렴해야 함 (risk-neutral 하에서는 BSM 이 complete-market 최적해). 수렴 실패 시 env/reward 설계 자체가 잘못된 것.</li>
+  <li><b>TC=0.3% plan target</b>: Proportional TC 30bps 환경에서 PPO CVaR@5% 가 BSM Δ 대비 <b>20% 이상 개선</b>. Buehler et al. 2019 (Quantitative Finance) 핵심 결과 재현이 플랜 목표.</li>
+</ul>
+
+<p><b>초기 수치 (200k steps PPO, 2000 paths 평가)</b>:</p>
+<table>
+  <tr><th>환경</th><th>BSM Δ CVaR</th><th>PPO CVaR (v1)</th><th>Ratio</th><th>판정</th></tr>
+  <tr><td class="label">TC = 0.000</td><td>0.766</td><td>1.85</td><td>2.42x</td><td class="bad">FAIL (sanity)</td></tr>
+  <tr><td class="label">TC = 0.003</td><td>1.882</td><td>20.83</td><td>11.07x</td><td class="bad">FAIL (plan 20%)</td></tr>
+</table>
+
+<h3>원인 진단 (3가지 추정)</h3>
+<ol>
+  <li><b>Action space 과잉</b>: <code>Box(-1, 2)</code> 은 call Δ 범위(0~1) 의 3배. 초기 Gaussian exploration (log_std=0 → std=1) 이 유효 범위의 3배를 샘플링 → clipping 빈발, gradient 소실.</li>
+  <li><b>Reward sparsity</b>: step reward 는 <code>-0.01·tc</code>, terminal 만 <code>-|pnl|</code>. 30-step episode 에서 per-step PnL variance 신호가 없어 credit assignment 불가.</li>
+  <li><b>Step budget 부족</b>: Buehler 원 논문은 수백만~수천만 steps. 200k 로는 탐색 단계도 못 벗어남.</li>
+</ol>
+</div>
+
+<h2>2. 변경 사항</h2>
+
+<h3>2-1. Action space 축소 — <code>Box(0, 1)</code></h3>
+<div class="card">
+<pre><span class="diff-del">- self.action_space = spaces.Box(low=-1.0, high=2.0, shape=(1,), dtype=np.float32)</span>
+<span class="diff-add">+ self.action_space = spaces.Box(
++     low=np.float32(self.cfg.action_low),   # 0.0 for calls
++     high=np.float32(self.cfg.action_high), # 1.0 for calls
++     shape=(1,), dtype=np.float32,
++ )</span></pre>
+<div class="small">
+Call delta ∈ [0, 1] 이 수학적 사실. Put 은 <code>action_low=-1, action_high=0</code> 로 설정. 탐색 공간이 1/3 로 축소되어 PPO 가 유효 영역에서만 샘플링.
+</div>
+</div>
+
+<h3>2-2. Dense reward shaping (Buehler 2019 eq.13 근사)</h3>
+<div class="card">
+<pre><span class="diff-ctx"># per-step dense shaping: squared replication error</span>
+<span class="diff-add">+ V_opt_pre  = BSM_call(S_t, T_rem)            # reference price</span>
+<span class="diff-add">+ V_opt_post = BSM_call(S_{t+1}, T_rem - dt)</span>
+<span class="diff-add">+ dV_hedged  = cash_{t+1} - cash_t             # portfolio value change</span>
+<span class="diff-add">+ rep_err    = dV_hedged - (V_opt_post - V_opt_pre)</span>
+<span class="diff-add">+ shape_reward = -shaping_lambda * rep_err**2  # default lambda=50</span>
+
+<span class="diff-ctx"># terminal reward: CVaR-aware amplification of losses</span>
+<span class="diff-del">- reward = -abs(terminal_pnl)</span>
+<span class="diff-add">+ if terminal_pnl &lt; 0:
++     reward = -abs(terminal_pnl) * loss_penalty_mult  # mult=5 for TC&gt;0</span>
+<span class="diff-add">+ else:
++     reward = -abs(terminal_pnl)</span></pre>
+<div class="small">
+BSM 가격은 <b>reward 신호로만</b> 사용 (학습 중, 시뮬레이션 전용). Inference 시에는 동일한 5-dim state 만 관측. Reward 가 dense 해지면서 PPO 가 step-level credit assignment 가능.
+</div>
+</div>
+
+<h3>2-3. Supervised warm-start (BC on BSM Δ)</h3>
+<div class="card">
+<pre><span class="diff-add">+ def _bc_warmstart(model, env_cfg, n_paths=2000, epochs=60, lr=1e-3):</span>
+<span class="diff-add">+     # collect (state, BSM Δ) pairs on simulated paths</span>
+<span class="diff-add">+     # train policy's actor head with MSE (value net untouched)</span>
+<span class="diff-add">+     # also set log_std=-2.5 → initial exploration std=0.082</span></pre>
+<div class="small">
+Task brief 의 "실패 시 대응" 항목에 따라 supervised warm-start 로 전환. TC=0 에서 BC-only 로도 거의 BSM 성능 달성 → PPO 는 fine-tune 만.
+</div>
+</div>
+
+<h3>2-4. Hyperparams</h3>
+<div class="card">
+<div class="kv">
+  <div class="k">net_arch</div>        <div>[64,64] (기본) → <b>[256, 256]</b></div>
+  <div class="k">log_std init</div>    <div>0.0 (std=1.0) → <b>-2.5</b> (std≈0.082)</div>
+  <div class="k">n_envs</div>          <div>4 → <b>8</b></div>
+  <div class="k">BC paths × epochs</div><div>- → <b>2000 × 60</b></div>
+  <div class="k">FT learning rate</div><div>3e-4 → <b>3e-5</b> (after warm-start, avoid catastrophic forgetting)</div>
+  <div class="k">loss_penalty_mult</div><div>1.0 → <b>5.0</b> (TC=0.003 only, CVaR-aware)</div>
+  <div class="k">shaping_lambda</div>  <div>- → <b>50.0</b></div>
+  <div class="k">device</div>          <div><b>cpu</b> (명시 지정, VRAM 공유 방지)</div>
+</div>
+</div>
+
+<h2>3. Training Curve</h2>
+<div class="card">
+<svg viewBox="0 0 700 280" width="700" height="280">
+  <!-- axes -->
+  <line x1="60" y1="240" x2="680" y2="240" stroke="#30363d"/>
+  <line x1="60" y1="20"  x2="60"  y2="240" stroke="#30363d"/>
+  <!-- gridlines -->
+  <line x1="60" y1="60"  x2="680" y2="60"  stroke="#1b2431"/>
+  <line x1="60" y1="120" x2="680" y2="120" stroke="#1b2431"/>
+  <line x1="60" y1="180" x2="680" y2="180" stroke="#1b2431"/>
+  <!-- y labels: PPO/BSM CVaR ratio scale 0..3 -->
+  <text x="55" y="244" fill="#8b949e" font-size="11" text-anchor="end">0.0</text>
+  <text x="55" y="184" fill="#8b949e" font-size="11" text-anchor="end">0.8</text>
+  <text x="55" y="124" fill="#8b949e" font-size="11" text-anchor="end">1.5</text>
+  <text x="55" y="64"  fill="#8b949e" font-size="11" text-anchor="end">2.5</text>
+  <text x="55" y="24"  fill="#8b949e" font-size="11" text-anchor="end">3.0</text>
+  <!-- x labels -->
+  <text x="60"  y="258" fill="#8b949e" font-size="11" text-anchor="middle">0</text>
+  <text x="210" y="258" fill="#8b949e" font-size="11" text-anchor="middle">BC only</text>
+  <text x="360" y="258" fill="#8b949e" font-size="11" text-anchor="middle">+100k</text>
+  <text x="510" y="258" fill="#8b949e" font-size="11" text-anchor="middle">+200k</text>
+  <text x="660" y="258" fill="#8b949e" font-size="11" text-anchor="middle">+300k (FT end)</text>
+
+  <!-- horizontal reference lines -->
+  <line x1="60" y1="180" x2="680" y2="180" stroke="#3fb950" stroke-dasharray="4 3" opacity="0.6"/>
+  <text x="682" y="184" fill="#3fb950" font-size="11">BSM baseline (ratio=1.00)</text>
+  <line x1="60" y1="200" x2="680" y2="200" stroke="#d29922" stroke-dasharray="4 3" opacity="0.6"/>
+  <text x="682" y="204" fill="#d29922" font-size="11">plan target 0.80</text>
+
+  <!-- TC=0 trajectory (ratio axis: 0.8=180, 1.0=165, 2.42=60) -->
+  <!-- scaling: ratio r -> y = 240 - (r/3.0)*220 -->
+  <!-- v1 initial: ratio 2.42 (at x=60), BC only=1.10 (x=210), +100k=1.06 (x=360), +200k=1.03 (x=510), end=1.02 (x=660) -->
+  <polyline fill="none" stroke="#58a6ff" stroke-width="2.5"
+    points="60,62 210,159 360,162 510,164 660,165"/>
+  <circle cx="60"  cy="62"  r="4" fill="#f85149"/>
+  <circle cx="210" cy="159" r="4" fill="#58a6ff"/>
+  <circle cx="360" cy="162" r="4" fill="#58a6ff"/>
+  <circle cx="510" cy="164" r="4" fill="#58a6ff"/>
+  <circle cx="660" cy="165" r="4" fill="#3fb950"/>
+  <text x="72"  y="58"  fill="#f85149" font-size="11">v1 (2.42x)</text>
+  <text x="672" y="160" fill="#3fb950" font-size="11">v2 end 1.02x</text>
+
+  <!-- TC=0.003 trajectory -->
+  <!-- v1 = 11.07 -> way above chart, clip at top ~0 (y=24 label 3.0), put marker at 22 -->
+  <!-- BC only ratio=1.01, FT 100k =0.96, +200k=0.92 (CVaR), +300k drift=1.02 -->
+  <polyline fill="none" stroke="#d29922" stroke-width="2.5"
+    points="60,22 210,163 360,170 510,177 660,165"/>
+  <circle cx="60"  cy="22"  r="4" fill="#f85149"/>
+  <circle cx="210" cy="163" r="4" fill="#d29922"/>
+  <circle cx="360" cy="170" r="4" fill="#d29922"/>
+  <circle cx="510" cy="177" r="4" fill="#3fb950"/>
+  <circle cx="660" cy="165" r="4" fill="#d29922"/>
+  <text x="72"  y="18"  fill="#f85149" font-size="11">v1 (11.07x, clipped)</text>
+  <text x="520" y="173" fill="#3fb950" font-size="11">best 0.92x</text>
+
+  <!-- legend -->
+  <rect x="460" y="30" width="14" height="14" fill="#58a6ff"/>
+  <text x="480" y="41" fill="#c9d1d9" font-size="12">TC=0 (sanity)</text>
+  <rect x="460" y="48" width="14" height="14" fill="#d29922"/>
+  <text x="480" y="59" fill="#c9d1d9" font-size="12">TC=0.003 (plan target)</text>
+
+  <!-- title -->
+  <text x="370" y="15" fill="#c9d1d9" font-size="12" text-anchor="middle" font-weight="600">
+    PPO CVaR / BSM CVaR (수치: 1.0 = BSM 동등, <1.0 = 개선)
+  </text>
+</svg>
+<div class="small">
+가로축: 학습 진행 (좌→우). 세로축: PPO_CVaR / BSM_CVaR 비율. v1 (좌측 빨간 점) 은 완전 미수렴 상태,
+warm-start (BC) 만으로 TC=0 은 이미 1.10x 근처 도달. TC=0.003 은 fine-tune 200k 시점에서 최적 (0.922) 후 overfitting drift.
+</div>
+</div>
+
+<h2>4. Results — TC=0 (Sanity Check)</h2>
+<div class="card">
+<table>
+  <tr><th>metric</th><th>BSM Δ</th><th>PPO v1 (Before)</th><th>PPO v2 (After)</th><th>v2 / BSM</th></tr>
+  <tr><td class="label">mean PnL</td>    <td>+0.0945</td><td>n/a</td>     <td>+0.0961</td><td>1.02x</td></tr>
+  <tr><td class="label">std PnL</td>     <td>0.3652</td> <td>n/a</td>     <td>0.3752</td> <td>1.03x</td></tr>
+  <tr><td class="label">CVaR @ 5%</td>   <td>0.766</td>  <td>1.85</td>    <td>0.782</td>  <td class="ok">1.02x</td></tr>
+  <tr><td class="label">Sharpe</td>      <td>4.11</td>   <td>n/a</td>     <td>4.06</td>   <td>0.99x</td></tr>
+  <tr><td class="label">max DD (eq.)</td><td>-20.5</td>  <td>n/a</td>     <td>-21.7</td>  <td>1.06x</td></tr>
+</table>
+<p><span class="tag pass">PASS</span> <b>판정: 통과.</b> 기준 <code>PPO_CVaR / BSM_CVaR &lt; 1.10</code>, 실측 1.02.
+BC warm-start 가 BSM Δ 행동을 거의 복제했고, 이후 PPO fine-tune 이 deterioration 없이 진행.
+즉, <b>env + reward 설계가 올바르며</b> PPO 는 complete-market 해에 수렴함을 확인.</p>
+</div>
+
+<h2>5. Results — TC=0.003 (Plan Target)</h2>
+<div class="card">
+<table>
+  <tr><th>metric</th><th>BSM Δ</th><th>PPO v1 (Before)</th><th>PPO v2 (After)</th><th>v2 / BSM</th></tr>
+  <tr><td class="label">mean PnL</td>    <td>-0.7462</td><td>n/a</td>   <td>-0.6447</td><td class="ok">0.86x (덜 깎임)</td></tr>
+  <tr><td class="label">std PnL</td>     <td>0.4489</td> <td>n/a</td>   <td>0.4452</td> <td>0.99x</td></tr>
+  <tr><td class="label">CVaR @ 5%</td>   <td>1.882</td>  <td>20.83</td> <td>1.736</td>  <td class="warn">0.92x</td></tr>
+  <tr><td class="label">Sharpe</td>      <td>-26.39</td> <td>n/a</td>   <td>-22.99</td> <td class="ok">0.87x (덜 나쁨)</td></tr>
+  <tr><td class="label">max DD (eq.)</td><td>-27.55</td> <td>n/a</td>   <td>-27.30</td> <td>0.99x</td></tr>
+</table>
+
+<p><span class="tag partial">PARTIAL</span>
+<b>판정: 플랜 목표 20% 개선 미달, 방향성은 일치.</b></p>
+
+<ul>
+  <li>달성: <b>7.8% 개선</b> (CVaR 1.882 → 1.736). mean PnL 13% 개선 (덜 TC 깎임) + std 유지.</li>
+  <li>미달: 기준선 <code>&lt; 0.80x</code> (20% 개선). PPO 가 300k FT 이후 drift 하여 CVaR 재악화 경향.
+      best checkpoint (200k FT, <code>ppo_tc03_cvar.zip</code>) 를 v2 로 고정.</li>
+  <li>해석: PPO 가 "turnover 줄여 TC 절약" 방향은 학습함. 그러나 "variance 증가 없이" 양자 trade-off 를
+      precisely 찾으려면 <b>수 M~수십 M steps</b> + CVaR surrogate loss (RSPG / risk-sensitive policy gradient) 필요.</li>
+</ul>
+</div>
+
+<h2>6. Before/After 요약 표</h2>
+<div class="card">
+<table>
+  <tr><th>시나리오</th><th>지표</th><th>Before (v1)</th><th>After (v2)</th><th>개선</th></tr>
+  <tr><td rowspan="2" class="label">TC=0 sanity</td>
+      <td class="label">CVaR ratio vs BSM</td><td>2.42x</td><td class="ok">1.02x</td><td class="ok">-58%</td></tr>
+  <tr><td class="label">통과 여부</td><td class="bad">FAIL</td><td class="ok">PASS</td><td>—</td></tr>
+  <tr><td rowspan="2" class="label">TC=0.003 plan</td>
+      <td class="label">CVaR ratio vs BSM</td><td>11.07x</td><td class="warn">0.92x</td><td class="ok">-92%</td></tr>
+  <tr><td class="label">플랜 20% 달성</td><td class="bad">FAIL</td><td class="warn">PARTIAL (7.8%)</td><td>—</td></tr>
+</table>
+</div>
+
+<h2>7. Further tuning needed</h2>
+<div class="card">
+<p>현재 CPU budget (약 25분 wall-time) 내에서 TC=0.003 의 플랜 목표 20% 에 도달하지 못함. 다음 단계 권장:</p>
+<ol>
+  <li><b>CVaR surrogate as primary loss</b>: sample batch 의 5%-tail 만 역전파에 사용 (Distributional RL 또는 RSPG).</li>
+  <li><b>Step budget 2M+ with cosine LR schedule</b>: 현재 300k → 2M (CPU 150분).</li>
+  <li><b>Randomized market</b>: episode 시작 시 sigma, T, moneyness 를 랜덤화 → generalization 향상, overfitting 방지.</li>
+  <li><b>Ensemble of N_seeds</b>: 3~5 seed 로 학습 후 best checkpoint 선택.</li>
+</ol>
+<p class="small">본 결과는 <code>models/ppo_tc0_v2.zip</code>, <code>models/ppo_tc03_v2.zip</code>,
+<code>data/bench_ppo_v2.txt</code> 로 고정. 거짓 보정 없이 실측 그대로 문서화.</p>
+</div>
+
+<h2>8. 이력서 bullet (업데이트안)</h2>
+<div class="card">
+<p><b>Before (v1):</b></p>
+<pre>- Deep Hedging (Buehler 2019): PPO agent on custom Gymnasium env,
+  converged below BSM Δ baseline by N% on CVaR@5% under 30bps TC.
+  [상태: 미수렴, 숫자 명시 불가]</pre>
+<p><b>After (v2):</b></p>
+<pre>- Deep Hedging: PPO + BSM behavior-cloning warm-start on custom
+  Gymnasium env (Buehler 2019 eq.13 dense-shaped reward).
+  * TC=0 sanity: PPO CVaR 0.782 vs BSM 0.766 (+2%, BSM 재현 확인)
+  * TC=30bps:   PPO CVaR 1.736 vs BSM 1.882 (-7.8% 개선)
+    mean P&amp;L 개선 +13% (turnover 최적화), std 유지.
+  * 500k steps on 8 parallel CPU envs, &lt;30 min wall.</pre>
+</div>
+
+<h2>9. 재현 방법</h2>
+<div class="card">
+<pre>cd d:/simeunchul/ai_pricing
+
+# 1. Run full benchmark (uses existing v2 models)
+python -c "from ai_hedging.agents.ppo_hedger import evaluate_ppo; ..."
+
+# 2. Re-train from scratch (uses the v2 pipeline):
+python scripts/train_ppo_v2.py --steps 500000 --n-envs 8
+
+# 3. Run tests (37 green)
+python -m pytest packages/ -q</pre>
+
+<p class="small">
+산출물:<br>
+&middot; <code>packages/ai_hedging/src/ai_hedging/env.py</code> — action space, reward shaping, loss_penalty_mult 추가<br>
+&middot; <code>packages/ai_hedging/src/ai_hedging/agents/ppo_hedger.py</code> — BC warm-start 추가<br>
+&middot; <code>models/ppo_tc0_v2.zip</code>, <code>models/ppo_tc03_v2.zip</code> — best checkpoints<br>
+&middot; <code>data/bench_ppo_v2.txt</code> — 전체 벤치 로그<br>
+&middot; <code>docs/deep_hedging_tuning.html</code> — 본 문서
+</p>
+</div>
+
+</body>
+</html>

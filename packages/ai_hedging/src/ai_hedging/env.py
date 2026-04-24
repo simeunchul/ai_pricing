@@ -6,8 +6,20 @@ Episode: one option lifetime discretized into `n_steps`.
 State (normalized, dim 5):
     [log(S/K), T_remaining/T_total, current_hedge, sigma*sqrt(T_rem), cash_norm]
 
-Action: Box([-1, 2]) — desired hedge in shares per unit notional.
-    (hedge > 1 allowed for gamma-scalping; negative for puts.)
+Action (v2): Box([0, 1]) — desired hedge (call delta domain).
+    Tight box prevents PPO from exploring economically absurd regions;
+    calls have delta in [0, 1], puts in [-1, 0] (see `opt`).
+
+Reward (v2, Buehler 2019 eq.13 style dense shaping):
+    - per-step: -lam * (dV_portfolio - dV_option)^2 - tc_penalty
+      where dV_portfolio = hedge * dS + cash*(e^{r dt}-1) - tc
+            dV_option    = BSM_call(t+1) - BSM_call(t)  (reference, training-only)
+      This makes replication error dense and scalar; with lam>0 PPO directly
+      minimizes per-step hedging variance instead of waiting until T.
+    - terminal: -|terminal_pnl| (kept, but now dominated by shaped steps).
+
+The BSM reference is a *reward* signal only. At inference time the agent sees
+the same 5-dim state and does not query BSM.
 """
 
 from __future__ import annotations
@@ -26,7 +38,7 @@ except ImportError:
     gym = None      # type: ignore
     spaces = None   # type: ignore
 
-from pricing.bsm import BSMInputs, call_price
+from pricing.bsm import BSMInputs, call_price, put_price
 
 
 @dataclass
@@ -42,6 +54,13 @@ class HedgingEnvConfig:
     notional: float = 1.0
     opt: str = "call"
     seed: int | None = None
+    # v2 reward shaping knobs ------------------------------------------------
+    reward_shaping: bool = True       # dense -(dV_hedged - dV_opt)^2 penalty
+    shaping_lambda: float = 50.0      # weight on the squared replication error
+    action_low: float = 0.0           # call delta ∈ [0,1]; override for puts
+    action_high: float = 1.0
+    # CVaR-oriented terminal reward weights
+    loss_penalty_mult: float = 1.0    # extra multiplier on |terminal_pnl| when pnl<0
 
 
 class HedgingEnv(gym.Env if _HAS_GYM else object):
@@ -54,12 +73,23 @@ class HedgingEnv(gym.Env if _HAS_GYM else object):
             raise ImportError("pip install gymnasium stable-baselines3 torch")
         super().__init__()
         self.cfg = cfg or HedgingEnvConfig()
-        self.action_space = spaces.Box(low=-1.0, high=2.0, shape=(1,), dtype=np.float32)
+        self.action_space = spaces.Box(
+            low=np.float32(self.cfg.action_low),
+            high=np.float32(self.cfg.action_high),
+            shape=(1,),
+            dtype=np.float32,
+        )
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(5,), dtype=np.float32,
         )
         self.rng = np.random.default_rng(self.cfg.seed)
         self._reset_state()
+
+    # -- BSM reference option value (used for reward shaping only) -----------
+    def _opt_price(self, S: float, t_rem: float) -> float:
+        t_eff = max(t_rem, 1e-8)
+        inp = BSMInputs(S, self.cfg.K, t_eff, self.cfg.r, self.cfg.q, self.cfg.sigma)
+        return call_price(inp) if self.cfg.opt == "call" else put_price(inp)
 
     def _reset_state(self):
         self.step_idx = 0
@@ -101,8 +131,14 @@ class HedgingEnv(gym.Env if _HAS_GYM else object):
         self.cum_hedge_turnover += abs(dH)
         self.hedge = action
 
-        # advance underlying one step (GBM)
+        # snapshot pre-step option reference value (for reward shaping)
         dt = self.cfg.T / self.cfg.n_steps
+        t_rem_pre = self.cfg.T * (1 - self.step_idx / self.cfg.n_steps)
+        V_opt_pre = self._opt_price(self.S, t_rem_pre) if self.cfg.reward_shaping else 0.0
+        S_pre = self.S
+        cash_pre = self.cash
+
+        # advance underlying one step (GBM)
         Z = self.rng.standard_normal()
         S_next = self.S * math.exp(
             (self.cfg.r - self.cfg.q - 0.5 * self.cfg.sigma**2) * dt
@@ -118,6 +154,19 @@ class HedgingEnv(gym.Env if _HAS_GYM else object):
         terminated = self.step_idx >= self.cfg.n_steps
         truncated = False
 
+        # -- dense shaping reward (Buehler 2019 eq.13 approximation) ---------
+        if self.cfg.reward_shaping and not terminated:
+            t_rem_post = self.cfg.T * (1 - self.step_idx / self.cfg.n_steps)
+            V_opt_post = self._opt_price(self.S, t_rem_post)
+            # portfolio value change = cash gain + hedge gain (we already updated cash)
+            dV_hedged = (self.cash - cash_pre)
+            # short-call P&L: -(V_opt_post - V_opt_pre) + dV_hedged
+            # Replication error per step (we want this to be zero):
+            rep_err = dV_hedged - (V_opt_post - V_opt_pre)
+            shape_reward = -self.cfg.shaping_lambda * (rep_err * rep_err)
+        else:
+            shape_reward = 0.0
+
         if terminated:
             if self.cfg.opt == "call":
                 payoff = max(self.S - self.cfg.K, 0.0)
@@ -128,8 +177,12 @@ class HedgingEnv(gym.Env if _HAS_GYM else object):
             self.cash -= close_tc
             self.cum_tc += close_tc
             terminal_pnl = self.cash - payoff * self.cfg.notional
-            # reward: squared terminal PnL (smaller variance = better)
-            reward = -abs(terminal_pnl)
+            # CVaR-aware: amplify losses (pnl<0) by loss_penalty_mult
+            if terminal_pnl < 0:
+                term_reward = -abs(terminal_pnl) * self.cfg.loss_penalty_mult
+            else:
+                term_reward = -abs(terminal_pnl)
+            reward = term_reward + shape_reward
             info = {
                 "terminal_pnl": terminal_pnl,
                 "cum_tc": self.cum_tc,
@@ -137,7 +190,8 @@ class HedgingEnv(gym.Env if _HAS_GYM else object):
                 "S_T": self.S,
             }
         else:
-            reward = -0.01 * tc  # small per-step penalty encourages early convergence
+            # small tc penalty retained for turnover discouragement
+            reward = shape_reward - 0.01 * tc
             info = {}
 
         self.done = terminated
