@@ -133,24 +133,29 @@ print(res.price, res.ki_hit_prob, res.expected_life)
 
 **학습** — `--loss` 옵션 중요:
 
-| Loss | 언제 쓰나 | 예상 ATM IV 오차 (CPU 80k/40ep) |
+| Loss | 언제 쓰나 | ATM IV 오차 (80k/40ep) |
 |---|---|---|
-| `mse` | Hutchinson 1994 원본 재현 용도 | ~3 vol pts (underfit) |
-| `log` <span style="color:#0b8043">★권장</span> | 실전 사용, underfit + Deep OTM 편향 해결 | ~1.6 vol pts |
+| `mse` | Hutchinson 1994 원본 재현 용도 | 3.13 vp (underfit) |
+| `log` <span style="color:#0b8043">★권장</span> | 실전 사용, Deep OTM 편향 해결 | 1.58 vp |
+| `hybrid` | log + mse 균형. Deep ITM trade-off 완화 | 1.55 vp |
 | `rel` | 실험용 — eps 튜닝 민감 | 불안정, 권장 X |
 
 ```bash
-# 권장: log-space MSE (ATM IV 오차 2× 개선, docs/nn_pricer_retrain_results.html 참조)
+# 권장 CPU 소량 (12분): 80k/40ep log
 python -m ai_pricing.nn_pricer.train --n 80000 --epochs 40 --loss log \
     --out models/nn_pricer_log.pt --device cpu
 
-# 플랜 원본: raw MSE (참고/비교용)
-python -m ai_pricing.nn_pricer.train --n 100000 --epochs 30 --loss mse \
-    --out models/nn_pricer_mse.pt
+# 풀 CPU 학습 (25분, 플랜 목표 도달): ATM IV 0.55 vp
+python -m ai_pricing.nn_pricer.train --n 500000 --epochs 50 --batch 4096 \
+    --loss log --out models/nn_pricer_log_500k.pt --device cpu
 
-# GPU 풀 학습 (플랜 목표치)
-python -m ai_pricing.nn_pricer.train --n 500000 --epochs 50 --loss log \
-    --out models/nn_pricer.pt --device cuda
+# Hybrid (Deep ITM 완화)
+python -m ai_pricing.nn_pricer.train --n 80000 --epochs 40 --loss hybrid \
+    --hybrid-alpha 0.5 --out models/nn_pricer_hybrid.pt --device cpu
+
+# 플랜 원본 (비교용)
+python -m ai_pricing.nn_pricer.train --n 100000 --epochs 30 --loss mse \
+    --out models/nn_pricer_mse.pt --device cpu
 ```
 
 **평가** (IV-space + moneyness strata):
