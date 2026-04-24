@@ -1,0 +1,2 @@
+method,mean_err,max_err,mean_rel_err,p95_rel_err,inference_ms
+BSM-closed-form,0.0,0.0,0.0,0.0,0.0504250000230968

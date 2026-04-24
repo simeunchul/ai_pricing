@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e packages/pricing
+          pip install -e packages/ai_pricing
+          pip install -e packages/ai_hedging
+          pip install -e packages/experiments
+          pip install -e packages/autotrader
+          pip install ruff mypy pytest pytest-cov
+
+      - name: Ruff
+        run: ruff check packages/
+
+      - name: Mypy (pricing only)
+        run: mypy packages/pricing/src --ignore-missing-imports || true
+
+      - name: Pytest
+        run: pytest packages/pricing packages/experiments -v

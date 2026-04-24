@@ -1,0 +1,15 @@
+[build-system]
+requires = ["scikit-build-core>=0.8", "pybind11>=2.12"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "fastmc"
+version = "0.1.0"
+description = "Layer E — C++ MC kernel (pybind11 + OpenMP)"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24"]
+
+[tool.scikit-build]
+cmake.version = ">=3.18"
+wheel.packages = ["python/fastmc"]
+cmake.build-type = "Release"

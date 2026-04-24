@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai_pricing"
+version = "0.1.0"
+description = "Layer B1/B2/B3 — NN Pricer, Deep Calibration, News/LLM IV"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pricing",
+]
+
+[project.optional-dependencies]
+torch = ["torch>=2.0"]
+news = [
+    "requests>=2.31",
+    "feedparser>=6.0",
+    "beautifulsoup4>=4.12",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
