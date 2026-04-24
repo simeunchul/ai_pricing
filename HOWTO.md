@@ -131,14 +131,34 @@ print(res.price, res.ki_hit_prob, res.expected_life)
 
 **목적**: `(S, K, T, r, q, σ) → Price` 매핑을 MLP 로 근사. Exotic/ELS 의 MC 비용(초 단위) 을 추론(ms) 로 낮춤.
 
-**학습**:
-```bash
-# CPU 소량 학습 (5~10분)
-python -m ai_pricing.nn_pricer.train --n 50000 --epochs 20 --out models/nn_pricer.pt
+**학습** — `--loss` 옵션 중요:
 
-# GPU 풀 학습 (플랜 기준)
-python -m ai_pricing.nn_pricer.train --n 500000 --epochs 50 --out models/nn_pricer.pt
+| Loss | 언제 쓰나 | 예상 ATM IV 오차 (CPU 80k/40ep) |
+|---|---|---|
+| `mse` | Hutchinson 1994 원본 재현 용도 | ~3 vol pts (underfit) |
+| `log` <span style="color:#0b8043">★권장</span> | 실전 사용, underfit + Deep OTM 편향 해결 | ~1.6 vol pts |
+| `rel` | 실험용 — eps 튜닝 민감 | 불안정, 권장 X |
+
+```bash
+# 권장: log-space MSE (ATM IV 오차 2× 개선, docs/nn_pricer_retrain_results.html 참조)
+python -m ai_pricing.nn_pricer.train --n 80000 --epochs 40 --loss log \
+    --out models/nn_pricer_log.pt --device cpu
+
+# 플랜 원본: raw MSE (참고/비교용)
+python -m ai_pricing.nn_pricer.train --n 100000 --epochs 30 --loss mse \
+    --out models/nn_pricer_mse.pt
+
+# GPU 풀 학습 (플랜 목표치)
+python -m ai_pricing.nn_pricer.train --n 500000 --epochs 50 --loss log \
+    --out models/nn_pricer.pt --device cuda
 ```
+
+**평가** (IV-space + moneyness strata):
+```bash
+python scripts/bench_nn_pricer.py --model models/nn_pricer_log.pt --n 5000 --label "log-MSE"
+```
+
+평가 이론 배경 및 비교 결과: [docs/nn_pricer_underfit_analysis.html](docs/nn_pricer_underfit_analysis.html), [docs/nn_pricer_retrain_results.html](docs/nn_pricer_retrain_results.html).
 
 **추론**:
 ```python

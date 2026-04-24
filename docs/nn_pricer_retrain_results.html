@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NN Pricer 재학습 결과 · Before/After · quant-lab</title>
+<style>
+  :root {
+    --fg: #1a1a1a; --bg: #fafafa; --muted: #666;
+    --accent: #2c5aa0; --accent-light: #e6eef7;
+    --warn: #c0392b; --warn-light: #fdeae6;
+    --ok: #0b8043; --ok-light: #e6f3ea;
+    --border: #ddd; --code-bg: #f4f4f4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR",
+                 "Apple SD Gothic Neo", Roboto, sans-serif;
+    color: var(--fg); background: var(--bg); line-height: 1.65;
+    max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px;
+  }
+  h1 { font-size: 28px; border-bottom: 3px solid var(--accent); padding-bottom: 8px; }
+  h2 { font-size: 22px; margin-top: 44px; color: var(--accent);
+       border-left: 4px solid var(--accent); padding-left: 12px; }
+  h3 { font-size: 17px; margin-top: 26px; }
+  code {
+    background: var(--code-bg); padding: 2px 6px; border-radius: 3px;
+    font-family: ui-monospace, Consolas, monospace; font-size: 13px;
+  }
+  pre {
+    background: var(--code-bg); padding: 14px 16px; border-radius: 6px;
+    overflow-x: auto; font-size: 13px; border-left: 3px solid var(--accent);
+  }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { padding: 10px 12px; text-align: left; border: 1px solid var(--border); }
+  th { background: var(--accent-light); font-weight: 600; }
+  tbody tr:nth-child(even) { background: #f7f7f7; }
+  .num { font-family: ui-monospace, Consolas, monospace; }
+  .good { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--warn); font-weight: 600; }
+  .neutral { color: var(--muted); }
+  .callout { border-left: 4px solid; padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .callout-warn { border-color: var(--warn); background: var(--warn-light); }
+  .callout-ok { border-color: var(--ok); background: var(--ok-light); }
+  .callout-info { border-color: var(--accent); background: var(--accent-light); }
+  figure { margin: 16px 0; text-align: center; }
+  figcaption { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 3px;
+    font-size: 12px; font-weight: 600;
+  }
+  .badge-before { background: var(--warn-light); color: var(--warn); }
+  .badge-after { background: var(--ok-light); color: var(--ok); }
+  .meta { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h1>NN Pricer 재학습 결과 · Before/After</h1>
+<p class="meta">
+  2026-04-24 · 해결 방안 실제 적용 (from
+  <a href="nn_pricer_underfit_analysis.html">nn_pricer_underfit_analysis.html</a>) ·
+  CPU-only, 동일 환경 (n=80k samples, 40 epochs, seed=42)
+</p>
+
+<div class="callout callout-ok">
+  <strong>결론</strong> — Loss function 을 <code>MSE</code> → <code>log-space MSE</code> 로 교체.
+  <strong>ATM IV 오차 2× 개선, ATM 1년물 콜 오차 10.7% → 2.9% (3.7×)</strong>.
+  데이터·에폭·모델 크기 그대로, Loss 1줄 변경만으로.
+</div>
+
+<!-- =================================================== -->
+<h2>1. 실험 설정</h2>
+
+<table>
+  <thead>
+    <tr><th></th><th>Before <span class="badge badge-before">MSE</span></th><th>After <span class="badge badge-after">log-MSE</span></th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Loss function</td>
+        <td class="num">(pred − y)²</td>
+        <td class="num">(log(pred+ε) − log(y+ε))²</td></tr>
+    <tr><td>Samples</td><td class="num">80,000</td><td class="num">80,000</td></tr>
+    <tr><td>Epochs</td><td class="num">40</td><td class="num">40</td></tr>
+    <tr><td>Batch</td><td class="num">2048</td><td class="num">2048</td></tr>
+    <tr><td>Learning rate</td><td class="num">1e-3 (cosine)</td><td class="num">1e-3 (cosine)</td></tr>
+    <tr><td>Model</td><td class="num">[5→128→128→64→1]</td><td class="num">[5→128→128→64→1]</td></tr>
+    <tr><td>Device</td><td>CPU</td><td>CPU</td></tr>
+    <tr><td>Model file</td><td><code>models/nn_pricer_mse.pt</code></td><td><code>models/nn_pricer_log.pt</code></td></tr>
+  </tbody>
+</table>
+
+<pre><code># 재현 커맨드
+# Before (Hutchinson 1994 원본 방식)
+python -m ai_pricing.nn_pricer.train --n 80000 --epochs 40 --loss mse \
+    --out models/nn_pricer_mse.pt --device cpu
+
+# After (Liu-Oosterlee-Bohte 2019 스타일)
+python -m ai_pricing.nn_pricer.train --n 80000 --epochs 40 --loss log \
+    --out models/nn_pricer_log.pt --device cpu
+
+# 비교 평가 (bench 스크립트, IV-space + strata)
+python scripts/bench_nn_pricer.py --model models/nn_pricer_mse.pt --label "BEFORE"
+python scripts/bench_nn_pricer.py --model models/nn_pricer_log.pt --label "AFTER"</code></pre>
+
+<!-- =================================================== -->
+<h2>2. 핵심 지표 비교</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>지표</th>
+      <th>Before <span class="badge badge-before">MSE</span></th>
+      <th>After <span class="badge badge-after">log-MSE</span></th>
+      <th>개선율</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>ATM point (S=K=100, T=1, σ=20%)</strong></td>
+      <td class="num bad">10.68%</td>
+      <td class="num good">2.88%</td>
+      <td class="good">3.7×</td>
+    </tr>
+    <tr>
+      <td>Intrinsic-filtered mean rel err</td>
+      <td class="num bad">5.54%</td>
+      <td class="num good">2.68%</td>
+      <td class="good">2.1×</td>
+    </tr>
+    <tr>
+      <td>Intrinsic-filtered p95 rel err</td>
+      <td class="num bad">20.50%</td>
+      <td class="num good">7.72%</td>
+      <td class="good">2.7×</td>
+    </tr>
+    <tr>
+      <td><strong>IV-space mean |Δσ|</strong></td>
+      <td class="num bad">2.535 vp</td>
+      <td class="num good">1.648 vp</td>
+      <td class="good">1.5×</td>
+    </tr>
+    <tr>
+      <td>IV-space p95 |Δσ|</td>
+      <td class="num bad">6.535 vp</td>
+      <td class="num good">4.793 vp</td>
+      <td class="good">1.4×</td>
+    </tr>
+    <tr>
+      <td>IV-space max |Δσ|</td>
+      <td class="num bad">87.99 vp</td>
+      <td class="num good">33.67 vp</td>
+      <td class="good">2.6×</td>
+    </tr>
+    <tr>
+      <td>CPU inference speedup vs BSM loop</td>
+      <td class="num">25.9×</td>
+      <td class="num">28.8×</td>
+      <td class="neutral">—</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- =================================================== -->
+<h2>3. Moneyness 구간별 IV 오차 (vol points)</h2>
+
+<figure>
+  <svg viewBox="0 0 760 310" xmlns="http://www.w3.org/2000/svg" width="100%" height="auto"
+       style="background:#fff;border:1px solid var(--border);border-radius:4px">
+
+    <!-- Title -->
+    <text x="380" y="22" font-size="14" text-anchor="middle" fill="#333" font-weight="600">
+      Mean |Δσ| per moneyness bucket  (lower = better)
+    </text>
+
+    <!-- Y axis -->
+    <line x1="80" y1="50" x2="80" y2="240" stroke="#333"/>
+    <line x1="80" y1="240" x2="720" y2="240" stroke="#333"/>
+
+    <!-- Y ticks: 0, 1, 2, 3, 4 vp -->
+    <g font-family="monospace" font-size="11" fill="#666">
+      <text x="50" y="244" text-anchor="end">0</text>
+      <line x1="78" y1="240" x2="82" y2="240" stroke="#333"/>
+      <text x="50" y="194" text-anchor="end">1.0 vp</text>
+      <line x1="78" y1="190" x2="82" y2="190" stroke="#333"/>
+      <text x="50" y="144" text-anchor="end">2.0 vp</text>
+      <line x1="78" y1="140" x2="82" y2="140" stroke="#333"/>
+      <text x="50" y="94" text-anchor="end">3.0 vp</text>
+      <line x1="78" y1="90" x2="82" y2="90" stroke="#333"/>
+      <text x="50" y="54" text-anchor="end">4.0 vp</text>
+    </g>
+
+    <!-- Gridlines -->
+    <g stroke="#eee">
+      <line x1="80" y1="190" x2="720" y2="190"/>
+      <line x1="80" y1="140" x2="720" y2="140"/>
+      <line x1="80" y1="90" x2="720" y2="90"/>
+    </g>
+
+    <!-- Bars: Before (red) / After (green) per bucket -->
+    <!-- Y = 240 - vp*50 -->
+    <!-- Deep OTM: 3.096 / 1.095 -->
+    <g>
+      <rect x="110" y="85" width="40" height="155" fill="#c0392b"/>
+      <rect x="152" y="185" width="40" height="55" fill="#27ae60"/>
+      <text x="171" y="256" text-anchor="middle" font-size="11">Deep OTM</text>
+      <text x="171" y="270" text-anchor="middle" font-size="10" fill="#666">n=896</text>
+      <text x="130" y="80" text-anchor="middle" font-size="10" fill="#c0392b">3.10</text>
+      <text x="172" y="180" text-anchor="middle" font-size="10" fill="#27ae60">1.10</text>
+    </g>
+
+    <!-- OTM: 2.127 / 1.037 -->
+    <g>
+      <rect x="230" y="134" width="40" height="106" fill="#c0392b"/>
+      <rect x="272" y="188" width="40" height="52" fill="#27ae60"/>
+      <text x="291" y="256" text-anchor="middle" font-size="11">OTM</text>
+      <text x="291" y="270" text-anchor="middle" font-size="10" fill="#666">n=342</text>
+      <text x="250" y="129" text-anchor="middle" font-size="10" fill="#c0392b">2.13</text>
+      <text x="292" y="183" text-anchor="middle" font-size="10" fill="#27ae60">1.04</text>
+    </g>
+
+    <!-- ATM: 3.134 / 1.580 (핵심 구간) -->
+    <g>
+      <rect x="350" y="83" width="40" height="157" fill="#c0392b"/>
+      <rect x="392" y="161" width="40" height="79" fill="#27ae60"/>
+      <text x="411" y="256" text-anchor="middle" font-size="11" font-weight="700" fill="#2c5aa0">ATM</text>
+      <text x="411" y="270" text-anchor="middle" font-size="10" fill="#666">n=267</text>
+      <text x="370" y="78" text-anchor="middle" font-size="10" fill="#c0392b">3.13</text>
+      <text x="412" y="156" text-anchor="middle" font-size="10" fill="#27ae60">1.58</text>
+    </g>
+
+    <!-- ITM: 2.127 / 1.746 -->
+    <g>
+      <rect x="470" y="134" width="40" height="106" fill="#c0392b"/>
+      <rect x="512" y="153" width="40" height="87" fill="#27ae60"/>
+      <text x="531" y="256" text-anchor="middle" font-size="11">ITM</text>
+      <text x="531" y="270" text-anchor="middle" font-size="10" fill="#666">n=252</text>
+      <text x="490" y="129" text-anchor="middle" font-size="10" fill="#c0392b">2.13</text>
+      <text x="532" y="148" text-anchor="middle" font-size="10" fill="#27ae60">1.75</text>
+    </g>
+
+    <!-- Deep ITM: 2.024 / 2.496 -->
+    <g>
+      <rect x="590" y="139" width="40" height="101" fill="#c0392b"/>
+      <rect x="632" y="115" width="40" height="125" fill="#27ae60" fill-opacity="0.6"/>
+      <text x="651" y="256" text-anchor="middle" font-size="11">Deep ITM</text>
+      <text x="651" y="270" text-anchor="middle" font-size="10" fill="#666">n=822</text>
+      <text x="610" y="134" text-anchor="middle" font-size="10" fill="#c0392b">2.02</text>
+      <text x="652" y="110" text-anchor="middle" font-size="10" fill="#27ae60">2.50</text>
+    </g>
+
+    <!-- Legend -->
+    <g transform="translate(580,38)">
+      <rect x="0" y="0" width="16" height="10" fill="#c0392b"/>
+      <text x="20" y="9" font-size="11">Before (MSE)</text>
+      <rect x="0" y="15" width="16" height="10" fill="#27ae60"/>
+      <text x="20" y="24" font-size="11">After (log-MSE)</text>
+    </g>
+
+    <!-- Key annotation on ATM -->
+    <path d="M 411,82 Q 450,50 480,45" fill="none" stroke="#2c5aa0" stroke-width="1.3" stroke-dasharray="3,3"/>
+    <text x="480" y="42" font-size="11" fill="#2c5aa0" font-weight="600">
+      핵심 구간: 2× 개선
+    </text>
+
+    <text x="380" y="296" text-anchor="middle" font-size="11" fill="#666">
+      Deep OTM 영역 3.1 → 1.1 vp 의 대폭 개선이 "838% 가짜 수치" 해결의 실체
+    </text>
+  </svg>
+  <figcaption>5개 moneyness bucket 중 4개에서 명확히 개선. Deep ITM 만 소폭 저하 (trade-off 수용 가능)</figcaption>
+</figure>
+
+<h3>수치 표</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Bucket</th><th>Range</th><th>n</th>
+      <th>Before mean<br><span class="badge badge-before">MSE</span></th>
+      <th>After mean<br><span class="badge badge-after">log-MSE</span></th>
+      <th>Before p95</th><th>After p95</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>Deep OTM</td><td class="num">S/K &lt; 0.90</td><td>896</td>
+        <td class="num bad">3.096 vp</td><td class="num good">1.095 vp</td>
+        <td class="num">7.05 vp</td><td class="num good">3.20 vp</td></tr>
+    <tr><td>OTM</td><td class="num">0.90 ~ 0.97</td><td>342</td>
+        <td class="num bad">2.127 vp</td><td class="num good">1.037 vp</td>
+        <td class="num">5.63 vp</td><td class="num good">3.25 vp</td></tr>
+    <tr><td><strong>ATM</strong></td><td class="num">0.97 ~ 1.03</td><td>267</td>
+        <td class="num bad">3.134 vp</td><td class="num good">1.580 vp</td>
+        <td class="num">8.98 vp</td><td class="num good">4.20 vp</td></tr>
+    <tr><td>ITM</td><td class="num">1.03 ~ 1.10</td><td>252</td>
+        <td class="num">2.127 vp</td><td class="num good">1.746 vp</td>
+        <td class="num">5.35 vp</td><td class="num">5.36 vp</td></tr>
+    <tr><td>Deep ITM</td><td class="num">S/K &gt; 1.10</td><td>822</td>
+        <td class="num good">2.024 vp</td><td class="num bad">2.496 vp</td>
+        <td class="num">5.25 vp</td><td class="num bad">6.45 vp</td></tr>
+  </tbody>
+</table>
+
+<div class="callout callout-warn">
+  <strong>Deep ITM 역효과</strong> — log-MSE 는 deep ITM 에서 약간 악화 (2.02 → 2.50 vp).
+  이유: deep ITM 가격은 크기 때문에 log-space 에서 상대적 중요도가 낮아짐.
+  실무에서는 deep ITM 은 intrinsic 이 대부분이라 NN 이 아니어도 근사 쉬움 → 수용 가능.
+</div>
+
+<!-- =================================================== -->
+<h2>4. 학습 곡선 비교</h2>
+
+<figure>
+  <svg viewBox="0 0 760 280" xmlns="http://www.w3.org/2000/svg" width="100%" height="auto"
+       style="background:#fff;border:1px solid var(--border);border-radius:4px">
+    <line x1="60" y1="30" x2="60" y2="240" stroke="#333"/>
+    <line x1="60" y1="240" x2="740" y2="240" stroke="#333"/>
+
+    <g font-family="monospace" font-size="11" fill="#666">
+      <text x="15" y="34">1e-1</text>  <line x1="58" y1="30" x2="62" y2="30" stroke="#333"/>
+      <text x="15" y="104">1e-2</text> <line x1="58" y1="100" x2="62" y2="100" stroke="#333"/>
+      <text x="15" y="174">1e-3</text> <line x1="58" y1="170" x2="62" y2="170" stroke="#333"/>
+      <text x="15" y="244">1e-4</text>
+      <text x="400" y="264" font-size="12" fill="#333" text-anchor="middle">epoch</text>
+      <text x="25" y="135" font-size="12" fill="#333" transform="rotate(-90 25 135)">val_mse (log scale)</text>
+    </g>
+
+    <g font-family="monospace" font-size="11" fill="#666" text-anchor="middle">
+      <text x="60" y="258">0</text>
+      <text x="230" y="258">10</text>
+      <text x="400" y="258">20</text>
+      <text x="570" y="258">30</text>
+      <text x="740" y="258">40</text>
+    </g>
+
+    <g stroke="#eee">
+      <line x1="60" y1="100" x2="740" y2="100"/>
+      <line x1="60" y1="170" x2="740" y2="170"/>
+    </g>
+
+    <!-- Before MSE: val_mse log10 from  -1.77 (0.0168) to -3.66 (2.2e-4) -->
+    <!-- Plot each epoch: y = 30 + (log10(1e-1/val))*70 (since -1 → 30, -2 → 100, -3 → 170, -4 → 240) -->
+    <!-- Approx: val_mse 1.68e-2, 3.75e-3, 2.13e-3, 1.94e-3, 1.83e-3, 1.72e-3, 1.61e-3, 1.51e-3, 1.40e-3, 1.29e-3,
+         1.17e-3, 1.06e-3, 9.39e-4, 8.27e-4, 7.23e-4, 6.29e-4, 5.53e-4, 4.88e-4, 4.37e-4, 3.95e-4,
+         3.63e-4, 3.35e-4, 3.14e-4, 2.95e-4, 2.81e-4, 2.69e-4, 2.59e-4, 2.50e-4, 2.43e-4, 2.37e-4,
+         2.33e-4, 2.30e-4, 2.26e-4, 2.25e-4, 2.23e-4, 2.22e-4, 2.21e-4, 2.21e-4, 2.20e-4, 2.20e-4
+    -->
+    <polyline fill="none" stroke="#c0392b" stroke-width="2"
+              points="77,56 94,142 111,167 128,174 145,179 162,184 179,189 196,193 213,199 230,205 247,210 264,216 281,223 298,229 315,235 332,241 349,247 366,252 383,255 400,259 417,262 434,266 451,269 468,272 485,274 502,276 519,278 536,280 553,281 570,282 587,283 604,283 621,284 638,284 655,284 672,285 689,285 706,285 723,285 740,285"
+              transform="translate(0,-30)"/>
+
+    <!-- After log: val_mse 1.63e-2, 3.23e-2, 9.58e-3, 6.10e-3, 3.47e-3, 1.81e-3, 8.82e-4, 6.57e-4, 5.77e-4, 6.13e-4,
+         6.05e-4, 5.83e-4, 5.47e-4, 5.17e-4, 5.15e-4, 4.59e-4, 4.66e-4, 4.29e-4, 4.32e-4, 4.05e-4,
+         4.04e-4, 4.12e-4, 3.73e-4, 3.69e-4, 3.42e-4, 3.47e-4, 3.51e-4, 3.28e-4, 3.31e-4, 3.26e-4,
+         3.13e-4, 3.14e-4, 3.12e-4, 3.07e-4, 3.06e-4, 3.04e-4, 3.02e-4, 3.02e-4, 3.02e-4, 3.02e-4
+    -->
+    <polyline fill="none" stroke="#27ae60" stroke-width="2"
+              points="77,59 94,30 111,73 128,91 145,115 162,141 179,171 196,181 213,185 230,183 247,184 264,185 281,187 298,189 315,189 332,194 349,193 366,196 383,195 400,198 417,198 434,197 451,202 468,203 485,207 502,206 519,205 536,210 553,209 570,210 587,213 604,213 621,213 638,215 655,215 672,216 689,216 706,216 723,216 740,216"
+              transform="translate(0,-30)"/>
+
+    <!-- Labels -->
+    <text x="700" y="215" font-size="11" fill="#c0392b" text-anchor="end" font-weight="600">Before (MSE)</text>
+    <text x="700" y="175" font-size="11" fill="#27ae60" text-anchor="end" font-weight="600">After (log-MSE)</text>
+
+    <!-- Note -->
+    <text x="400" y="275" font-size="11" fill="#666" text-anchor="middle">
+      After: 초반 MSE 는 더 느리지만 IV 공간에선 Before 보다 전 구간 균등하게 학습됨
+    </text>
+  </svg>
+  <figcaption>val_mse (raw MSE metric) 곡선. 최종값은 log-MSE (3.0e-4) 가 MSE (2.2e-4) 보다 약간 높지만, IV-space 에서는 반대로 좋음.</figcaption>
+</figure>
+
+<div class="callout callout-info">
+  <strong>왜 "MSE 보기엔 약간 나쁜데" IV-space 에선 더 좋은가?</strong><br>
+  raw MSE 는 ITM 에 치우친 지표. log-MSE 는 전 구간을 균등 학습해서 평균 MSE 는 살짝 손해지만
+  deep OTM·ATM 에서 크게 이득. 실무가 관심 있는 건 평균 MSE 가 아니라 IV 오차.
+</div>
+
+<!-- =================================================== -->
+<h2>5. 이력서용 bullet 초안</h2>
+
+<div class="callout callout-ok">
+  "Hutchinson-Lo-Poggio (1994) NN 옵션 프라이서 재현. <strong>log-space MSE loss</strong> 채택으로
+  Hutchinson 원본 대비 ATM IV 오차 <strong>2× 개선 (3.13 → 1.58 vol pts)</strong>,
+  ATM 1년물 call 오차 <strong>10.7% → 2.9%</strong>. 모델 크기 동일, 데이터 80k 로 CPU 12분 학습.
+  BSM closed-form 대비 추론 <strong>28.8× 가속</strong>."
+</div>
+
+<!-- =================================================== -->
+<h2>6. 다음 개선 여지</h2>
+
+<table>
+  <thead>
+    <tr><th>작업</th><th>예상 효과</th><th>비용</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>n=500k, 50ep (GPU)</td>
+      <td class="good">ATM IV 오차 &lt; 0.5 vp (플랜 목표치)</td>
+      <td>GPU 5분</td>
+    </tr>
+    <tr>
+      <td><s>Hybrid loss: <code>α·log + (1−α)·MSE</code></s> <span class="badge badge-after">DONE</span></td>
+      <td class="good">deep ITM 2.50 → 2.32 vp 완화. §7 참조.</td>
+      <td>완료</td>
+    </tr>
+    <tr>
+      <td>IV 공간 직접 학습 (price → vega-scaled)</td>
+      <td>이론적 최적</td>
+      <td>추가 약 2시간 구현</td>
+    </tr>
+    <tr>
+      <td>Residual connection 추가</td>
+      <td>깊은 망 학습 안정화</td>
+      <td>model.py 20줄 수정</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- =================================================== -->
+<h2 id="hybrid">7. 3-way 비교 (MSE vs log vs hybrid)</h2>
+
+<p>
+  동일 설정 (80k samples, 40 epochs, CPU, seed=42) 으로 3개 loss 모두 학습 후 IV-space 평가.
+  hybrid = <code>0.5 · log_mse + 0.5 · mse</code>.
+</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>지표</th>
+      <th>MSE <span class="badge badge-before">Before</span></th>
+      <th>log-MSE <span class="badge badge-after">v1</span></th>
+      <th>hybrid <span class="badge badge-after">v2</span></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Final val_mse</td>
+      <td class="num good">2.20e-4</td>
+      <td class="num">3.02e-4</td>
+      <td class="num good">2.69e-4</td>
+    </tr>
+    <tr>
+      <td>ATM point error</td>
+      <td class="num bad">10.68%</td>
+      <td class="num good">2.88%</td>
+      <td class="num">3.15%</td>
+    </tr>
+    <tr>
+      <td>Intrinsic-filter mean rel</td>
+      <td class="num">5.54%</td>
+      <td class="num">2.68%</td>
+      <td class="num good">2.64%</td>
+    </tr>
+    <tr>
+      <td>IV mean |Δσ|</td>
+      <td class="num bad">2.535 vp</td>
+      <td class="num">1.648 vp</td>
+      <td class="num good">1.588 vp</td>
+    </tr>
+    <tr>
+      <td>IV p95 |Δσ|</td>
+      <td class="num">6.535 vp</td>
+      <td class="num">4.793 vp</td>
+      <td class="num good">4.621 vp</td>
+    </tr>
+    <tr>
+      <td><strong>ATM bucket</strong> mean |Δσ|</td>
+      <td class="num bad">3.134 vp</td>
+      <td class="num good">1.580 vp</td>
+      <td class="num good">1.551 vp</td>
+    </tr>
+    <tr>
+      <td><strong>Deep ITM bucket</strong> mean |Δσ|</td>
+      <td class="num good">2.024 vp</td>
+      <td class="num bad">2.496 vp</td>
+      <td class="num">2.317 vp</td>
+    </tr>
+    <tr>
+      <td>Deep OTM bucket mean |Δσ|</td>
+      <td class="num bad">3.096 vp</td>
+      <td class="num good">1.095 vp</td>
+      <td class="num">1.129 vp</td>
+    </tr>
+  </tbody>
+</table>
+
+<figure>
+  <svg viewBox="0 0 760 280" xmlns="http://www.w3.org/2000/svg" width="100%" height="auto"
+       style="background:#fff;border:1px solid var(--border);border-radius:4px">
+    <text x="380" y="22" font-size="14" text-anchor="middle" fill="#333" font-weight="600">
+      Moneyness bucket: mean |Δσ| (3 losses)
+    </text>
+
+    <!-- axis -->
+    <line x1="80" y1="50" x2="80" y2="230" stroke="#333"/>
+    <line x1="80" y1="230" x2="720" y2="230" stroke="#333"/>
+    <g font-family="monospace" font-size="11" fill="#666">
+      <text x="50" y="234" text-anchor="end">0</text>
+      <text x="50" y="184" text-anchor="end">1.0 vp</text>
+      <line x1="78" y1="180" x2="82" y2="180" stroke="#333"/>
+      <text x="50" y="134" text-anchor="end">2.0 vp</text>
+      <line x1="78" y1="130" x2="82" y2="130" stroke="#333"/>
+      <text x="50" y="84" text-anchor="end">3.0 vp</text>
+      <line x1="78" y1="80" x2="82" y2="80" stroke="#333"/>
+    </g>
+    <g stroke="#eee">
+      <line x1="80" y1="180" x2="720" y2="180"/>
+      <line x1="80" y1="130" x2="720" y2="130"/>
+      <line x1="80" y1="80" x2="720" y2="80"/>
+    </g>
+
+    <!-- 5 buckets × 3 bars per bucket. Y = 230 - vp*50 -->
+    <!-- Deep OTM: 3.096 / 1.095 / 1.129 -->
+    <g>
+      <rect x="105" y="75" width="28" height="155" fill="#c0392b"/>
+      <rect x="134" y="175" width="28" height="55" fill="#27ae60"/>
+      <rect x="163" y="174" width="28" height="56" fill="#2c5aa0"/>
+      <text x="148" y="248" text-anchor="middle" font-size="11">Deep OTM</text>
+    </g>
+    <!-- OTM: 2.127 / 1.037 / 1.002 -->
+    <g>
+      <rect x="225" y="124" width="28" height="106" fill="#c0392b"/>
+      <rect x="254" y="178" width="28" height="52" fill="#27ae60"/>
+      <rect x="283" y="180" width="28" height="50" fill="#2c5aa0"/>
+      <text x="268" y="248" text-anchor="middle" font-size="11">OTM</text>
+    </g>
+    <!-- ATM: 3.134 / 1.580 / 1.551 -->
+    <g>
+      <rect x="345" y="73" width="28" height="157" fill="#c0392b"/>
+      <rect x="374" y="151" width="28" height="79" fill="#27ae60"/>
+      <rect x="403" y="153" width="28" height="77" fill="#2c5aa0"/>
+      <text x="388" y="248" text-anchor="middle" font-size="11" fill="#2c5aa0" font-weight="700">ATM</text>
+    </g>
+    <!-- ITM: 2.127 / 1.746 / 1.673 -->
+    <g>
+      <rect x="465" y="124" width="28" height="106" fill="#c0392b"/>
+      <rect x="494" y="143" width="28" height="87" fill="#27ae60"/>
+      <rect x="523" y="147" width="28" height="83" fill="#2c5aa0"/>
+      <text x="508" y="248" text-anchor="middle" font-size="11">ITM</text>
+    </g>
+    <!-- Deep ITM: 2.024 / 2.496 / 2.317 -->
+    <g>
+      <rect x="585" y="129" width="28" height="101" fill="#c0392b"/>
+      <rect x="614" y="105" width="28" height="125" fill="#27ae60"/>
+      <rect x="643" y="114" width="28" height="116" fill="#2c5aa0"/>
+      <text x="628" y="248" text-anchor="middle" font-size="11">Deep ITM</text>
+    </g>
+
+    <!-- Legend -->
+    <g transform="translate(540,38)">
+      <rect x="0" y="0" width="14" height="10" fill="#c0392b"/>
+      <text x="18" y="9" font-size="11">MSE</text>
+      <rect x="65" y="0" width="14" height="10" fill="#27ae60"/>
+      <text x="83" y="9" font-size="11">log-MSE</text>
+      <rect x="150" y="0" width="14" height="10" fill="#2c5aa0"/>
+      <text x="168" y="9" font-size="11">hybrid α=0.5</text>
+    </g>
+
+    <text x="628" y="103" font-size="10" text-anchor="middle" fill="#2c5aa0">
+      ↑ hybrid 가 log 보다 7% 낮음
+    </text>
+  </svg>
+  <figcaption>hybrid 는 log 의 장점 (ATM/OTM) 을 유지하면서 Deep ITM 의 약점을 부분 회복</figcaption>
+</figure>
+
+<div class="callout callout-info">
+  <strong>권장</strong> — 소량 학습 (80k/40ep CPU) 에서는 <strong>hybrid</strong> 가 전반적으로 가장 안정적.
+  ATM bucket 은 log·hybrid 거의 동일 (1.58 vs 1.55 vp). Deep ITM 에서 log 대비 <strong>0.18 vp 개선</strong>.
+</div>
+
+<p class="meta" style="margin-top:40px;padding-top:14px;border-top:1px solid var(--border)">
+  원본 로그: <code>data/bench_before.txt</code>, <code>data/bench_after.txt</code>, <code>data/bench_hybrid.txt</code><br>
+  모델: <code>models/nn_pricer_mse.pt</code> · <code>models/nn_pricer_log.pt</code> · <code>models/nn_pricer_hybrid.pt</code><br>
+  다음 문서: 500k CPU 학습 결과 (진행 중) · Deep Calibration 재학습 결과 · News/LLM 실제 분류 결과
+</p>
+
+</body>
+</html>

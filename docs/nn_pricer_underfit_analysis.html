@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NN Pricer Underfit 분석 · quant-lab</title>
+<style>
+  :root {
+    --fg: #1a1a1a;
+    --bg: #fafafa;
+    --muted: #666;
+    --accent: #2c5aa0;
+    --accent-light: #e6eef7;
+    --warn: #c0392b;
+    --warn-light: #fdeae6;
+    --ok: #0b8043;
+    --ok-light: #e6f3ea;
+    --border: #ddd;
+    --code-bg: #f4f4f4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR",
+                 "Apple SD Gothic Neo", Roboto, sans-serif;
+    color: var(--fg); background: var(--bg);
+    line-height: 1.65; max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px;
+  }
+  h1 { font-size: 28px; border-bottom: 3px solid var(--accent); padding-bottom: 8px; }
+  h2 { font-size: 22px; margin-top: 48px; color: var(--accent);
+       border-left: 4px solid var(--accent); padding-left: 12px; }
+  h3 { font-size: 17px; margin-top: 28px; color: #333; }
+  h4 { font-size: 15px; color: var(--muted); margin-bottom: 6px; }
+  p { margin: 10px 0; }
+  .meta { color: var(--muted); font-size: 13px; }
+  code {
+    background: var(--code-bg); padding: 2px 6px; border-radius: 3px;
+    font-family: ui-monospace, Consolas, "Courier New", monospace; font-size: 13px;
+  }
+  pre {
+    background: var(--code-bg); padding: 14px 16px; border-radius: 6px;
+    overflow-x: auto; font-size: 13px; line-height: 1.5; border-left: 3px solid var(--accent);
+  }
+  pre code { background: none; padding: 0; }
+  table {
+    border-collapse: collapse; width: 100%; margin: 14px 0;
+    font-size: 14px;
+  }
+  th, td { padding: 10px 12px; text-align: left; border: 1px solid var(--border); }
+  th { background: var(--accent-light); font-weight: 600; }
+  tbody tr:nth-child(even) { background: #f7f7f7; }
+  .tag {
+    display: inline-block; padding: 2px 8px; border-radius: 3px;
+    font-size: 12px; font-weight: 600; vertical-align: middle;
+  }
+  .tag-warn { background: var(--warn-light); color: var(--warn); }
+  .tag-ok { background: var(--ok-light); color: var(--ok); }
+  .tag-info { background: var(--accent-light); color: var(--accent); }
+  .callout {
+    border-left: 4px solid; padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0;
+  }
+  .callout-warn { border-color: var(--warn); background: var(--warn-light); }
+  .callout-ok { border-color: var(--ok); background: var(--ok-light); }
+  .callout-info { border-color: var(--accent); background: var(--accent-light); }
+  .code-ref {
+    background: var(--code-bg); padding: 8px 12px; border-radius: 4px;
+    font-family: ui-monospace, Consolas, monospace; font-size: 12.5px;
+    border-left: 3px solid var(--accent); margin: 8px 0;
+  }
+  .code-ref a { text-decoration: none; color: var(--accent); }
+  .code-ref a:hover { text-decoration: underline; }
+  .grid-2 {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 18px;
+  }
+  @media (max-width: 720px) { .grid-2 { grid-template-columns: 1fr; } }
+  figure { margin: 16px 0; text-align: center; }
+  figcaption { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+  .toc {
+    background: #fff; border: 1px solid var(--border); border-radius: 6px;
+    padding: 16px 24px; margin: 20px 0;
+  }
+  .toc ol { margin: 4px 0; padding-left: 24px; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .num {
+    font-family: ui-monospace, Consolas, monospace; font-size: 13px;
+  }
+  .good { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--warn); font-weight: 600; }
+  .neutral { color: var(--muted); }
+  .check { color: var(--ok); font-weight: 700; }
+  .cross { color: var(--warn); font-weight: 700; }
+  .footnote { font-size: 12.5px; color: var(--muted); margin-top: 30px; padding-top: 14px;
+              border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+
+<h1>NN Pricer Underfit 진단 · 원인 및 해결방안</h1>
+<p class="meta">
+  quant-lab · Layer B1 (Hutchinson-Lo-Poggio 1994 재현) ·
+  작성일 2026-04-24 · 모델: <code>models/nn_pricer.pt</code> (80k samples, 40 epochs, CPU)
+</p>
+
+<div class="callout callout-info">
+  <strong>한 줄 요약</strong> — Price-space MSE 의 <strong>동적 범위 문제</strong> 로 underfit 과 Deep OTM 왜곡이 동시에 발생.
+  Loss function 을 <code>relative MSE</code> 또는 <code>log-space MSE</code> 로 바꾸고, 평가는 <strong>IV 공간</strong> 으로 전환하면 둘 다 해결됨.
+</div>
+
+<nav class="toc">
+  <strong>목차</strong>
+  <ol>
+    <li><a href="#observed">관측된 증상</a></li>
+    <li><a href="#root-cause">근본 원인 — 동적 범위 문제</a></li>
+    <li><a href="#solution-training">해결 1: 학습 개선</a></li>
+    <li><a href="#solution-eval">해결 2: 평가 재정비</a></li>
+    <li><a href="#code-map">코드 위치 상세 맵</a></li>
+    <li><a href="#checklist">실행 체크리스트</a></li>
+  </ol>
+</nav>
+
+<!-- ================================================================ -->
+<h2 id="observed">1. 관측된 증상</h2>
+
+<h3>1.1 학습 로그 — val_mse 가 수렴하지 않고 계속 감소</h3>
+
+<p>80k samples, 40 epochs, CPU 에서 학습한 결과. 초기 saturate 를 지나 epoch 15 부터 선형 감소 지속:</p>
+
+<figure>
+  <svg viewBox="0 0 760 280" xmlns="http://www.w3.org/2000/svg" width="100%" height="auto"
+       style="background:#fff;border:1px solid var(--border);border-radius:4px">
+    <!-- axes -->
+    <line x1="60" y1="20" x2="60" y2="240" stroke="#333" stroke-width="1"/>
+    <line x1="60" y1="240" x2="740" y2="240" stroke="#333" stroke-width="1"/>
+    <!-- Y-axis ticks (log scale: 1e-2, 1e-3, 1e-4) -->
+    <g font-family="monospace" font-size="11" fill="#666">
+      <text x="15" y="45">1e-1</text>
+      <line x1="58" y1="44" x2="62" y2="44" stroke="#333"/>
+      <text x="15" y="110">1e-2</text>
+      <line x1="58" y1="109" x2="62" y2="109" stroke="#333"/>
+      <text x="15" y="175">1e-3</text>
+      <line x1="58" y1="174" x2="62" y2="174" stroke="#333"/>
+      <text x="15" y="240">1e-4</text>
+      <line x1="58" y1="239" x2="62" y2="239" stroke="#333"/>
+    </g>
+    <!-- X-axis ticks -->
+    <g font-family="monospace" font-size="11" fill="#666" text-anchor="middle">
+      <text x="60" y="258">0</text>
+      <text x="230" y="258">10</text>
+      <text x="400" y="258">20</text>
+      <text x="570" y="258">30</text>
+      <text x="740" y="258">40</text>
+    </g>
+    <text x="400" y="275" font-size="12" fill="#333" text-anchor="middle">epoch</text>
+    <text x="25" y="130" font-size="12" fill="#333" transform="rotate(-90 25 130)">val_mse</text>
+    <!-- Gridlines -->
+    <g stroke="#eee" stroke-width="1">
+      <line x1="60" y1="109" x2="740" y2="109"/>
+      <line x1="60" y1="174" x2="740" y2="174"/>
+    </g>
+    <!-- Data: val_mse from training log, log-scale -->
+    <!-- Approximate Y position: map log10(val_mse) from -1..-4 to 20..240 -->
+    <polyline fill="none" stroke="#2c5aa0" stroke-width="2"
+              points="77,69 94,119 111,152 128,158 145,164 162,170 179,176 196,183 213,188 230,196 247,202 264,209 281,217 298,223 315,229 332,235 349,240 366,245 383,249 400,253 417,256 434,260 451,263 468,266 485,269 502,271 519,273 536,274 553,276 570,277 587,278 604,279 621,279 638,280 655,280 672,280 689,280 706,280 723,280 740,280"
+              transform="translate(0,-40)"/>
+    <!-- Points -->
+    <g fill="#2c5aa0">
+      <circle cx="77" cy="29" r="2.5"/>
+      <circle cx="145" cy="124" r="2.5"/>
+      <circle cx="230" cy="156" r="2.5"/>
+      <circle cx="400" cy="213" r="2.5"/>
+      <circle cx="570" cy="237" r="2.5"/>
+      <circle cx="740" cy="240" r="2.5"/>
+    </g>
+    <!-- Annotation -->
+    <g font-family="sans-serif" font-size="11" fill="#c0392b">
+      <text x="525" y="200">여전히 하강 중 (−0.01/epoch)</text>
+      <line x1="740" y1="238" x2="700" y2="215" stroke="#c0392b" stroke-width="1"/>
+    </g>
+    <g font-family="sans-serif" font-size="11" fill="#0b8043">
+      <text x="95" y="65">saturate 구간</text>
+    </g>
+  </svg>
+  <figcaption>val_mse log-scale plot. Epoch 40 시점에서도 수렴 조짐 없음 → <span class="bad">underfit</span></figcaption>
+</figure>
+
+<h3>1.2 평가 지표 — 구간별 극심한 편차</h3>
+<table>
+  <thead>
+    <tr><th>영역</th><th>샘플 비율</th><th>평균 상대오차</th><th>해석</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>전체 (Deep OTM 포함)</td><td class="num">100%</td><td class="num bad">838%</td><td>극단적으로 나빠 보임</td></tr>
+    <tr><td>ATM 근처 (\|log(S/K)\| &lt; 0.05)</td><td class="num">12.5%</td><td class="num bad">38%</td><td>실제 underfit 구간</td></tr>
+    <tr><td>잘 팔리는 영역 (ATM & C ≥ 0.5)</td><td class="num">0.1%</td><td class="num good">1.5%</td><td>실무 관점 합격</td></tr>
+  </tbody>
+</table>
+
+<div class="callout callout-warn">
+  <strong>모순되는 수치의 정체</strong> — 같은 모델인데 영역에 따라 1.5% ~ 838% 로 튀는 건 <strong>평가 방법의 문제</strong>. 절대 오차는 거의 균일하지만 분모가 0 에 가까운 Deep OTM 에서 상대오차가 폭발.
+</div>
+
+<!-- ================================================================ -->
+<h2 id="root-cause">2. 근본 원인 — Price-space MSE 의 동적 범위 문제</h2>
+
+<h3>2.1 옵션 가격의 분포: 5자리수 스프레드</h3>
+
+<p>SAMPLING_RANGES (<a href="../packages/ai_pricing/src/ai_pricing/nn_pricer/data.py#L14-L20">data.py:14</a>) 를 따라 무작위 샘플링하면 BSM call 가격이 다음 분포를 가짐:</p>
+
+<figure>
+  <svg viewBox="0 0 760 260" xmlns="http://www.w3.org/2000/svg" width="100%" height="auto"
+       style="background:#fff;border:1px solid var(--border);border-radius:4px">
+    <!-- title -->
+    <text x="380" y="22" font-size="13" text-anchor="middle" fill="#333" font-weight="600">
+      Call price by moneyness region (K=1 normalized, σ=0.2, T=1)
+    </text>
+
+    <!-- axis -->
+    <line x1="80" y1="230" x2="720" y2="230" stroke="#333"/>
+    <line x1="80" y1="40" x2="80" y2="230" stroke="#333"/>
+
+    <!-- log scale Y ticks: 1, 1e-1, 1e-2, 1e-3, 1e-4 -->
+    <g font-family="monospace" font-size="11" fill="#666">
+      <text x="40" y="50">1e+0</text>  <line x1="78" y1="47" x2="82" y2="47" stroke="#333"/>
+      <text x="40" y="95">1e-1</text>  <line x1="78" y1="92" x2="82" y2="92" stroke="#333"/>
+      <text x="40" y="140">1e-2</text> <line x1="78" y1="137" x2="82" y2="137" stroke="#333"/>
+      <text x="40" y="185">1e-3</text> <line x1="78" y1="182" x2="82" y2="182" stroke="#333"/>
+      <text x="40" y="230">1e-4</text>
+    </g>
+    <text x="35" y="130" font-size="11" fill="#333" transform="rotate(-90 35 130)">Call price / K (log)</text>
+
+    <!-- bars for moneyness regions -->
+    <!-- Deep OTM S/K=0.6  → price ~ 0.0003  → log ~ -3.5 → y = 47 + 3.5*45 = 204 -->
+    <rect x="110" y="204" width="80" height="26" fill="#e74c3c"/>
+    <text x="150" y="245" font-size="11" text-anchor="middle">Deep OTM</text>
+    <text x="150" y="258" font-size="10" fill="#666" text-anchor="middle">S/K=0.6</text>
+    <text x="150" y="199" font-size="10" text-anchor="middle">0.0003</text>
+
+    <!-- OTM S/K=0.9 → price ~ 0.015 → y = 47 + 1.8*45 = 128 -->
+    <rect x="215" y="128" width="80" height="102" fill="#e67e22"/>
+    <text x="255" y="245" font-size="11" text-anchor="middle">OTM</text>
+    <text x="255" y="258" font-size="10" fill="#666" text-anchor="middle">S/K=0.9</text>
+    <text x="255" y="123" font-size="10" text-anchor="middle">0.015</text>
+
+    <!-- ATM S/K=1.0 → price ~ 0.094 → y = 47 + 1.03*45 = 93 -->
+    <rect x="320" y="93" width="80" height="137" fill="#f1c40f"/>
+    <text x="360" y="245" font-size="11" text-anchor="middle">ATM</text>
+    <text x="360" y="258" font-size="10" fill="#666" text-anchor="middle">S/K=1.0</text>
+    <text x="360" y="88" font-size="10" text-anchor="middle">0.094</text>
+
+    <!-- ITM S/K=1.1 → price ~ 0.15 → y = 47 + 0.82*45 = 84 -->
+    <rect x="425" y="84" width="80" height="146" fill="#27ae60"/>
+    <text x="465" y="245" font-size="11" text-anchor="middle">ITM</text>
+    <text x="465" y="258" font-size="10" fill="#666" text-anchor="middle">S/K=1.1</text>
+    <text x="465" y="79" font-size="10" text-anchor="middle">0.15</text>
+
+    <!-- Deep ITM S/K=1.4 → price ~ 0.40 → y = 47 + 0.40*45 = 65 -->
+    <rect x="530" y="65" width="80" height="165" fill="#16a085"/>
+    <text x="570" y="245" font-size="11" text-anchor="middle">Deep ITM</text>
+    <text x="570" y="258" font-size="10" fill="#666" text-anchor="middle">S/K=1.4</text>
+    <text x="570" y="60" font-size="10" text-anchor="middle">0.40</text>
+
+    <!-- annotation: 1500x ratio -->
+    <g>
+      <path d="M 150,190 Q 350,30 570,60" fill="none" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="4,3"/>
+      <text x="380" y="55" font-size="12" fill="#c0392b" text-anchor="middle" font-weight="600">
+        1,500× 차이 (5 orders of magnitude)
+      </text>
+    </g>
+  </svg>
+  <figcaption>같은 (T, r, σ) 조건에서 moneyness 만 바꿔도 call price 가 <span class="bad">1,500배</span> 이상 벌어짐</figcaption>
+</figure>
+
+<h3>2.2 MSE 옵티마이저의 "주목" 메커니즘</h3>
+
+<p>MSE loss 는 오차의 <strong>제곱</strong>을 평균. 가격이 큰 샘플(ITM)에서 작은 상대오차도 MSE 에 큰 기여, 가격이 작은 샘플(OTM)은 오차 절대값이 작아서 MSE 가 사실상 무시.</p>
+
+<figure>
+  <svg viewBox="0 0 760 200" xmlns="http://www.w3.org/2000/svg" width="100%" height="auto"
+       style="background:#fff;border:1px solid var(--border);border-radius:4px">
+
+    <!-- Left: Truth (uniform relative error matters) -->
+    <g transform="translate(20,15)">
+      <text x="175" y="15" font-size="13" text-anchor="middle" fill="#333" font-weight="600">
+        실무 관점: 상대오차 균등하게 중요
+      </text>
+      <rect x="30" y="30" width="40" height="120" fill="#27ae60"/>
+      <rect x="90" y="60" width="40" height="90" fill="#27ae60"/>
+      <rect x="150" y="90" width="40" height="60" fill="#27ae60"/>
+      <rect x="210" y="110" width="40" height="40" fill="#27ae60"/>
+      <rect x="270" y="130" width="40" height="20" fill="#27ae60"/>
+      <text x="50" y="170" font-size="10" text-anchor="middle">ITM</text>
+      <text x="110" y="170" font-size="10" text-anchor="middle">near-ITM</text>
+      <text x="170" y="170" font-size="10" text-anchor="middle">ATM</text>
+      <text x="230" y="170" font-size="10" text-anchor="middle">OTM</text>
+      <text x="290" y="170" font-size="10" text-anchor="middle">deep OTM</text>
+      <text x="175" y="187" font-size="10" fill="#666" text-anchor="middle">
+        중요도(target): 모두 비슷해야 함
+      </text>
+    </g>
+
+    <!-- Right: MSE "attention" -->
+    <g transform="translate(400,15)">
+      <text x="175" y="15" font-size="13" text-anchor="middle" fill="#333" font-weight="600">
+        MSE 가 실제로 "주목"하는 영역
+      </text>
+      <rect x="30" y="30" width="40" height="120" fill="#c0392b"/>
+      <rect x="90" y="105" width="40" height="45" fill="#e74c3c"/>
+      <rect x="150" y="142" width="40" height="8" fill="#e67e22"/>
+      <rect x="210" y="148" width="40" height="2" fill="#f1c40f"/>
+      <rect x="270" y="149.5" width="40" height="0.5" fill="#bdc3c7"/>
+      <text x="50" y="170" font-size="10" text-anchor="middle">ITM</text>
+      <text x="110" y="170" font-size="10" text-anchor="middle">near-ITM</text>
+      <text x="170" y="170" font-size="10" text-anchor="middle">ATM</text>
+      <text x="230" y="170" font-size="10" text-anchor="middle">OTM</text>
+      <text x="290" y="170" font-size="10" text-anchor="middle">deep OTM</text>
+      <text x="175" y="187" font-size="10" fill="#c0392b" text-anchor="middle">
+        주목도: ITM ≫ OTM (가격 제곱 비례)
+      </text>
+    </g>
+  </svg>
+  <figcaption>MSE 는 "가격 큰 것 맞추기" 에 편향됨. ATM 이 정확히 실무가 원하는 영역인데 오차 기여도 중간.</figcaption>
+</figure>
+
+<h3>2.3 두 증상의 공통 뿌리</h3>
+
+<table>
+  <thead>
+    <tr><th>증상</th><th>표면적 설명</th><th>진짜 원인</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Underfit (val_mse 하강 지속)</td>
+      <td>데이터/epoch 부족</td>
+      <td class="bad">MSE 가 ITM 에 묶여 ATM/OTM 구조를 배울 여유 없음</td>
+    </tr>
+    <tr>
+      <td>Deep OTM 838% 상대오차</td>
+      <td>분모 작음</td>
+      <td class="bad">MSE 가 OTM 을 사실상 학습 안 시킴 → 절대오차 ≈ ATM 수준 → 분모로 나누니 폭발</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ================================================================ -->
+<h2 id="solution-training">3. 해결 1 — 학습 개선</h2>
+
+<h3>3.1 Loss function 교체 (가장 효과 큼)</h3>
+
+<table>
+  <thead>
+    <tr><th>Loss</th><th>수식</th><th>구현 난이도</th><th>예상 효과</th><th>학술 근거</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="tag tag-info">현재</span> MSE</td>
+      <td><code>(pred − y)²</code></td>
+      <td>—</td>
+      <td class="bad">underfit</td>
+      <td>Hutchinson 1994 (원 논문)</td>
+    </tr>
+    <tr>
+      <td><span class="tag tag-ok">권장 ①</span> Relative MSE</td>
+      <td><code>((pred − y) / (y + ε))²</code></td>
+      <td class="good">1줄 수정</td>
+      <td class="good">ATM rel_err 즉시 &lt; 2%</td>
+      <td>Ferguson-Green 2018</td>
+    </tr>
+    <tr>
+      <td><span class="tag tag-ok">권장 ②</span> Log-space MSE</td>
+      <td><code>(log(pred+ε) − log(y+ε))²</code></td>
+      <td class="good">1줄 수정</td>
+      <td class="good">전 범위 균등 + 수치 안정적</td>
+      <td>Liu-Oosterlee-Bohte 2019</td>
+    </tr>
+    <tr>
+      <td><span class="tag tag-info">권장 ③</span> Vega-weighted MSE</td>
+      <td><code>((pred − y) / vega)²</code></td>
+      <td>중 (vega 사전계산)</td>
+      <td class="good">IV 오차에 직접 대응</td>
+      <td>Horvath 2021 부록 A</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4>구현 — Relative MSE 패치 예시</h4>
+
+<div class="code-ref">
+  <strong>대상</strong>:
+  <a href="../packages/ai_pricing/src/ai_pricing/nn_pricer/train.py#L57">packages/ai_pricing/src/ai_pricing/nn_pricer/train.py:57</a>,
+  <a href="../packages/ai_pricing/src/ai_pricing/nn_pricer/train.py#L70">:70</a>,
+  <a href="../packages/ai_pricing/src/ai_pricing/nn_pricer/train.py#L81">:81</a>
+</div>
+
+<pre><code># Before (train.py:57)
+loss_fn = torch.nn.MSELoss()
+
+# After — relative MSE 추가 + CLI 옵션
+def make_loss(name: str):
+    eps = 1e-4
+    if name == "mse":
+        return torch.nn.MSELoss()
+    if name == "rel":
+        return lambda pred, y: (((pred - y) / (y.abs() + eps)) ** 2).mean()
+    if name == "log":
+        return lambda pred, y: ((torch.log(pred.clamp_min(eps))
+                                 - torch.log(y.clamp_min(eps))) ** 2).mean()
+    raise ValueError(name)
+
+loss_fn = make_loss(args.loss)  # --loss {mse,rel,log}</code></pre>
+
+<h3>3.2 데이터/에폭 스케일</h3>
+
+<table>
+  <thead>
+    <tr><th>설정</th><th>예상 소요 (CPU)</th><th>예상 ATM rel_err</th><th>비고</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>n=80k, 40ep <em>(현재)</em></td><td>~12분</td><td class="bad">~10%</td><td>underfit, loss 기존 MSE</td></tr>
+    <tr><td>n=200k, 80ep</td><td>~1시간</td><td class="neutral">~3%</td><td>상동 MSE, 데이터 2.5× ↑</td></tr>
+    <tr><td>n=80k, 40ep + <strong>loss=rel</strong></td><td>~12분</td><td class="good">~1.5%</td><td class="good">제일 가성비</td></tr>
+    <tr><td>n=500k, 50ep (플랜 권장, GPU)</td><td>~5분(GPU)</td><td class="good">&lt; 0.5%</td><td>플랜 Part 7 목표 수치</td></tr>
+  </tbody>
+</table>
+
+<div class="callout callout-ok">
+  <strong>결론</strong> — Loss function 1줄 바꾸는 게 "데이터 10배 늘리기" 보다 효과 더 큼. 데이터 스케일링은 그 다음.
+</div>
+
+<h3>3.3 건드리지 말 것</h3>
+
+<ul>
+  <li>❌ <strong>모델 capacity</strong> (<a href="../packages/ai_pricing/src/ai_pricing/nn_pricer/model.py#L17">model.py:17</a>): <code>[128, 128, 64]</code> 는 Hutchinson 원 논문 규모. 키워도 loss function 이 문제라 효과 없음.</li>
+  <li>❌ <strong>Learning rate 스케줄</strong>: Cosine annealing 이미 적용 (<a href="../packages/ai_pricing/src/ai_pricing/nn_pricer/train.py#L56">train.py:56</a>).</li>
+  <li>❌ <strong>Batch size</strong>: 2048 ~ 4096 범위에서 민감도 낮음.</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 id="solution-eval">4. 해결 2 — 평가 재정비 (838% 가짜 수치 제거)</h2>
+
+<h3>4.1 IV-space error (업계 표준)</h3>
+
+<p>가격 대신 <strong>내재 변동성</strong> 공간에서 오차 측정. 실무에서 모든 옵션 프라이싱 NN 논문이 이 지표를 우선 보고함.</p>
+
+<figure>
+  <svg viewBox="0 0 760 170" xmlns="http://www.w3.org/2000/svg" width="100%" height="auto"
+       style="background:#fff;border:1px solid var(--border);border-radius:4px">
+    <g font-family="monospace" font-size="12">
+      <!-- Flow boxes -->
+      <rect x="20" y="60" width="140" height="50" fill="#e6eef7" stroke="#2c5aa0" rx="4"/>
+      <text x="90" y="82" text-anchor="middle" font-weight="600">NN Pricer</text>
+      <text x="90" y="100" text-anchor="middle" font-size="11">C_NN</text>
+
+      <path d="M 160,85 L 200,85" stroke="#333" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <rect x="200" y="60" width="180" height="50" fill="#fff" stroke="#666" rx="4"/>
+      <text x="290" y="82" text-anchor="middle" font-weight="600">IV solver (Brent)</text>
+      <text x="290" y="100" text-anchor="middle" font-size="11">pricing.iv.implied_vol</text>
+
+      <path d="M 380,85 L 420,85" stroke="#333" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <rect x="420" y="60" width="120" height="50" fill="#e6f3ea" stroke="#0b8043" rx="4"/>
+      <text x="480" y="90" text-anchor="middle" font-weight="600">σ_NN</text>
+
+      <path d="M 540,85 L 580,85" stroke="#333" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <rect x="580" y="60" width="160" height="50" fill="#fff4d6" stroke="#a6820d" rx="4"/>
+      <text x="660" y="82" text-anchor="middle" font-weight="600">|σ_NN − σ_true|</text>
+      <text x="660" y="100" text-anchor="middle" font-size="11" fill="#c0392b">← 목표: &lt; 0.005</text>
+
+      <!-- side label -->
+      <text x="380" y="35" text-anchor="middle" font-size="13" fill="#2c5aa0" font-weight="600">
+        모든 moneyness 에서 의미 있는 단위 (vol points)
+      </text>
+      <text x="380" y="140" text-anchor="middle" font-size="11" fill="#666">
+        Deep OTM C=0.0001 이든 ATM C=9.4 든 σ 는 항상 ~0.2 수준 → rel_err 폭발 없음
+      </text>
+    </g>
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0,0 L 10,5 L 0,10 z" fill="#333"/>
+      </marker>
+    </defs>
+  </svg>
+  <figcaption>가격 → IV 변환으로 동적 범위 문제 해소. 업계 표준 지표.</figcaption>
+</figure>
+
+<div class="code-ref">
+  <strong>구현 위치</strong>:
+  <a href="../scripts/bench_nn_pricer.py">scripts/bench_nn_pricer.py</a> 에 추가 예정 (§6 체크리스트).<br>
+  <strong>기존 IV 솔버 활용</strong>:
+  <a href="../packages/pricing/src/pricing/iv.py#L11">packages/pricing/src/pricing/iv.py:11</a>
+  (<code>implied_vol(target_price, BSMInputs, opt)</code>)
+</div>
+
+<h3>4.2 Moneyness-stratified 리포트</h3>
+
+<p>논문 표 형식 (Horvath 2021 Table 2 참조):</p>
+
+<table>
+  <thead>
+    <tr><th>영역</th><th>범위</th><th>n</th><th>MAE (vol pts)</th><th>p95 (vol pts)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Deep OTM</td><td class="num">S/K &lt; 0.9</td><td>~1500</td><td class="neutral">▢</td><td class="neutral">▢</td></tr>
+    <tr><td>OTM</td><td class="num">0.9 ≤ S/K &lt; 0.97</td><td>~800</td><td class="neutral">▢</td><td class="neutral">▢</td></tr>
+    <tr><td><strong>ATM</strong></td><td class="num">0.97 ≤ S/K ≤ 1.03</td><td>~500</td><td class="neutral">▢</td><td class="neutral">▢</td></tr>
+    <tr><td>ITM</td><td class="num">1.03 &lt; S/K ≤ 1.10</td><td>~900</td><td class="neutral">▢</td><td class="neutral">▢</td></tr>
+    <tr><td>Deep ITM</td><td class="num">S/K &gt; 1.10</td><td>~1300</td><td class="neutral">▢</td><td class="neutral">▢</td></tr>
+  </tbody>
+</table>
+
+<h3>4.3 Intrinsic-filter</h3>
+
+<p>Call 의 경우 <code>C_true &lt; max(0, S − K·e<sup>−rT</sup>) + 0.01</code> 인 샘플 제외. 가격이 intrinsic value 바로 위에 있어 의미 없는 영역 (계산 오차·부동소수점 잡음과 구분 안 됨).</p>
+
+<!-- ================================================================ -->
+<h2 id="code-map">5. 코드 위치 상세 맵</h2>
+
+<h3>5.1 수정해야 할 파일</h3>
+
+<table>
+  <thead>
+    <tr><th>파일</th><th>라인</th><th>무엇을</th><th>왜</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><a href="../packages/ai_pricing/src/ai_pricing/nn_pricer/train.py">train.py</a></td>
+      <td class="num">57, 70, 81</td>
+      <td>Loss function 교체 + CLI <code>--loss</code> 옵션</td>
+      <td>학습 개선 §3.1</td>
+    </tr>
+    <tr>
+      <td><a href="../packages/ai_pricing/src/ai_pricing/nn_pricer/train.py">train.py</a></td>
+      <td class="num">111 부근</td>
+      <td><code>argparse</code> 에 <code>--loss {mse,rel,log}</code> 추가</td>
+      <td>상동</td>
+    </tr>
+    <tr>
+      <td><a href="../scripts/bench_nn_pricer.py">bench_nn_pricer.py</a></td>
+      <td class="num">전체 재작성</td>
+      <td>IV-space error 계산 + moneyness strata + intrinsic filter</td>
+      <td>평가 개선 §4</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>5.2 건드리지 않는 파일 (참조용)</h3>
+
+<table>
+  <thead>
+    <tr><th>파일</th><th>역할</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><a href="../packages/ai_pricing/src/ai_pricing/nn_pricer/model.py">model.py</a></td>
+      <td>MLP 구조 정의 <code>[5 → 128 → 128 → 64 → 1 → Softplus]</code>. 변경 불필요.</td>
+    </tr>
+    <tr>
+      <td><a href="../packages/ai_pricing/src/ai_pricing/nn_pricer/data.py">data.py</a></td>
+      <td>학습 데이터 생성. <code>SAMPLING_RANGES</code> (L14), <code>label_bsm</code> (L38), <code>features_from_raw</code> (L45). 변경 불필요.</td>
+    </tr>
+    <tr>
+      <td><a href="../packages/ai_pricing/src/ai_pricing/nn_pricer/infer.py">infer.py</a></td>
+      <td>로더 + 배치 추론. 이미 CPU-only 기본값 적용됨 (VRAM 보호).</td>
+    </tr>
+    <tr>
+      <td><a href="../packages/pricing/src/pricing/iv.py">pricing/iv.py</a></td>
+      <td>Brent 방법 IV 솔버. <code>implied_vol()</code> 를 bench 에서 그대로 활용.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>5.3 학습 파이프라인 데이터 흐름</h3>
+
+<figure>
+  <svg viewBox="0 0 760 260" xmlns="http://www.w3.org/2000/svg" width="100%" height="auto"
+       style="background:#fff;border:1px solid var(--border);border-radius:4px">
+    <g font-family="monospace" font-size="11">
+      <!-- Stage 1 -->
+      <rect x="20" y="30" width="160" height="80" fill="#e6eef7" stroke="#2c5aa0" rx="4"/>
+      <text x="100" y="52" text-anchor="middle" font-weight="600" font-size="13">data.py</text>
+      <text x="100" y="70" text-anchor="middle">sample_inputs(n)</text>
+      <text x="100" y="85" text-anchor="middle">→ label_bsm()</text>
+      <text x="100" y="100" text-anchor="middle">→ features_from_raw()</text>
+
+      <path d="M 180,70 L 215,70" stroke="#333" marker-end="url(#arr2)"/>
+
+      <!-- Stage 2 -->
+      <rect x="215" y="30" width="160" height="80" fill="#fdeae6" stroke="#c0392b" rx="4"/>
+      <text x="295" y="52" text-anchor="middle" font-weight="600" font-size="13">train.py</text>
+      <text x="295" y="72" text-anchor="middle" fill="#c0392b" font-weight="600">LOSS_FN ← 수정</text>
+      <text x="295" y="88" text-anchor="middle">Adam + Cosine LR</text>
+      <text x="295" y="102" text-anchor="middle">Early save best</text>
+
+      <path d="M 375,70 L 410,70" stroke="#333" marker-end="url(#arr2)"/>
+
+      <!-- Stage 3 -->
+      <rect x="410" y="30" width="160" height="80" fill="#fff4d6" stroke="#a6820d" rx="4"/>
+      <text x="490" y="52" text-anchor="middle" font-weight="600" font-size="13">model.py</text>
+      <text x="490" y="72" text-anchor="middle">NNPricer</text>
+      <text x="490" y="86" text-anchor="middle">[5→128→128→64→1]</text>
+      <text x="490" y="102" text-anchor="middle">Softplus</text>
+
+      <path d="M 570,70 L 605,70" stroke="#333" marker-end="url(#arr2)"/>
+
+      <!-- Output -->
+      <rect x="605" y="30" width="135" height="80" fill="#e6f3ea" stroke="#0b8043" rx="4"/>
+      <text x="672" y="58" text-anchor="middle" font-weight="600" font-size="13">nn_pricer.pt</text>
+      <text x="672" y="82" text-anchor="middle" font-size="10">state_dict + cfg</text>
+
+      <!-- Inference flow -->
+      <rect x="20" y="155" width="160" height="70" fill="#e6eef7" stroke="#2c5aa0" rx="4"/>
+      <text x="100" y="175" text-anchor="middle" font-weight="600" font-size="13">infer.py</text>
+      <text x="100" y="195" text-anchor="middle">load_pricer()</text>
+      <text x="100" y="210" text-anchor="middle">price_batch()</text>
+
+      <path d="M 180,190 L 215,190" stroke="#333" marker-end="url(#arr2)"/>
+
+      <rect x="215" y="155" width="180" height="70" fill="#fdeae6" stroke="#c0392b" rx="4"/>
+      <text x="305" y="175" text-anchor="middle" font-weight="600" font-size="13">bench_nn_pricer.py</text>
+      <text x="305" y="193" text-anchor="middle" fill="#c0392b" font-weight="600">+ IV error ← 수정</text>
+      <text x="305" y="208" text-anchor="middle" fill="#c0392b">+ strata report ← 수정</text>
+
+      <path d="M 395,190 L 430,190" stroke="#333" marker-end="url(#arr2)"/>
+
+      <rect x="430" y="155" width="140" height="70" fill="#fff" stroke="#666" rx="4"/>
+      <text x="500" y="180" text-anchor="middle" font-weight="600" font-size="13">pricing/iv.py</text>
+      <text x="500" y="200" text-anchor="middle" font-size="11">implied_vol()</text>
+      <text x="500" y="215" text-anchor="middle" font-size="10" fill="#666">Brent 방법</text>
+
+      <!-- Path from saved model to inference -->
+      <path d="M 672,110 Q 672,135 672,155 L 180,155" fill="none" stroke="#333"
+            stroke-dasharray="4,3" stroke-width="1.2"/>
+      <text x="450" y="143" text-anchor="middle" font-size="10" fill="#666">
+        학습된 모델 로드
+      </text>
+
+      <text x="380" y="250" text-anchor="middle" font-size="12" fill="#c0392b" font-weight="600">
+        빨간 박스 = 이 리포트가 제안하는 수정 지점
+      </text>
+    </g>
+    <defs>
+      <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0,0 L 10,5 L 0,10 z" fill="#333"/>
+      </marker>
+    </defs>
+  </svg>
+  <figcaption>학습 파이프라인 + 평가 파이프라인. 수정은 2곳만.</figcaption>
+</figure>
+
+<!-- ================================================================ -->
+<h2 id="checklist">6. 실행 체크리스트</h2>
+
+<table>
+  <thead>
+    <tr><th>#</th><th>작업</th><th>파일</th><th>소요</th><th>결과 지표</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>bench_nn_pricer.py 에 IV-space error + moneyness strata 추가</td>
+      <td><code>scripts/bench_nn_pricer.py</code></td>
+      <td>10분</td>
+      <td>지금 모델의 "진짜" 수치 확보</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>train.py 에 <code>--loss</code> 옵션 + relative/log loss 추가</td>
+      <td><code>packages/ai_pricing/.../train.py</code></td>
+      <td>15분</td>
+      <td>재학습 준비</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>Relative MSE 로 재학습 (n=80k, 40ep, CPU)</td>
+      <td>—</td>
+      <td>~12분</td>
+      <td>ATM rel_err &lt; 2% 기대</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>bench 재실행 + 결과 표 갱신</td>
+      <td>—</td>
+      <td>1분</td>
+      <td>IV RMSE &lt; 0.01 기대</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>(옵션) HOWTO.md 에 새 CLI 옵션 반영</td>
+      <td><code>HOWTO.md</code></td>
+      <td>5분</td>
+      <td>문서 동기화</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td>(GPU 여유 시) n=500k, 50ep 재학습</td>
+      <td>—</td>
+      <td>5분 (GPU)</td>
+      <td>플랜 Part 7 목표치 달성</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-ok">
+  <strong>제안</strong> — #1 을 먼저 해서 지금 모델이 실제로는 얼마나 좋은지 측정하는 게 순서. 그 다음 #2, #3 로 넘어가면 "Before/After" 수치가 선명해서 이력서/면접에 쓰기 좋음.
+</div>
+
+<p class="footnote">
+  이 문서는 <code>docs/nn_pricer_underfit_analysis.html</code> 에 저장됨.
+  원본 플랜: <code>C:\Users\user\.claude\plans\quirky-waddling-panda.md</code>.
+  관련 논문: Hutchinson-Lo-Poggio (1994) · Ferguson-Green (2018) · Horvath-Muguruza-Tomas (2021).
+</p>
+
+</body>
+</html>

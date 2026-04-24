@@ -1,0 +1,37 @@
+==============================================================================
+[AFTER (log-MSE)] NN Pricer benchmark  (n=5000, model=models/nn_pricer_log.pt)
+==============================================================================
+
+[A] Price-space (naive, w/ eps=1e-4 floor)
+    MSE               : 2.71e-04
+    Mean rel err      :  145.90%
+    P95 rel err       : 1098.40%
+
+[B] Intrinsic-filtered  (time value > 0.05,  n=2579/5000)
+    Mean abs err      : 0.00595
+    Mean rel err      :    2.68%
+    P95 rel err       :    7.72%
+
+[C] IV-space error  (via Brent solver)
+    Solvable samples  : 2579/2579  (100.0%)
+    Mean |Δσ|         :  1.648 vp
+    P95 |Δσ|          :  4.793 vp
+    Max |Δσ|          : 33.669 vp
+
+[D] Moneyness-stratified (IV error)
+    bucket         n     mean |Δσ|      p95 |Δσ|    mean rel (price)
+    Deep OTM     896      1.095 vp      3.197 vp               3.01%
+    OTM          342      1.037 vp      3.247 vp               2.43%
+    ATM          267      1.580 vp      4.198 vp               3.12%
+    ITM          252      1.746 vp      5.362 vp               2.49%
+    Deep ITM     822      2.496 vp      6.445 vp               2.34%
+
+[E] Inference speed  (CPU, n=5000)
+    BSM closed-form   :   258.7 ms  (  51.7 µs/opt)
+    NN Pricer         :     9.0 ms  (   1.8 µs/opt)
+    NN speedup        : 28.8×
+
+[F] ATM point check  (S=K=100, T=1, r=3%, σ=20%)
+    BSM               : 9.4134
+    NN                : 9.1427
+    diff              : 0.2707  (2.88%)

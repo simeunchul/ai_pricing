@@ -10,11 +10,12 @@ from ai_pricing.nn_pricer.data import features_from_raw
 
 
 def load_pricer(path: str | Path, device: str | None = None):
+    """Default device is 'cpu'. Pass device='cuda' explicitly to use GPU."""
     import torch
     from ai_pricing.nn_pricer.model import NNPricer, NNPricerConfig
 
-    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    ckpt = torch.load(path, map_location=device)
+    device = device or "cpu"
+    ckpt = torch.load(path, map_location=device, weights_only=False)
     cfg = NNPricerConfig(**ckpt["cfg"])
     model = NNPricer(cfg).to(device)
     model.load_state_dict(ckpt["state_dict"])
