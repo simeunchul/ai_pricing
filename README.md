@@ -1,6 +1,6 @@
 # quant-lab
 
-한화투자증권 디지털금융(Trading) 포트폴리오 — **Classical Pricing × AI Pricing(3종) × AI Hedging × Auto-Trading** 단일 모노레포.
+**Classical Pricing × AI Pricing(3종) × AI Hedging × Auto-Trading** 단일 모노레포.
 
 ## 5-Layer 네비게이션
 
