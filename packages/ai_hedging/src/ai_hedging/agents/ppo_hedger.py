@@ -22,6 +22,7 @@ def train_ppo(
     n_envs: int = 4,
     seed: int = 0,
     env_cfg: HedgingEnvConfig | None = None,
+    device: str = "cpu",
 ):
     try:
         from stable_baselines3 import PPO
@@ -47,6 +48,7 @@ def train_ppo(
         gae_lambda=0.95,
         clip_range=0.2,
         ent_coef=0.0,
+        device=device,   # "cpu" default protects shared VRAM; MlpPolicy is CPU-friendly anyway
     )
     model.learn(total_timesteps=total_timesteps)
     Path(out).parent.mkdir(parents=True, exist_ok=True)
@@ -55,10 +57,10 @@ def train_ppo(
 
 
 def evaluate_ppo(model_path: str, env_cfg: HedgingEnvConfig, n_paths: int = 2000,
-                 seed: int = 123) -> dict:
+                 seed: int = 123, device: str = "cpu") -> dict:
     from stable_baselines3 import PPO
 
-    model = PPO.load(model_path)
+    model = PPO.load(model_path, device=device)
     env = HedgingEnv(env_cfg)
     pnls = []
     for p in range(n_paths):

@@ -8,10 +8,11 @@ PYBIND11_MODULE(_fastmc, m) {
 
     py::class_<fastmc::MCResult>(m, "MCResult")
         .def_readonly("price", &fastmc::MCResult::price)
-        .def_readonly("stderr", &fastmc::MCResult::stderr)
+        .def_readonly("stderr", &fastmc::MCResult::std_err)
+        .def_readonly("std_err", &fastmc::MCResult::std_err)
         .def("__repr__", [](const fastmc::MCResult& r) {
             return "<MCResult price=" + std::to_string(r.price) +
-                   " stderr=" + std::to_string(r.stderr) + ">";
+                   " stderr=" + std::to_string(r.std_err) + ">";
         });
 
     m.def("mc_euro_call", &fastmc::mc_euro_call,

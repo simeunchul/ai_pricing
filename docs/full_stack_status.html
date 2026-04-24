@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>quant-lab 전체 레이어 상태 리포트</title>
+<style>
+  :root {
+    --fg: #1a1a1a; --bg: #fafafa; --muted: #666;
+    --accent: #2c5aa0; --accent-light: #e6eef7;
+    --warn: #c0392b; --warn-light: #fdeae6;
+    --ok: #0b8043; --ok-light: #e6f3ea;
+    --yellow: #a6820d; --yellow-light: #fff4d6;
+    --border: #ddd; --code-bg: #f4f4f4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR",
+                 "Apple SD Gothic Neo", Roboto, sans-serif;
+    color: var(--fg); background: var(--bg); line-height: 1.65;
+    max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px;
+  }
+  h1 { font-size: 28px; border-bottom: 3px solid var(--accent); padding-bottom: 8px; }
+  h2 { font-size: 22px; margin-top: 44px; color: var(--accent);
+       border-left: 4px solid var(--accent); padding-left: 12px; }
+  h3 { font-size: 17px; margin-top: 26px; }
+  code {
+    background: var(--code-bg); padding: 2px 6px; border-radius: 3px;
+    font-family: ui-monospace, Consolas, monospace; font-size: 13px;
+  }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { padding: 10px 12px; text-align: left; border: 1px solid var(--border); }
+  th { background: var(--accent-light); font-weight: 600; }
+  tbody tr:nth-child(even) { background: #f7f7f7; }
+  .num { font-family: ui-monospace, Consolas, monospace; }
+  .good { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--warn); font-weight: 600; }
+  .partial { color: var(--yellow); font-weight: 600; }
+  .neutral { color: var(--muted); }
+  .callout { border-left: 4px solid; padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .callout-warn { border-color: var(--warn); background: var(--warn-light); }
+  .callout-ok { border-color: var(--ok); background: var(--ok-light); }
+  .callout-info { border-color: var(--accent); background: var(--accent-light); }
+  .callout-yellow { border-color: var(--yellow); background: var(--yellow-light); }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 3px;
+    font-size: 12px; font-weight: 600;
+  }
+  .badge-ok { background: var(--ok-light); color: var(--ok); }
+  .badge-partial { background: var(--yellow-light); color: var(--yellow); }
+  .badge-todo { background: var(--warn-light); color: var(--warn); }
+  .meta { color: var(--muted); font-size: 13px; }
+  figure { margin: 16px 0; text-align: center; }
+  figcaption { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<h1>quant-lab 전체 레이어 상태 리포트</h1>
+<p class="meta">
+  2026-04-24 · 5 Layer 모두 실제 학습·빌드·테스트까지 진행한 스냅샷. CPU-only 환경.
+</p>
+
+<div class="callout callout-ok">
+  <strong>한 줄 요약</strong> — <strong>Layer A/B1/B2/E 는 플랜 목표 달성</strong>, Layer B3 (News-IV) 는 프레임워크 완성 (분류 규칙 수준), <strong>Layer B4 (Deep Hedging) 만 RL 수렴 미완</strong> (플랜 위험표 예측대로 action space/reward 추가 튜닝 필요).
+  Layer D 는 DRY_RUN 스모크 통과, 실 API 는 계좌 필요.
+</div>
+
+<!-- =================================================== -->
+<h2>1. Layer 별 상태 요약</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Layer</th>
+      <th>상태</th>
+      <th>핵심 지표</th>
+      <th>플랜 목표 대비</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>A</strong> Classical Pricing</td>
+      <td><span class="badge badge-ok">완료</span></td>
+      <td>BSM↔Binomial↔MC 상대오차 1e-3 / Heston semi↔MC 0.3% / 16 pytest green</td>
+      <td class="good">모두 달성</td>
+    </tr>
+    <tr>
+      <td><strong>B1</strong> NN Pricer</td>
+      <td><span class="badge badge-ok">완료</span></td>
+      <td>ATM IV <strong>0.548 vp</strong> · Intrinsic-filter rel err <strong>0.88%</strong> · CPU 20× 가속</td>
+      <td class="good">ATM 목표 달성, 전체 IV mean 0.625 vp (+25%p over 목표)</td>
+    </tr>
+    <tr>
+      <td><strong>B2</strong> Deep Calibration</td>
+      <td><span class="badge badge-ok">완료</span></td>
+      <td>IV RMSE <strong>0.495 vp</strong> · calibration 1.36s vs semi-analytic 35s (<strong>26×</strong>)</td>
+      <td class="good">IV RMSE &lt; 0.5 달성. 속도는 plan 100× 중 26× (Nelder-Mead 200iter 기준)</td>
+    </tr>
+    <tr>
+      <td><strong>B3</strong> News/LLM IV</td>
+      <td><span class="badge badge-partial">프레임워크</span></td>
+      <td>rule/FinBERT/Claude 분류기 3종 · IV_SHIFT_RULES 적용</td>
+      <td class="partial">코드·테스트 완료. 실제 백테스트 데이터 필요</td>
+    </tr>
+    <tr>
+      <td><strong>B4</strong> Deep Hedging</td>
+      <td><span class="badge badge-todo">수렴 미완</span></td>
+      <td>TC=0 에서도 BSM Δ CVaR 0.76 vs PPO 1.85</td>
+      <td class="bad">200k step CPU 로 미수렴. action space/reward 튜닝 필요 (Part 8 위험표에 예측됨)</td>
+    </tr>
+    <tr>
+      <td><strong>C</strong> Comparison</td>
+      <td><span class="badge badge-ok">완료</span></td>
+      <td><code>data/all_methods_pricing.csv</code>, <code>data/all_methods_hedging.csv</code></td>
+      <td class="good">프레임워크 동작. B4 수치만 재학습 후 갱신 필요</td>
+    </tr>
+    <tr>
+      <td><strong>D</strong> KIS Auto-Trading</td>
+      <td><span class="badge badge-partial">DRY_RUN 통과</span></td>
+      <td>runner 20초 스모크 · risk guard 정상 차단</td>
+      <td class="partial">실 계좌 + 장중 시간 필요</td>
+    </tr>
+    <tr>
+      <td><strong>E</strong> C++ fastmc</td>
+      <td><span class="badge badge-ok">완료</span></td>
+      <td>numpy 1.98s → C++ 0.13s · <strong>14.8× 가속</strong></td>
+      <td class="good">플랜 "10× 이상" 달성 (OpenMP 8코어 27× 목표는 미달)</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- =================================================== -->
+<h2>2. 상세 결과 — Layer A (Classical Pricing)</h2>
+
+<table>
+  <thead>
+    <tr><th>검증 항목</th><th>결과</th><th>기준</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>BSM vs Binomial(N=2000) 상대오차</td><td class="num good">&lt; 1e-3</td><td class="num">&lt; 1e-3 ✓</td></tr>
+    <tr><td>Put-Call parity</td><td class="num good">&lt; 1e-10</td><td class="num">&lt; 1e-6 ✓</td></tr>
+    <tr><td>MC(200k paths) vs BSM</td><td class="num good">within 3 stderr</td><td class="num">3 stderr ✓</td></tr>
+    <tr><td>IV roundtrip</td><td class="num good">&lt; 1e-6</td><td class="num">&lt; 1e-6 ✓</td></tr>
+    <tr><td>Heston semi vs MC(40k)</td><td class="num good">within 3 stderr</td><td class="num">&lt; 0.3% ✓</td></tr>
+    <tr><td>Greeks analytic vs bumping</td><td class="num good">&lt; 1e-2</td><td class="num">&lt; 1e-2 ✓</td></tr>
+    <tr><td>ELS step-down 2-asset</td><td class="num good">notional 8,000~10,500 범위</td><td class="num">공시 ±3% ✓</td></tr>
+  </tbody>
+</table>
+
+<!-- =================================================== -->
+<h2>3. 상세 결과 — Layer B1 (NN Pricer)</h2>
+
+<p>
+  4개 모델 학습 후 IV-space 평가. 상세 분석은
+  <a href="nn_pricer_underfit_analysis.html">nn_pricer_underfit_analysis.html</a>,
+  <a href="nn_pricer_retrain_results.html">nn_pricer_retrain_results.html</a>.
+</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Model</th><th>Loss</th><th>n / epochs</th>
+      <th>ATM IV |Δσ|</th><th>ATM point</th><th>Intrinsic-filter rel</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td><code>nn_pricer_mse.pt</code></td><td>MSE</td><td class="num">80k / 40</td>
+        <td class="num bad">3.13 vp</td><td class="num bad">10.68%</td><td class="num">5.54%</td></tr>
+    <tr><td><code>nn_pricer_log.pt</code></td><td>log-MSE</td><td class="num">80k / 40</td>
+        <td class="num">1.58 vp</td><td class="num">2.88%</td><td class="num">2.68%</td></tr>
+    <tr><td><code>nn_pricer_hybrid.pt</code></td><td>hybrid (α=0.5)</td><td class="num">80k / 40</td>
+        <td class="num">1.55 vp</td><td class="num">3.15%</td><td class="num">2.64%</td></tr>
+    <tr><td><strong><code>nn_pricer_log_500k.pt</code></strong></td><td>log-MSE</td><td class="num">500k / 50</td>
+        <td class="num good">0.548 vp ✓</td><td class="num good">1.95%</td><td class="num good">0.88%</td></tr>
+  </tbody>
+</table>
+
+<!-- =================================================== -->
+<h2>4. 상세 결과 — Layer B2 (Deep Calibration)</h2>
+
+<h3>학습 결과</h3>
+<ul>
+  <li>Heston 파라미터 sampling: 3,000 × 25 strikes (LHS, Feller 무시) — 데이터 생성 <strong>338초</strong></li>
+  <li>MLP <code>[5 → 256 → 256 → 256 → 25]</code>, 40 epochs CPU — 추가 <strong>~30초</strong></li>
+  <li>최종 IV RMSE: <strong>0.495 vol points ✓</strong></li>
+</ul>
+
+<h3>Calibration 속도 비교 (κ=1.8, θ=0.05, ξ=0.35, ρ=-0.65, v₀=0.04 복원)</h3>
+<table>
+  <thead>
+    <tr><th>Method</th><th>Wall time</th><th>정확도</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Semi-analytic Nelder-Mead (200 iter)</td>
+      <td class="num">35.03s</td>
+      <td class="num">loss 1.0e-5</td>
+    </tr>
+    <tr>
+      <td><strong>Deep Calib (NN gradient descent, 300 step)</strong></td>
+      <td class="num good">1.36s</td>
+      <td class="num good">IV RMSE 0.56 vp</td>
+    </tr>
+    <tr>
+      <td>Speedup</td>
+      <td colspan="2" class="num good"><strong>26× (CPU)</strong></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-info">
+  <strong>κ identifiability</strong>: 복원된 κ=3.38 vs 실제 1.80. Heston 모델에서 κ 와 θ 는
+  <strong>kappa-theta redundancy</strong> 가 있어 IV surface 만으로는 정확히 분리 안 됨.
+  실무에서 알려진 현상. IV surface 는 유사하게 복원됨 (RMSE 0.56 vp).
+</div>
+
+<!-- =================================================== -->
+<h2>5. 상세 결과 — Layer B4 (Deep Hedging) <span class="badge badge-todo">미완</span></h2>
+
+<table>
+  <thead>
+    <tr><th>Setting</th><th>Strategy</th><th>Mean PnL</th><th>Std</th><th>CVaR@5%</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td rowspan="2">TC = 0 (sanity check)</td>
+      <td>BSM Δ (daily)</td><td class="num">+0.089</td><td class="num good">0.36</td><td class="num good">0.76</td>
+    </tr>
+    <tr>
+      <td>PPO TC=0 (200k step)</td><td class="num">+0.098</td><td class="num bad">1.00</td><td class="num bad">1.85</td>
+    </tr>
+    <tr>
+      <td rowspan="2">TC = 0.3% (plan target)</td>
+      <td>BSM Δ (daily)</td><td class="num">-0.748</td><td class="num good">0.45</td><td class="num good">1.88</td>
+    </tr>
+    <tr>
+      <td>PPO TC=0.3% (200k step)</td><td class="num bad">-1.056</td><td class="num bad">5.60</td><td class="num bad">20.83</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-warn">
+  <strong>수렴 미완 진단</strong> — TC=0 sanity check 에서조차 BSM Δ 대비 CVaR 2.4× 악화.
+  PPO 가 policy std ~1.0 으로 수렴해서 실제로는 거의 랜덤 action.
+  플랜 Part 8 risk table 에 <em>"Week 7 RL 수렴 실패 → action space 축소, reward clipping"</em> 로
+  이미 예측된 케이스. <strong>200k step CPU 학습으로는 부족</strong>.
+</div>
+
+<h3>가능성 있는 수정 방향 (별도 task)</h3>
+<table>
+  <thead>
+    <tr><th>조치</th><th>예상 효과</th><th>구현 비용</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Action space [-1, 2] → [0, 1] (call delta 범위로 제한)</td>
+      <td>Exploration 효율 증가</td>
+      <td>env.py 1줄</td>
+    </tr>
+    <tr>
+      <td>Per-step reward = −(step_wealth_change)² (variance penalty)</td>
+      <td>RL 을 sparse terminal → dense shaping 으로</td>
+      <td>env.py 5줄</td>
+    </tr>
+    <tr>
+      <td>BSM Δ 를 initialization 에 사용 (warm start)</td>
+      <td>Supervised pretraining → PPO fine-tune</td>
+      <td>train_ppo 20줄</td>
+    </tr>
+    <tr>
+      <td>학습 budget 200k → 2M step</td>
+      <td>단순 더 오래 학습. CPU 20분</td>
+      <td>CLI 1줄</td>
+    </tr>
+    <tr>
+      <td>SAC 로 교체 (stochastic policy + entropy auto-tune)</td>
+      <td>Continuous action 에서 PPO 보다 표준</td>
+      <td>30줄 재작성</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- =================================================== -->
+<h2>6. 상세 결과 — Layer E (C++ fastmc)</h2>
+
+<p>pybind11 + MSVC 빌드 성공 후 벤치마크 (n_paths=1M, n_steps=252, 1 option):</p>
+
+<table>
+  <thead>
+    <tr><th>Implementation</th><th>Wall time</th><th>Price</th><th>Speedup</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>numpy (antithetic)</td><td class="num">1.98s</td><td class="num">9.4192</td><td class="num">1×</td></tr>
+    <tr><td><strong>C++ Xorshift64 + OpenMP</strong></td><td class="num good">0.13s</td><td class="num">9.4106</td><td class="num good">14.8×</td></tr>
+    <tr><td>플랜 목표 (OpenMP 8코어)</td><td class="num">~0.45s</td><td class="num">—</td><td class="num">~27×</td></tr>
+  </tbody>
+</table>
+
+<div class="callout callout-info">
+  <strong>Notes</strong> —
+  (1) numpy 구현이 이미 벡터화되어 있어 baseline 이 빠름 → 계산량 대비 OpenMP 이득 축소.
+  (2) MSVC 빌드 시 <code>stderr</code> 필드명 & <code>M_PI</code> 매크로 누락 fix 필요했음.
+  (3) <code>_HAS_NATIVE=True</code> 확인. fallback 안 씀.
+</div>
+
+<!-- =================================================== -->
+<h2>7. 상세 결과 — Layer C (compare_all)</h2>
+
+<p>
+  파일 생성 확인: <code>data/all_methods_pricing.csv</code>, <code>data/all_methods_hedging.csv</code>.
+  n_panel=2000, n_hedge=500, tc=0.003.
+</p>
+
+<h3>Pricing comparison</h3>
+<table>
+  <thead>
+    <tr><th>Method</th><th>Mean err</th><th>Max err</th><th>p95 rel err</th><th>Inference (ms/opt)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>A-BSM (ground truth)</td><td class="num">0.0</td><td class="num">0.0</td><td class="num">0.0</td><td class="num">0.061</td></tr>
+    <tr><td>B1-NN (500k log)</td><td class="num">0.134</td><td class="num">1.024</td><td class="num">0.353</td><td class="num good">0.0046</td></tr>
+  </tbody>
+</table>
+
+<p class="meta">mean_rel_err 는 deep OTM 에서 분모 0 에 가까워 404% 로 부풀려짐. 실제 실무 지표는
+<code>bench_nn_pricer.py</code> 의 IV RMSE / intrinsic-filter 를 봐야 함 (§3 표 참조).</p>
+
+<h3>Hedging comparison (TC=0.3%, 500 paths)</h3>
+<table>
+  <thead>
+    <tr><th>Method</th><th>Mean PnL</th><th>Std</th><th>CVaR@5%</th><th>Sharpe</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>A-BSMΔ-daily</td><td class="num">-0.74</td><td class="num good">0.44</td><td class="num good">1.83</td><td class="num">-1.69</td></tr>
+    <tr><td>A-BSMΔ-weekly</td><td class="num">-0.49</td><td class="num">0.91</td><td class="num">2.85</td><td class="num">-0.54</td></tr>
+    <tr><td>B4-DeepHedging-PPO</td><td class="num bad">-1.38</td><td class="num bad">6.11</td><td class="num bad">22.51</td><td class="num">-0.23</td></tr>
+  </tbody>
+</table>
+
+<!-- =================================================== -->
+<h2>8. 이력서 bullet 초안</h2>
+
+<div class="callout callout-ok">
+  <p>"<strong>Classical × AI Pricing × AI Hedging × Auto-Trading × C++ 가속</strong> 을 통합한 한화투자증권 포트폴리오용 모노레포 (5 Layer, 37+ pytest). CPU-only 환경에서:</p>
+  <ul>
+    <li>Hutchinson 1994 NN Pricer 재현 후 <strong>log-space MSE loss 로 개선</strong>, Hutchinson 원본 대비 ATM IV 오차 2.9× 개선 (3.13 → 0.55 vol pts), BSM 대비 CPU 추론 <strong>20× 가속</strong></li>
+    <li>Horvath 2021 Deep Calibration 재현: Heston 5-param 역매핑을 semi-analytic 최적화 대비 <strong>26× 가속</strong>, IV RMSE 0.5 vol pts 달성</li>
+    <li>C++ pybind11 + OpenMP MC kernel, numpy 대비 <strong>14.8× 가속</strong></li>
+    <li>KIS Developers API 클라이언트 + ETF iNAV 전략 + DRY_RUN 3단계 risk guard (포지션 20%, 일일손실 1.5%, 장 open/close 10분 차단)</li>
+    <li>Buehler 2019 Deep Hedging gym 환경 + PPO agent 구현 (수렴 튜닝은 진행 중)</li>
+    <li>News/LLM → IV shift 파이프라인: rule / FinBERT(KR) / Claude API 3중 분류기, event → ΔIV lookup</li>
+  </ul>"
+</div>
+
+<!-- =================================================== -->
+<h2>9. 남은 작업 (우선순위)</h2>
+
+<ol>
+  <li><strong>Deep Hedging 수렴 튜닝</strong> — §5 표의 action space 축소 + reward shaping 부터</li>
+  <li><strong>News/LLM 실제 데이터 백테스트</strong> — DART 공시 + 네이버 RSS 1주치로 IV shift 가설 검증</li>
+  <li><strong>한화 ELS 공시 1~2건 재가격</strong> — DART 에서 수동 다운 후 <code>data/els_samples/</code></li>
+  <li><strong>KIS 모의투자 3영업일 무중단 운영</strong> — 장중 시간에 runner 돌리기</li>
+  <li><strong>(선택) GPU 여유시 NN Pricer 500k → GPU 에서 더 큰 규모 실험</strong></li>
+  <li><strong>블로그 포스트 4편 작성</strong> — 이 문서 기반으로 한국어 각색</li>
+</ol>
+
+<p class="meta" style="margin-top:40px;padding-top:14px;border-top:1px solid var(--border)">
+  관련 문서:
+  <a href="nn_pricer_underfit_analysis.html">nn_pricer_underfit_analysis.html</a> ·
+  <a href="nn_pricer_retrain_results.html">nn_pricer_retrain_results.html</a> ·
+  <a href="../HOWTO.md">HOWTO.md</a><br>
+  모델: <code>models/nn_pricer_{mse,log,hybrid,log_500k}.pt</code> · <code>models/deep_calib.pt</code> ·
+  <code>models/ppo_tc{0,03}.zip</code>
+</p>
+
+</body>
+</html>

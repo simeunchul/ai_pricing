@@ -7,6 +7,11 @@
 #include <omp.h>
 #endif
 
+// MSVC does not define M_PI by default.
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 namespace fastmc {
 
 double Xorshift64::normal() {

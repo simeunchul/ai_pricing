@@ -28,7 +28,7 @@ struct Xorshift64 {
 // European call MC price under GBM, antithetic. Returns (price, stderr).
 struct MCResult {
     double price;
-    double stderr;
+    double std_err;
 };
 
 MCResult mc_euro_call(

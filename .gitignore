@@ -27,6 +27,9 @@ data/hedging_paths/*.npz
 data/els_samples/*.pdf
 models/*.pt
 models/*.pth
+models/*.zip
+data/*.npz
+data/runner_log*.json
 
 # C++ build
 packages/fastmc/build/
