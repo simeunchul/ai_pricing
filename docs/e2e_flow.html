@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>quant-lab · End-to-End 흐름 보고서</title>
+<style>
+  :root {
+    --fg: #1a1a1a; --bg: #fafafa; --muted: #666;
+    --accent: #2c5aa0; --accent-light: #e6eef7;
+    --warn: #c0392b; --warn-light: #fdeae6;
+    --ok: #0b8043; --ok-light: #e6f3ea;
+    --yellow: #a6820d; --yellow-light: #fff4d6;
+    --purple: #6c3483; --purple-light: #eee0f3;
+    --border: #ddd; --code-bg: #f4f4f4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR",
+                 "Apple SD Gothic Neo", Roboto, sans-serif;
+    color: var(--fg); background: var(--bg); line-height: 1.65;
+    max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px;
+  }
+  h1 { font-size: 28px; border-bottom: 3px solid var(--accent); padding-bottom: 8px; }
+  h2 { font-size: 22px; margin-top: 44px; color: var(--accent);
+       border-left: 4px solid var(--accent); padding-left: 12px; }
+  h3 { font-size: 17px; margin-top: 26px; }
+  h4 { font-size: 15px; color: var(--muted); margin-bottom: 6px; }
+  code {
+    background: var(--code-bg); padding: 2px 6px; border-radius: 3px;
+    font-family: ui-monospace, Consolas, monospace; font-size: 13px;
+  }
+  pre {
+    background: var(--code-bg); padding: 14px 16px; border-radius: 6px;
+    overflow-x: auto; font-size: 13px; border-left: 3px solid var(--accent);
+  }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { padding: 10px 12px; text-align: left; border: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--accent-light); font-weight: 600; }
+  tbody tr:nth-child(even) { background: #f7f7f7; }
+  .num { font-family: ui-monospace, Consolas, monospace; }
+  .callout { border-left: 4px solid; padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .callout-warn { border-color: var(--warn); background: var(--warn-light); }
+  .callout-ok { border-color: var(--ok); background: var(--ok-light); }
+  .callout-info { border-color: var(--accent); background: var(--accent-light); }
+  .callout-yellow { border-color: var(--yellow); background: var(--yellow-light); }
+  .callout-purple { border-color: var(--purple); background: var(--purple-light); }
+  figure { margin: 20px 0; text-align: center; }
+  figcaption { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+  .toc { background: #fff; border: 1px solid var(--border); border-radius: 6px;
+         padding: 16px 24px; margin: 20px 0; }
+  .toc ol { margin: 4px 0; padding-left: 24px; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .layer-A { color: #2c5aa0; }
+  .layer-B { color: #6c3483; }
+  .layer-C { color: #a6820d; }
+  .layer-D { color: #0b8043; }
+  .layer-E { color: #c0392b; }
+  .kbd {
+    display: inline-block; padding: 2px 6px; border: 1px solid var(--border);
+    border-bottom-width: 2px; border-radius: 3px; font-family: ui-monospace, Consolas, monospace;
+    font-size: 12px; background: #fff;
+  }
+  .path {
+    background: #eef; padding: 2px 5px; border-radius: 3px;
+    font-family: ui-monospace, Consolas, monospace; font-size: 12.5px;
+  }
+</style>
+</head>
+<body>
+
+<h1>quant-lab · End-to-End 흐름 보고서</h1>
+<p class="meta">
+  작성 2026-04-24 · 대상: 수학과 전공, Python 숙련, 퀀트/파생 개념 습득 중 ·
+  목표: 이 프로젝트의 데이터가 어디서 와서 어떻게 흘러가고 어디로 가는지 한 번에 이해
+</p>
+
+<div class="callout callout-info">
+  <strong>이 문서를 읽는 방법</strong> — §1~3 에서 큰 그림을 보고, §4~8 에서 각 Layer 의 역할을 확인하고,
+  §9~10 에서 실제 실행 절차와 산출물 사용처를 체크하세요. 수치나 분석 상세는
+  <a href="full_stack_status.html">full_stack_status.html</a> 과
+  <a href="nn_pricer_retrain_results.html">nn_pricer_retrain_results.html</a> 참조.
+</div>
+
+<nav class="toc">
+  <strong>목차</strong>
+  <ol>
+    <li><a href="#intent">프로젝트 의도 (왜 만들었나)</a></li>
+    <li><a href="#big-picture">전체 흐름도 (1장 요약)</a></li>
+    <li><a href="#core-concepts">꼭 알아야 할 5개 개념</a></li>
+    <li><a href="#data">데이터 소스 — 합성과 실제</a></li>
+    <li><a href="#layer-a">Layer A · 입력이 어떻게 가격으로 바뀌나</a></li>
+    <li><a href="#layer-b">Layer B · 4개 AI 모델이 각자 뭘 하나</a></li>
+    <li><a href="#layer-c-d-e">Layer C/D/E · 비교·운영·가속</a></li>
+    <li><a href="#metrics">지표 카탈로그 — 숫자가 의미하는 것</a></li>
+    <li><a href="#artifacts">산출물 → 사용처 매핑</a></li>
+    <li><a href="#how-to-run">실행 절차 (Step-by-Step)</a></li>
+  </ol>
+</nav>
+
+<!-- ================================================================ -->
+<h2 id="intent">1. 프로젝트 의도</h2>
+
+<h3>문제 정의</h3>
+<p>
+  한화투자증권 디지털금융(Trading) 직무는 JD 에서 4축을 요구:
+  <strong>(1) 자산운용</strong> · <strong>(2) ELS 헤지</strong> ·
+  <strong>(3) ETF LP 업무</strong> · <strong>(4) Trading 전산 시스템</strong>.
+</p>
+<p>
+  퀀트/파생 경력 없이 이 JD 4축을 포트폴리오 한 건으로 커버하려면 <strong>동일 주제를 여러 각도로 풀어내는 모노레포</strong> 가 가장 밀도 높은 증명.
+  그래서 <strong>"같은 옵션에 대해 5가지 가격을 산출하고 비교"</strong> 를 중심 축으로 잡음.
+</p>
+
+<h3>프로젝트가 증명하려는 것</h3>
+<ol>
+  <li><strong>Classical 퀀트 재현 능력</strong> — BSM, Heston, ELS MC 를 이론서 수준으로 구현하고 검증</li>
+  <li><strong>AI 응용 능력</strong> — Hutchinson 1994 / Horvath 2021 / Buehler 2019 세 논문 재현</li>
+  <li><strong>Trading 전산 감각</strong> — 실시간 자동매매 risk guard 설계</li>
+  <li><strong>퍼포먼스 엔지니어링</strong> — Python 병목을 C++ 로 밀어내는 습관</li>
+  <li><strong>실험 설계</strong> — 동일 경로에서 5 method 비교 프레임워크</li>
+</ol>
+
+<!-- ================================================================ -->
+<h2 id="big-picture">2. 전체 흐름도</h2>
+
+<figure>
+  <svg viewBox="0 0 1000 520" xmlns="http://www.w3.org/2000/svg" width="100%" height="auto"
+       style="background:#fff;border:1px solid var(--border);border-radius:4px">
+
+    <!-- Title -->
+    <text x="500" y="24" font-size="15" font-weight="600" text-anchor="middle" fill="#333">
+      quant-lab E2E · 데이터 ⇢ 모델 ⇢ 지표 ⇢ 이력서/면접 자료
+    </text>
+
+    <!-- DATA SOURCES (top) -->
+    <g>
+      <rect x="30" y="50" width="200" height="90" fill="#e6eef7" stroke="#2c5aa0" rx="5"/>
+      <text x="130" y="72" text-anchor="middle" font-weight="600" font-size="13">INPUT: 데이터</text>
+      <text x="130" y="92" text-anchor="middle" font-size="11">• 합성 (BSM/Heston 공식)</text>
+      <text x="130" y="108" text-anchor="middle" font-size="11">• 네이버 RSS (공개)</text>
+      <text x="130" y="124" text-anchor="middle" font-size="11">• DART 공시 (API 키 필요)</text>
+    </g>
+
+    <!-- Layer A -->
+    <g>
+      <rect x="270" y="50" width="170" height="90" fill="#e6eef7" stroke="#2c5aa0" rx="5"/>
+      <text x="355" y="72" text-anchor="middle" font-weight="600" font-size="13" fill="#2c5aa0">Layer A · Classical</text>
+      <text x="355" y="90" text-anchor="middle" font-size="11">BSM · Binomial · MC</text>
+      <text x="355" y="106" text-anchor="middle" font-size="11">Greeks · IV · Heston</text>
+      <text x="355" y="122" text-anchor="middle" font-size="11">ELS step-down</text>
+    </g>
+
+    <!-- Arrow data → A -->
+    <path d="M 230,95 L 265,95" stroke="#333" stroke-width="1.5" marker-end="url(#arr)"/>
+
+    <!-- Layer B group (right side) -->
+    <g>
+      <rect x="480" y="50" width="480" height="210" fill="#f8f0fb" stroke="#6c3483" stroke-dasharray="4,3" rx="6"/>
+      <text x="720" y="68" text-anchor="middle" font-weight="600" font-size="13" fill="#6c3483">Layer B · AI Pricing &amp; Hedging</text>
+
+      <!-- B1 -->
+      <g>
+        <rect x="500" y="80" width="200" height="80" fill="#fff" stroke="#6c3483" rx="4"/>
+        <text x="600" y="100" text-anchor="middle" font-weight="600" font-size="12">B1 · NN Pricer</text>
+        <text x="600" y="118" text-anchor="middle" font-size="10">(S,K,T,r,q,σ) → 가격</text>
+        <text x="600" y="132" text-anchor="middle" font-size="10" fill="#666">Hutchinson-Lo-Poggio 1994</text>
+        <text x="600" y="150" text-anchor="middle" font-size="10" fill="#0b8043">ATM IV 0.55 vp ✓</text>
+      </g>
+
+      <!-- B2 -->
+      <g>
+        <rect x="740" y="80" width="200" height="80" fill="#fff" stroke="#6c3483" rx="4"/>
+        <text x="840" y="100" text-anchor="middle" font-weight="600" font-size="12">B2 · Deep Calibration</text>
+        <text x="840" y="118" text-anchor="middle" font-size="10">시장 IV → Heston params</text>
+        <text x="840" y="132" text-anchor="middle" font-size="10" fill="#666">Horvath 2021</text>
+        <text x="840" y="150" text-anchor="middle" font-size="10" fill="#0b8043">26× 가속 ✓</text>
+      </g>
+
+      <!-- B3 -->
+      <g>
+        <rect x="500" y="170" width="200" height="80" fill="#fff" stroke="#6c3483" rx="4"/>
+        <text x="600" y="190" text-anchor="middle" font-weight="600" font-size="12">B3 · News/LLM → IV</text>
+        <text x="600" y="208" text-anchor="middle" font-size="10">뉴스 → event → ΔIV</text>
+        <text x="600" y="222" text-anchor="middle" font-size="10" fill="#666">FinBERT / Claude API</text>
+        <text x="600" y="240" text-anchor="middle" font-size="10" fill="#a6820d">프레임워크 완료</text>
+      </g>
+
+      <!-- B4 -->
+      <g>
+        <rect x="740" y="170" width="200" height="80" fill="#fff" stroke="#6c3483" rx="4"/>
+        <text x="840" y="190" text-anchor="middle" font-weight="600" font-size="12">B4 · Deep Hedging</text>
+        <text x="840" y="208" text-anchor="middle" font-size="10">관측 → 헤지 수량 (PPO)</text>
+        <text x="840" y="222" text-anchor="middle" font-size="10" fill="#666">Buehler 2019</text>
+        <text x="840" y="240" text-anchor="middle" font-size="10" fill="#a6820d">수렴 튜닝 중</text>
+      </g>
+    </g>
+
+    <!-- Arrows from A to B group -->
+    <path d="M 440,95 Q 460,95 480,100" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#arr)"/>
+    <text x="455" y="88" font-size="9" fill="#666">가격 라벨</text>
+
+    <!-- Layer C (center) -->
+    <g>
+      <rect x="270" y="290" width="440" height="80" fill="#fff4d6" stroke="#a6820d" rx="5"/>
+      <text x="490" y="312" text-anchor="middle" font-weight="600" font-size="13" fill="#a6820d">
+        Layer C · Comparison Framework
+      </text>
+      <text x="490" y="330" text-anchor="middle" font-size="11">
+        동일 옵션 · 동일 경로 · 5가지 방법 (BSM / NN / DeepCalib / NewsAdj / DeepHedging)
+      </text>
+      <text x="490" y="346" text-anchor="middle" font-size="11">
+        지표: mean_err · IV error · CVaR · Sharpe · inference µs
+      </text>
+      <text x="490" y="362" text-anchor="middle" font-size="10" fill="#666">
+        산출: data/all_methods_pricing.csv · data/all_methods_hedging.csv
+      </text>
+    </g>
+
+    <!-- Arrows A → C, B → C -->
+    <path d="M 355,140 L 355,290" stroke="#333" stroke-width="1.5" marker-end="url(#arr)"/>
+    <path d="M 720,260 Q 720,280 600,290" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#arr)"/>
+
+    <!-- Layer D -->
+    <g>
+      <rect x="30" y="290" width="200" height="80" fill="#e6f3ea" stroke="#0b8043" rx="5"/>
+      <text x="130" y="312" text-anchor="middle" font-weight="600" font-size="13" fill="#0b8043">
+        Layer D · Auto-Trading
+      </text>
+      <text x="130" y="328" text-anchor="middle" font-size="11">KIS Developers API</text>
+      <text x="130" y="344" text-anchor="middle" font-size="11">ETF iNAV 전략</text>
+      <text x="130" y="360" text-anchor="middle" font-size="10" fill="#666">DRY_RUN 기본, 실주문 opt-in</text>
+    </g>
+
+    <!-- Layer E -->
+    <g>
+      <rect x="740" y="290" width="220" height="80" fill="#fdeae6" stroke="#c0392b" rx="5"/>
+      <text x="850" y="312" text-anchor="middle" font-weight="600" font-size="13" fill="#c0392b">
+        Layer E · C++ MC Kernel
+      </text>
+      <text x="850" y="328" text-anchor="middle" font-size="11">pybind11 + OpenMP</text>
+      <text x="850" y="344" text-anchor="middle" font-size="11">Xorshift64 antithetic</text>
+      <text x="850" y="360" text-anchor="middle" font-size="10" fill="#0b8043">14.8× vs numpy ✓</text>
+    </g>
+
+    <!-- OUTPUTS (bottom) -->
+    <g>
+      <rect x="230" y="410" width="540" height="90" fill="#fff" stroke="#333" rx="5"/>
+      <text x="500" y="434" text-anchor="middle" font-weight="600" font-size="13">
+        OUTPUT: 이력서 / 면접 / 블로그 자료
+      </text>
+      <text x="500" y="454" text-anchor="middle" font-size="11">
+        · GitHub 모노레포 1개 (5 tag: v0.1 ~ v1.0)
+      </text>
+      <text x="500" y="470" text-anchor="middle" font-size="11">
+        · 성능 비교 CSV + 재학습 HTML 리포트 (docs/)
+      </text>
+      <text x="500" y="486" text-anchor="middle" font-size="11">
+        · AI 생산성 로그 + 블로그 4편 (notes/)
+      </text>
+    </g>
+
+    <!-- Arrows to output -->
+    <path d="M 130,370 Q 130,400 280,420" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#arr)"/>
+    <path d="M 490,370 L 490,410" stroke="#333" stroke-width="1.5" marker-end="url(#arr)"/>
+    <path d="M 850,370 Q 850,400 720,420" fill="none" stroke="#333" stroke-width="1.5" marker-end="url(#arr)"/>
+
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0,0 L 10,5 L 0,10 z" fill="#333"/>
+      </marker>
+    </defs>
+  </svg>
+  <figcaption>1장 요약. 화살표는 데이터/신호 방향. 점선 그룹(B)은 4개 독립 AI 모델.</figcaption>
+</figure>
+
+<!-- ================================================================ -->
+<h2 id="core-concepts">3. 꼭 알아야 할 5개 개념</h2>
+
+<table>
+  <thead><tr><th style="width:15%">개념</th><th>한 문장 정의</th><th>이 프로젝트에서 쓰이는 곳</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>옵션 가격 C</strong></td>
+      <td>미래 어느 시점 <code>T</code> 에 <code>S_T &gt; K</code> 이면 차액 지급받는 계약의 현재 가치</td>
+      <td>모든 Layer 의 공통 출력. "이 옵션은 지금 얼마짜리인가"</td>
+    </tr>
+    <tr>
+      <td><strong>Implied Volatility (IV, σ)</strong></td>
+      <td>시장 가격을 BSM 공식에 거꾸로 넣었을 때 나오는 변동성. "시장이 느끼는 불확실성 레벨"</td>
+      <td>Layer B2 가 대상 변수. Layer B3 가 이것을 shift. 평가 지표의 핵심 단위</td>
+    </tr>
+    <tr>
+      <td><strong>Delta (Δ)</strong></td>
+      <td>기초자산 1원 변할 때 옵션 가격이 몇 원 변하나 (∂C/∂S). 헤지 비율.</td>
+      <td>Layer A Greeks 에서 계산. Layer B4 의 baseline (BSM Δ-hedge)</td>
+    </tr>
+    <tr>
+      <td><strong>Risk-neutral measure (Q)</strong></td>
+      <td>가격 = Q 하에서의 payoff 기대값. 수학: Girsanov 로 drift μ → r 치환</td>
+      <td>Layer A MC 엔진의 drift 설정. "왜 실제 drift 안 쓰고 r 쓰냐" 의 답</td>
+    </tr>
+    <tr>
+      <td><strong>CVaR@5%</strong></td>
+      <td>하위 5% 시나리오의 평균 손실 (tail risk). "최악의 1/20 일에 평균 얼마 잃나"</td>
+      <td>Layer B4 의 핵심 평가 지표. BSM Δ 대비 개선 여부 판정</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ================================================================ -->
+<h2 id="data">4. 데이터 소스 — 합성 vs 실제</h2>
+
+<div class="callout callout-warn">
+  <strong>중요</strong> — 지금까지 모든 학습은 <strong>합성 데이터</strong> 로 진행.
+  실제 시장 데이터 투입은 다음 단계 (플랜 "Week 1 DART 확보" 부터).
+  면접/이력서에서 이 구분 반드시 지킬 것.
+</div>
+
+<table>
+  <thead>
+    <tr><th>데이터</th><th>출처</th><th>현재 사용처</th><th>상태</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>BSM 합성 옵션</strong><br>(S, K, T, r, q, σ) × 500k</td>
+      <td>Layer A <code>call_price()</code> 로 생성</td>
+      <td>B1 NN Pricer 학습</td>
+      <td>✓ 500,000 샘플 사용</td>
+    </tr>
+    <tr>
+      <td><strong>Heston 합성 IV surface</strong><br>params × 3k → 5×5 grid</td>
+      <td>Layer A <code>heston_call_semi()</code> + IV solver</td>
+      <td>B2 Deep Calib 학습</td>
+      <td>✓ 3,000 param tuple</td>
+    </tr>
+    <tr>
+      <td><strong>GBM 가격 경로</strong></td>
+      <td>Gym env 내 실시간 시뮬레이션</td>
+      <td>B4 Deep Hedging 학습</td>
+      <td>✓ 수백만 step</td>
+    </tr>
+    <tr>
+      <td><strong>KIS Mock tick</strong></td>
+      <td><code>autotrader/runner.py::mock_prices()</code></td>
+      <td>D runner DRY_RUN 스모크</td>
+      <td>✓ 확인됨 (장외 시간)</td>
+    </tr>
+    <tr>
+      <td colspan="4" style="text-align:center;background:#fff4d6;font-weight:600;color:#a6820d">
+        ▼ 아래는 아직 사용 안 함 (다음 단계) ▼
+      </td>
+    </tr>
+    <tr>
+      <td><strong>한화 ELS 공시 PDF</strong></td>
+      <td>DART (dart.fss.or.kr)</td>
+      <td>Layer A ELS 모델 실제 검증</td>
+      <td>⨯ 수동 다운 필요</td>
+    </tr>
+    <tr>
+      <td><strong>KOSPI200 옵션 일간 IV</strong></td>
+      <td><code>pykrx</code> (오픈소스)</td>
+      <td>B2 실사용 / B3 정답 레이블</td>
+      <td>⨯ 스크립트 미작성</td>
+    </tr>
+    <tr>
+      <td><strong>네이버 금융 뉴스</strong></td>
+      <td>RSS (공개, 키 없음)</td>
+      <td>B3 News-IV 백테스트</td>
+      <td>⨯ 1주치 크롤 필요</td>
+    </tr>
+    <tr>
+      <td><strong>DART 공시 텍스트</strong></td>
+      <td>opendart.fss.or.kr API</td>
+      <td>B3 이벤트 분류 입력</td>
+      <td>⨯ API 키 발급 필요</td>
+    </tr>
+    <tr>
+      <td><strong>KIS 실시간 시세</strong></td>
+      <td>KIS Developers WebSocket</td>
+      <td>D 운영 (모의/실계좌)</td>
+      <td>⨯ 계좌 개설 필요</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ================================================================ -->
+<h2 id="layer-a">5. Layer A · 입력 → 가격 변환 상세</h2>
+
+<figure>
+  <svg viewBox="0 0 900 280" xmlns="http://www.w3.org/2000/svg" width="100%" height="auto"
+       style="background:#fff;border:1px solid var(--border);border-radius:4px">
+    <text x="450" y="24" font-size="14" font-weight="600" text-anchor="middle" fill="#2c5aa0">
+      Layer A · 내부 함수 호출 흐름
+    </text>
+
+    <!-- Input -->
+    <rect x="30" y="60" width="150" height="70" fill="#e6eef7" stroke="#2c5aa0" rx="4"/>
+    <text x="105" y="82" text-anchor="middle" font-size="13" font-weight="600">BSMInputs</text>
+    <text x="105" y="100" text-anchor="middle" font-size="10">S: spot</text>
+    <text x="105" y="114" text-anchor="middle" font-size="10">K: strike</text>
+    <text x="105" y="128" text-anchor="middle" font-size="10">T, r, q, σ</text>
+
+    <!-- Functions (column) -->
+    <g>
+      <rect x="250" y="40" width="180" height="36" fill="#fff" stroke="#333" rx="3"/>
+      <text x="340" y="63" text-anchor="middle" font-size="11">call_price(i) → C (closed)</text>
+    </g>
+    <g>
+      <rect x="250" y="88" width="180" height="36" fill="#fff" stroke="#333" rx="3"/>
+      <text x="340" y="111" text-anchor="middle" font-size="11">binomial_european(i, N)</text>
+    </g>
+    <g>
+      <rect x="250" y="136" width="180" height="36" fill="#fff" stroke="#333" rx="3"/>
+      <text x="340" y="159" text-anchor="middle" font-size="11">mc_price(i, payoff)</text>
+    </g>
+    <g>
+      <rect x="250" y="184" width="180" height="36" fill="#fff" stroke="#333" rx="3"/>
+      <text x="340" y="207" text-anchor="middle" font-size="11">call_greeks(i) → Δ,Γ,ν,Θ,ρ</text>
+    </g>
+    <g>
+      <rect x="250" y="232" width="180" height="36" fill="#fff" stroke="#333" rx="3"/>
+      <text x="340" y="255" text-anchor="middle" font-size="11">implied_vol(C, i) → σ</text>
+    </g>
+
+    <!-- Arrow from input to column -->
+    <path d="M 180,95 L 248,58" stroke="#333" stroke-width="1" marker-end="url(#arr2)"/>
+    <path d="M 180,95 L 248,106" stroke="#333" stroke-width="1" marker-end="url(#arr2)"/>
+    <path d="M 180,95 L 248,154" stroke="#333" stroke-width="1" marker-end="url(#arr2)"/>
+    <path d="M 180,95 L 248,202" stroke="#333" stroke-width="1" marker-end="url(#arr2)"/>
+    <path d="M 180,95 L 248,250" stroke="#333" stroke-width="1" marker-end="url(#arr2)"/>
+
+    <!-- Output -->
+    <rect x="470" y="80" width="180" height="130" fill="#e6f3ea" stroke="#0b8043" rx="4"/>
+    <text x="560" y="102" text-anchor="middle" font-size="12" font-weight="600">결과 (검증)</text>
+    <text x="560" y="122" text-anchor="middle" font-size="10">3가지 가격 상호검증</text>
+    <text x="560" y="138" text-anchor="middle" font-size="10">rel err &lt; 1e-3</text>
+    <text x="560" y="158" text-anchor="middle" font-size="10">Put-Call parity</text>
+    <text x="560" y="174" text-anchor="middle" font-size="10">IV roundtrip &lt; 1e-6</text>
+    <text x="560" y="194" text-anchor="middle" font-size="10" fill="#0b8043">16 pytest green</text>
+
+    <path d="M 430,154 L 470,154" stroke="#333" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+    <!-- ELS path -->
+    <g>
+      <rect x="700" y="60" width="180" height="50" fill="#fff" stroke="#6c3483" rx="3"/>
+      <text x="790" y="82" text-anchor="middle" font-size="11" font-weight="600">StepDownELS</text>
+      <text x="790" y="100" text-anchor="middle" font-size="10">2-asset MC + KI/auto-call</text>
+    </g>
+    <g>
+      <rect x="700" y="130" width="180" height="50" fill="#fff" stroke="#6c3483" rx="3"/>
+      <text x="790" y="152" text-anchor="middle" font-size="11" font-weight="600">HestonParams</text>
+      <text x="790" y="170" text-anchor="middle" font-size="10">semi-analytic + MC</text>
+    </g>
+    <text x="790" y="210" text-anchor="middle" font-size="10" fill="#666">Layer B 가 이걸 입력으로 씀</text>
+
+    <defs>
+      <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+        <path d="M 0,0 L 10,5 L 0,10 z" fill="#333"/>
+      </marker>
+    </defs>
+  </svg>
+  <figcaption>Layer A 는 이론·수식을 구현한 모든 Layer 의 ground truth 제공자</figcaption>
+</figure>
+
+<h3>실제 사용 예 — 최소 3줄</h3>
+<pre><code>from pricing.bsm import BSMInputs, call_price
+from pricing.greeks.analytic import call_greeks
+
+i = BSMInputs(S=100, K=100, T=1, r=0.03, q=0, sigma=0.2)
+print(call_price(i))      # 9.4134
+print(call_greeks(i).delta)  # 0.5987</code></pre>
+
+<!-- ================================================================ -->
+<h2 id="layer-b">6. Layer B · 4개 AI 모델의 역할과 입출력</h2>
+
+<table>
+  <thead>
+    <tr><th>서브레이어</th><th>입력</th><th>출력</th><th>학습 목적</th><th>추론 시 용도</th></tr>
+  </thead>
+  <tbody>
+    <tr class="layer-B">
+      <td><strong>B1 NN Pricer</strong></td>
+      <td class="num">(logM, T, r, q, σ)</td>
+      <td class="num">C / K</td>
+      <td>BSM/MC 의 대체 (exotic 도 가능)</td>
+      <td>Risk 시스템에서 10만건 re-pricing 실시간</td>
+    </tr>
+    <tr class="layer-B">
+      <td><strong>B2 Deep Calib</strong></td>
+      <td class="num">Heston 5-param</td>
+      <td class="num">IV surface (5×5)</td>
+      <td>파라미터 → IV 순방향 근사</td>
+      <td>역방향 calibration: 시장 IV → params gradient descent, 1초 내</td>
+    </tr>
+    <tr class="layer-B">
+      <td><strong>B3 News-IV</strong></td>
+      <td>뉴스 텍스트</td>
+      <td>(event_type, confidence)</td>
+      <td>이벤트 분류 (rule/FinBERT/Claude 택1)</td>
+      <td>IV_SHIFT_RULES 에 적용해 가격 선행 조정</td>
+    </tr>
+    <tr class="layer-B">
+      <td><strong>B4 Deep Hedging</strong></td>
+      <td class="num">[logM, T_rem, hedge, σ√T_rem, cash]</td>
+      <td class="num">hedge ∈ [0,1]</td>
+      <td>마찰 포함 CVaR 최소화 policy</td>
+      <td>매 tick 관측 → optimal hedge. BSM Δ 보다 실전에서 유리해야 함</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>B1 (NN Pricer) 흐름 상세</h3>
+<figure>
+  <svg viewBox="0 0 900 200" xmlns="http://www.w3.org/2000/svg" width="100%" height="auto"
+       style="background:#fff;border:1px solid var(--border);border-radius:4px">
+
+    <rect x="20" y="60" width="140" height="70" fill="#e6eef7" stroke="#2c5aa0" rx="4"/>
+    <text x="90" y="82" text-anchor="middle" font-size="12" font-weight="600">sample_inputs(500k)</text>
+    <text x="90" y="100" text-anchor="middle" font-size="10">uniform over realistic</text>
+    <text x="90" y="114" text-anchor="middle" font-size="10">(S,K,T,r,q,σ) domain</text>
+
+    <rect x="180" y="60" width="140" height="70" fill="#e6eef7" stroke="#2c5aa0" rx="4"/>
+    <text x="250" y="82" text-anchor="middle" font-size="12" font-weight="600">label_bsm()</text>
+    <text x="250" y="100" text-anchor="middle" font-size="10">각 샘플에 BSM 정답</text>
+    <text x="250" y="114" text-anchor="middle" font-size="10">가격 부착 (ground truth)</text>
+
+    <rect x="340" y="60" width="160" height="70" fill="#f8f0fb" stroke="#6c3483" rx="4"/>
+    <text x="420" y="82" text-anchor="middle" font-size="12" font-weight="600">train.py --loss log</text>
+    <text x="420" y="100" text-anchor="middle" font-size="10">MLP [5→128→128→64→1]</text>
+    <text x="420" y="114" text-anchor="middle" font-size="10">500k × 50 epochs · CPU 95min</text>
+
+    <rect x="520" y="60" width="140" height="70" fill="#fff4d6" stroke="#a6820d" rx="4"/>
+    <text x="590" y="82" text-anchor="middle" font-size="12" font-weight="600">nn_pricer_log_500k.pt</text>
+    <text x="590" y="100" text-anchor="middle" font-size="10">state_dict + cfg</text>
+    <text x="590" y="114" text-anchor="middle" font-size="10">~100KB</text>
+
+    <rect x="680" y="60" width="200" height="70" fill="#e6f3ea" stroke="#0b8043" rx="4"/>
+    <text x="780" y="82" text-anchor="middle" font-size="12" font-weight="600">bench_nn_pricer.py</text>
+    <text x="780" y="100" text-anchor="middle" font-size="10">IV mean 0.625 vp</text>
+    <text x="780" y="114" text-anchor="middle" font-size="10">ATM bucket 0.548 vp ✓</text>
+
+    <path d="M 160,95 L 178,95" stroke="#333" stroke-width="1.5" marker-end="url(#arr3)"/>
+    <path d="M 320,95 L 338,95" stroke="#333" stroke-width="1.5" marker-end="url(#arr3)"/>
+    <path d="M 500,95 L 518,95" stroke="#333" stroke-width="1.5" marker-end="url(#arr3)"/>
+    <path d="M 660,95 L 678,95" stroke="#333" stroke-width="1.5" marker-end="url(#arr3)"/>
+
+    <text x="450" y="160" text-anchor="middle" font-size="11" fill="#666">
+      핵심 전환: Hutchinson 원본 MSE loss → log-space MSE 로 ATM IV 오차 3.13 vp → 0.55 vp (2.9× 개선)
+    </text>
+
+    <defs>
+      <marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+        <path d="M 0,0 L 10,5 L 0,10 z" fill="#333"/>
+      </marker>
+    </defs>
+  </svg>
+</figure>
+
+<h3>B2 (Deep Calib) 의 역방향 사용</h3>
+<p>
+  B2 는 특이함. <strong>순방향</strong>(Heston params → IV surface)으로 학습하고,
+  실제 사용은 <strong>역방향</strong>(시장 IV surface → Heston params)으로 함.
+  역방향은 학습 후 gradient descent 로 수행 (300 step, 1.36초).
+</p>
+<pre><code># 순방향 학습
+python -m ai_pricing.deep_calib.train --n 3000 --epochs 40
+
+# 역방향 사용 (시장 IV 관측 시)
+from ai_pricing.deep_calib.calibrate import calibrate
+p_fit, rmse = calibrate(iv_market, model, ...)
+# → HestonParams(kappa=3.38, theta=0.047, xi=0.35, rho=-0.80, v0=0.04)</code></pre>
+
+<h3>B3 (News-IV) 파이프라인</h3>
+<pre><code>뉴스 텍스트                      가격 조정
+   ↓                              ↑
+fetch_naver_rss() / DART       call_price(replace(opt, sigma=iv_adj))
+   ↓                              ↑
+classify_rule/finbert/claude  adjust_iv(base, event, conf)
+   ↓                              ↑
+(event, confidence) ──────→ dominant_event() ────→ ΔIV lookup</code></pre>
+
+<h3>B4 (Deep Hedging) RL 루프</h3>
+<pre><code>Episode 시작: S=100, 옵션 매도, 초기 premium 받음
+  ↓
+step 0~29:
+  obs = [logM, T_rem, current_hedge, σ√T_rem, cash_norm]
+  action = policy(obs)        # hedge 수량 [0, 1]
+  cash -= tc_rate * |Δhedge| * S
+  S = GBM tick
+  hedge_pnl = hedge * (S_next - S)
+  cash = cash*exp(r*dt) + hedge_pnl
+  ↓
+terminal (step 30):
+  payoff = max(S - K, 0)
+  terminal_pnl = cash - payoff
+  reward = -|terminal_pnl|    # minimize hedge error</code></pre>
+
+<!-- ================================================================ -->
+<h2 id="layer-c-d-e">7. Layer C / D / E — 비교 · 운영 · 가속</h2>
+
+<h3 class="layer-C">Layer C — Comparison Framework</h3>
+<p>
+  <code>experiments/compare_all.py</code> 는 A/B1/B2/B3/B4 에서 나온 모델을 <strong>동일 옵션 패널 + 동일 GBM 경로</strong>에 투입해 5가지 수치 비교.
+</p>
+<ul>
+  <li>Pricing: BSM (ground truth) vs NN vs Deep Calib 프로젝션 vs News-adjusted vs Deep Hedging implied cost</li>
+  <li>Hedging: BSM Δ-daily vs BSM Δ-weekly vs PPO Deep Hedging</li>
+  <li>산출: <code>data/all_methods_{pricing,hedging}.csv</code></li>
+</ul>
+
+<div class="callout callout-yellow">
+  <strong>주의</strong> — compare_all 의 <code>mean_rel_err</code> 는 deep OTM 분모 0 문제로 왜곡.
+  <strong>실제 평가는 <code>scripts/bench_nn_pricer.py</code> 의 IV-space error 를 봐야 함</strong>.
+</div>
+
+<h3 class="layer-D">Layer D — Auto-Trading</h3>
+<p>
+  <code>autotrader/runner.py</code> 가 메인 루프. 4-tier safety:
+</p>
+<ol>
+  <li><code>--dry</code> 플래그: KIS API 안 부르고 <code>mock_prices()</code> 로 시뮬. 네트워크 없이 스모크.</li>
+  <li>KIS vts 환경 + <code>KIS_DRY_RUN=true</code>: 시세 조회 O, 주문은 mock 응답.</li>
+  <li>KIS vts 환경 + <code>KIS_DRY_RUN=false</code>: 모의투자 계좌에 실제 주문 (가상머니).</li>
+  <li>KIS prod 환경 + <code>KIS_DRY_RUN=false</code> + <code>--i-understand-live</code>: 실계좌 실주문.</li>
+</ol>
+
+<p>추가 리스크 가드 (자동 적용):</p>
+<ul>
+  <li>포지션 한도 20%</li>
+  <li>일일 손실 −1.5% 초과 시 정지</li>
+  <li>장 시작/마감 10분 매매 차단</li>
+  <li>API 오류 3회 연속 → 정지</li>
+</ul>
+
+<h3 class="layer-E">Layer E — C++ MC Kernel</h3>
+<p>
+  pybind11 + OpenMP + Xorshift64 RNG. numpy 대비 14.8× (MC 1M paths × 252 steps).
+</p>
+<p>
+  왜 필요: Layer A MC 엔진이 numpy 로 충분히 빠르지만 (antithetic + vectorized),
+  실무에서 10만 개 옵션 × 100만 paths 하면 numpy 도 한계. 그때 native 로 전환.
+  이력서 line: "Python 병목 → C++ 이식 경험" 증명.
+</p>
+
+<pre><code>from fastmc import mc_euro_call, _HAS_NATIVE
+assert _HAS_NATIVE, "C++ extension not built"
+r = mc_euro_call(100, 100, 1, 0.03, 0, 0.2, n_paths=1_000_000, n_steps=252)
+print(r.price, r.stderr)</code></pre>
+
+<!-- ================================================================ -->
+<h2 id="metrics">8. 지표 카탈로그</h2>
+
+<h3>가격 정확도 (Layer B1 · B2)</h3>
+<table>
+  <thead><tr><th>지표</th><th>단위/수식</th><th>왜 보는가</th><th>이 프로젝트 달성값</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>IV mean |Δσ|</strong></td>
+      <td>vol points (0.01 = 1%p)</td>
+      <td>업계 표준. 가격 대신 IV 로 바꿔 동적 범위 문제 해결</td>
+      <td class="num">0.625 vp (전체) / 0.548 vp (ATM)</td>
+    </tr>
+    <tr>
+      <td>Intrinsic-filter rel err</td>
+      <td>(pred−true)/true, intrinsic 근처 제외</td>
+      <td>의미 있는 영역만 남겨 rel err 해석 가능</td>
+      <td class="num">0.88%</td>
+    </tr>
+    <tr>
+      <td>ATM point error</td>
+      <td>S=K=100, T=1, σ=20% 단 1건</td>
+      <td>직관적 sanity check</td>
+      <td class="num">1.95%</td>
+    </tr>
+    <tr>
+      <td>mean_rel_err (raw)</td>
+      <td>단순 평균 rel err</td>
+      <td>보고는 하지만 deep OTM 분모 문제로 해석 주의</td>
+      <td class="num">부풀려짐 (61.7%)</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>속도 (Layer B1 · E)</h3>
+<table>
+  <thead><tr><th>지표</th><th>단위</th><th>달성값</th></tr></thead>
+  <tbody>
+    <tr><td>NN Pricer inference</td><td>µs/option</td><td class="num">1.9 µs</td></tr>
+    <tr><td>NN speedup vs BSM loop (CPU)</td><td>배수</td><td class="num">20~27×</td></tr>
+    <tr><td>Deep Calib vs semi-analytic Nelder-Mead</td><td>배수</td><td class="num">26×</td></tr>
+    <tr><td>C++ MC vs numpy MC</td><td>배수</td><td class="num">14.8×</td></tr>
+  </tbody>
+</table>
+
+<h3>헤지 성과 (Layer B4)</h3>
+<table>
+  <thead><tr><th>지표</th><th>정의</th><th>현재값 (BSM Δ / PPO)</th></tr></thead>
+  <tbody>
+    <tr><td>Mean PnL</td><td>평균 손익 (헤지는 0 근처 이상적)</td><td class="num">-0.748 / -1.056</td></tr>
+    <tr><td>Std PnL</td><td>손익 표준편차</td><td class="num">0.45 / 5.60</td></tr>
+    <tr><td><strong>CVaR@5%</strong></td><td>하위 5% 시나리오 평균 손실</td><td class="num">1.88 / 20.83 (미수렴)</td></tr>
+    <tr><td>Sharpe</td><td>mean/std</td><td class="num">-1.69 / -0.23</td></tr>
+    <tr><td>Max DD</td><td>최대 누적 손실</td><td class="num">-370 / -705</td></tr>
+  </tbody>
+</table>
+
+<h3>시스템 안정성 (Layer D)</h3>
+<table>
+  <thead><tr><th>지표</th><th>확인 방법</th></tr></thead>
+  <tbody>
+    <tr><td>Risk guard 정상 작동</td><td>장외 시간 runner 실행 → "outside trading hours" 로그 확인</td></tr>
+    <tr><td>DRY_RUN 기본값 True</td><td>env 미설정 시 <code>KISConfig.dry_run=True</code></td></tr>
+    <tr><td>API 오류 카운트</td><td><code>state.error_count</code> 3회 누적 시 자동 halt</td></tr>
+  </tbody>
+</table>
+
+<!-- ================================================================ -->
+<h2 id="artifacts">9. 산출물 → 사용처 매핑</h2>
+
+<table>
+  <thead><tr><th>산출물</th><th>형식</th><th>쓰이는 곳</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>models/nn_pricer_*.pt</code></td>
+      <td>PyTorch state_dict</td>
+      <td>inference 데모, 이력서 수치 근거</td>
+    </tr>
+    <tr>
+      <td><code>models/deep_calib.pt</code></td>
+      <td>PyTorch state_dict + 정규화 stats</td>
+      <td>실시간 calibration (시장 IV 투입 시)</td>
+    </tr>
+    <tr>
+      <td><code>models/ppo_tc*.zip</code></td>
+      <td>Stable-Baselines3 zip</td>
+      <td>헤지 정책 로드 + 실시간 action</td>
+    </tr>
+    <tr>
+      <td><code>data/all_methods_*.csv</code></td>
+      <td>pandas CSV</td>
+      <td>Layer C 비교표, 블로그/이력서 전환</td>
+    </tr>
+    <tr>
+      <td><code>data/bench_*.txt</code></td>
+      <td>텍스트 dump</td>
+      <td>Before/After 비교 raw log</td>
+    </tr>
+    <tr>
+      <td><code>data/runner_log.json</code></td>
+      <td>JSON 라인별 tick</td>
+      <td>KIS 운영 분석용 (charting, PnL)</td>
+    </tr>
+    <tr>
+      <td><code>docs/*.html</code></td>
+      <td>self-contained HTML</td>
+      <td>면접 전 "이걸 GitHub 에서 눌러서 보여주세요" 자료</td>
+    </tr>
+    <tr>
+      <td>Git tags (v0.1~v1.0)</td>
+      <td>Annotated tag</td>
+      <td>9주 진행 흔적 (commit history = 학습 과정 증명)</td>
+    </tr>
+    <tr>
+      <td><code>notes/ai-productivity.md</code></td>
+      <td>일일 3~5줄</td>
+      <td>면접: "AI 도구로 생산성 얼마나 늘었는지" 수치 답변</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ================================================================ -->
+<h2 id="how-to-run">10. 실행 절차 (A to Z)</h2>
+
+<h3>Phase 1 · 설치 (1회)</h3>
+<pre><code>cd d:\simeunchul\ai_pricing
+python -m pip install -e packages/pricing -e packages/ai_pricing \
+                      -e packages/ai_hedging -e packages/experiments \
+                      -e packages/autotrader
+python -m pip install torch gymnasium stable-baselines3 transformers \
+                      feedparser requests pandas matplotlib
+python -m pip install -e packages/fastmc  # x64 Native Tools prompt 필요
+
+python -m pytest packages/ -q    # 37 passed</code></pre>
+
+<h3>Phase 2 · 학습 (1회씩)</h3>
+<pre><code># NN Pricer (권장: log loss, CPU 95분)
+python -m ai_pricing.nn_pricer.train --n 500000 --epochs 50 --loss log \
+    --out models/nn_pricer_log_500k.pt --device cpu
+
+# Deep Calibration (CPU 10분)
+python -m ai_pricing.deep_calib.train --n 3000 --epochs 40 \
+    --out models/deep_calib.pt --data data/deep_calib_cache.npz --device cpu
+
+# Deep Hedging (CPU 20~30분, 튜닝 중)
+python -m ai_hedging.agents.ppo_hedger --tc 0.003 --steps 2000000 \
+    --out models/ppo_tc03.zip</code></pre>
+
+<h3>Phase 3 · 평가 & 비교</h3>
+<pre><code># NN Pricer 개별 평가 (IV-space + strata)
+python scripts/bench_nn_pricer.py --model models/nn_pricer_log_500k.pt
+
+# 5-method 통합 비교
+python -m experiments.compare_all \
+    --nn-model models/nn_pricer_log_500k.pt \
+    --ppo-model models/ppo_tc03.zip \
+    --out data
+
+# C++ MC 속도 벤치
+python packages/fastmc/benchmarks/bench_mc.py</code></pre>
+
+<h3>Phase 4 · 자동매매 (실시간)</h3>
+<pre><code># 완전 시뮬 (계좌 없이)
+python -m autotrader.runner --symbol 069500 --dry --seconds 300 \
+    --log data/runner_log.json
+
+# 모의투자 (계좌 발급 후)
+# .env 에 KIS_APP_KEY, KIS_APP_SECRET, KIS_ACCOUNT 입력
+# KIS_ENV=vts 는 기본값
+python -m autotrader.runner --symbol 069500 --seconds 300</code></pre>
+
+<h3>Phase 5 · 실데이터 전환 (다음 단계)</h3>
+<ol>
+  <li>DART 가입 + API 키 발급 → <code>.env</code> 에 <code>DART_API_KEY=...</code></li>
+  <li><code>pykrx</code> 설치 → KOSPI200 옵션 IV 일간 스냅샷 수집 스크립트 작성</li>
+  <li>Layer B2 재학습 시 시장 surface 로 calibration 검증</li>
+  <li>Layer B3 실제 백테스트: 뉴스 → 예측 IV shift vs 다음날 IV 변화 상관</li>
+  <li>한화 ELS 공시 PDF 다운 → Layer A 재가격 ±3% 검증</li>
+</ol>
+
+<!-- ================================================================ -->
+<div class="callout callout-purple">
+  <strong>이 프로젝트를 제3자에게 1분 안에 설명하는 방법</strong>
+  <ol>
+    <li>"옵션 프라이싱·헤지를 Classical(BSM/Heston) + AI 4종(NN Pricer, Deep Calibration, News-IV, Deep Hedging) + C++ 가속으로 풀어낸 모노레포"</li>
+    <li>"500k 데이터 CPU 학습으로 Hutchinson 1994 NN Pricer 의 ATM IV 오차 0.55 vp, Horvath 2021 Deep Calibration 26× 가속 재현"</li>
+    <li>"KIS Developers API 로 ETF iNAV 전략 자동매매, DRY_RUN + 다중 risk guard 적용"</li>
+    <li>"모든 실험 결과는 GitHub README + docs/*.html 에 시각화 + CSV raw"</li>
+  </ol>
+</div>
+
+<p class="meta" style="margin-top:40px;padding-top:14px;border-top:1px solid var(--border)">
+  이 보고서: <code>docs/e2e_flow.html</code><br>
+  관련:
+  <a href="README.md">docs/README.md</a> ·
+  <a href="full_stack_status.html">full_stack_status.html</a> ·
+  <a href="nn_pricer_underfit_analysis.html">nn_pricer_underfit_analysis.html</a> ·
+  <a href="nn_pricer_retrain_results.html">nn_pricer_retrain_results.html</a> ·
+  <a href="../HOWTO.md">HOWTO.md</a><br>
+  버전 태그 예정:
+  <code>v0.1-binomial</code> → <code>v0.2-classical-core</code> → <code>v0.3-els-heston</code> →
+  <code>v0.4-nn-pricer</code> → <code>v0.5-deep-calib</code> → <code>v0.6-news-llm</code> →
+  <code>v0.7-deep-hedging-compare</code> → <code>v0.8-autotrader</code> → <code>v1.0-portfolio-complete</code>
+</p>
+
+</body>
+</html>
