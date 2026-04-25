@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Black-Scholes-Merton · 비전공자를 위한 설명</title>
+<script>
+  MathJax = {
+    tex: { inlineMath: [['$','$'], ['\\(','\\)']], displayMath: [['$$','$$'], ['\\[','\\]']] },
+    svg: { fontCache: 'global' }
+  };
+</script>
+<script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+<style>
+  :root {
+    --fg: #1a1a1a; --bg: #fafafa; --muted: #666;
+    --accent: #2c5aa0; --accent-light: #e6eef7;
+    --warn: #c0392b; --warn-light: #fdeae6;
+    --ok: #0b8043; --ok-light: #e6f3ea;
+    --yellow: #a6820d; --yellow-light: #fff4d6;
+    --purple: #6c3483; --purple-light: #eee0f3;
+    --border: #ddd; --code-bg: #f4f4f4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR",
+                 "Apple SD Gothic Neo", Roboto, sans-serif;
+    color: var(--fg); background: var(--bg); line-height: 1.7;
+    max-width: 980px; margin: 0 auto; padding: 32px 24px 80px;
+  }
+  h1 { font-size: 28px; border-bottom: 3px solid var(--accent); padding-bottom: 8px; }
+  h2 { font-size: 22px; margin-top: 48px; color: var(--accent);
+       border-left: 4px solid var(--accent); padding-left: 12px; }
+  h3 { font-size: 17px; margin-top: 28px; }
+  code {
+    background: var(--code-bg); padding: 2px 6px; border-radius: 3px;
+    font-family: ui-monospace, Consolas, monospace; font-size: 13px;
+  }
+  pre {
+    background: var(--code-bg); padding: 14px 16px; border-radius: 6px;
+    overflow-x: auto; font-size: 13px; border-left: 3px solid var(--accent);
+  }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { padding: 10px 12px; text-align: left; border: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--accent-light); font-weight: 600; }
+  tbody tr:nth-child(even) { background: #f7f7f7; }
+  .callout { border-left: 4px solid; padding: 12px 16px; margin: 18px 0; border-radius: 0 6px 6px 0; }
+  .callout-warn { border-color: var(--warn); background: var(--warn-light); }
+  .callout-ok   { border-color: var(--ok);   background: var(--ok-light); }
+  .callout-info { border-color: var(--accent); background: var(--accent-light); }
+  .callout-yellow { border-color: var(--yellow); background: var(--yellow-light); }
+  .callout-purple { border-color: var(--purple); background: var(--purple-light); }
+  figure { margin: 22px 0; text-align: center; }
+  figure img { max-width: 100%; border: 1px solid var(--border); border-radius: 4px; }
+  figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; }
+  .toc { background: #fff; border: 1px solid var(--border); border-radius: 6px;
+         padding: 16px 24px; margin: 20px 0; }
+  .toc ol { margin: 4px 0; padding-left: 24px; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .analogy { background: #fffbf0; border-left: 4px solid var(--yellow);
+             padding: 12px 18px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .analogy-title { font-weight: 600; color: var(--yellow); margin-bottom: 6px; font-size: 14px; }
+  .term { color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>Black-Scholes-Merton · 비전공자를 위한 설명</h1>
+<p class="meta">
+  대상: 수학 베이스는 있으나 옵션·파생 개념을 처음 접하는 사람 ·
+  목표: 노벨경제학상을 받은 BSM 공식을 "당연하게" 받아들일 수 있게 만들기
+</p>
+
+<div class="toc">
+  <strong>목차</strong>
+  <ol>
+    <li><a href="#sec-why">왜 옵션 가격이 어려운 문제일까</a></li>
+    <li><a href="#sec-option">먼저, 옵션이 뭔지부터</a></li>
+    <li><a href="#sec-fairprice">"공정한 가격"이라는 발상</a></li>
+    <li><a href="#sec-gbm">주가 모델 — GBM</a></li>
+    <li><a href="#sec-replicate">복제 포트폴리오 — BSM의 핵심 트릭</a></li>
+    <li><a href="#sec-formula">공식과 그 의미</a></li>
+    <li><a href="#sec-viz">한 장으로 보는 BSM</a></li>
+    <li><a href="#sec-greeks">Greeks — 가격이 무엇에 민감한가</a></li>
+    <li><a href="#sec-limits">BSM의 한계 (그리고 이 프로젝트가 푸는 것)</a></li>
+  </ol>
+</div>
+
+<!-- ======================================================== -->
+<h2 id="sec-why">1. 왜 옵션 가격이 어려운 문제일까</h2>
+
+<p>
+  주식의 "공정한 가격"은 비교적 단순하다 — 그 회사가 앞으로 벌어들일 현금흐름의 현재가치.
+  하지만 <span class="term">옵션</span>은 <em>"미래의 어떤 조건이 충족되면 받는 권리"</em>이기 때문에,
+  미래 주가가 어떻게 움직일지 모르는 상태에서 <strong>오늘의 가격을 매겨야 한다</strong>.
+</p>
+
+<div class="callout callout-info">
+  핵심 질문 — <strong>아직 일어나지 않은 일에 어떻게 값을 매기는가?</strong><br>
+  BSM은 이 질문에 1973년 처음으로 닫힌 공식을 내놓았고, 1997년 노벨경제학상으로 이어졌다.
+</div>
+
+<!-- ======================================================== -->
+<h2 id="sec-option">2. 먼저, 옵션이 뭔지부터</h2>
+
+<p>
+  옵션 = <strong>"미래의 정해진 가격에 사거나 팔 수 있는 권리"</strong> (의무가 아님).
+</p>
+
+<table>
+  <thead><tr><th>용어</th><th>기호</th><th>뜻</th></tr></thead>
+  <tbody>
+    <tr><td>현재 주가 (spot)</td><td>$S_0$</td><td>오늘 시장의 주식 가격</td></tr>
+    <tr><td>행사가 (strike)</td><td>$K$</td><td>미래에 사고팔 약속 가격</td></tr>
+    <tr><td>만기 (maturity)</td><td>$T$</td><td>이 권리가 살아 있는 기간 (년 단위)</td></tr>
+    <tr><td>콜옵션 (call)</td><td>$C$</td><td>$K$에 <strong>살</strong> 권리</td></tr>
+    <tr><td>풋옵션 (put)</td><td>$P$</td><td>$K$에 <strong>팔</strong> 권리</td></tr>
+  </tbody>
+</table>
+
+<div class="analogy">
+  <div class="analogy-title">▶ 비유: 콘서트 예매권</div>
+  지금 5만원에 "내년 BTS 콘서트 티켓을 정가 15만원에 살 수 있는 권리"를 산다고 하자.
+  내년 암표가 30만원이면 → 권리 행사해서 15만원에 사고 차익 15만원.
+  내년에 콘서트가 취소되거나 인기 없으면 → 그냥 권리 포기 (5만원만 손해).
+  <br>이 "5만원"이 옵션의 <strong>프리미엄</strong>, 즉 <strong>가격</strong>이다.
+</div>
+
+<p>만기 시점에 옵션이 가져다주는 돈 (페이오프, payoff)은 단순하다:</p>
+
+$$
+\text{Call payoff} = \max(S_T - K,\ 0), \qquad
+\text{Put payoff} = \max(K - S_T,\ 0)
+$$
+
+<p>
+  주가가 $K$를 넘기면 콜은 차이만큼 벌고, 못 넘기면 0. 풋은 그 반대.
+  문제는 — 만기는 미래고, $S_T$는 모른다. 그러니 오늘 얼마에 사야 공정한가?
+</p>
+
+<!-- ======================================================== -->
+<h2 id="sec-fairprice">3. "공정한 가격"이라는 발상</h2>
+
+<p>
+  순진하게 생각하면: "미래 페이오프의 기댓값을 현재가치로 할인하면 되지 않나?"
+</p>
+
+$$
+C \stackrel{?}{=} e^{-rT}\,\mathbb{E}[\max(S_T - K,\ 0)]
+$$
+
+<p>
+  맞는 방향이다. 하지만 두 가지 어려움이 있다:
+</p>
+<ol>
+  <li><strong>$S_T$의 확률분포가 뭔가?</strong> — 주가가 어떻게 움직이는지 모형이 필요하다.</li>
+  <li><strong>"현실 세계의 확률"로 기댓값을 구하면 틀린다.</strong>
+      사람마다 위험 선호가 달라서 가격이 달라져 버린다.
+      BSM의 천재성은 — <em>위험에 대한 선호와 무관한 가격</em>을 구하는 트릭에 있다.</li>
+</ol>
+
+<!-- ======================================================== -->
+<h2 id="sec-gbm">4. 주가 모델 — GBM (기하 브라운 운동)</h2>
+
+<p>
+  BSM은 주가가 다음 확률미분방정식을 따른다고 가정한다:
+</p>
+
+$$
+dS_t = \mu\,S_t\,dt + \sigma\,S_t\,dW_t
+$$
+
+<table>
+  <thead><tr><th>항</th><th>해석</th></tr></thead>
+  <tbody>
+    <tr><td>$\mu\,S_t\,dt$</td><td>"평균적으로" 연 $\mu$ 비율로 자라남 (drift, 추세)</td></tr>
+    <tr><td>$\sigma\,S_t\,dW_t$</td><td>그 위에 표준편차 $\sigma$ 짜리 무작위 진동 (diffusion, 변동)</td></tr>
+    <tr><td>$dW_t$</td><td>브라운 운동 — 무한히 작은 정규분포 충격</td></tr>
+  </tbody>
+</table>
+
+<div class="analogy">
+  <div class="analogy-title">▶ 비유: 비탈길을 굴러가는 만취자</div>
+  약간 내리막인 길($\mu$ 방향)을 술 취한 사람($\sigma$ 무작위)이 비틀거리며 걸어간다.
+  주가는 이 사람의 위치다. <strong>$\mu$가 평균 속도, $\sigma$가 비틀거림 정도</strong>.
+</div>
+
+<p>
+  이 SDE를 풀면 주가의 로그가 정규분포를 따른다 — 즉 주가는 <strong>로그정규분포</strong>:
+</p>
+
+$$
+S_T = S_0 \exp\!\left( \left(\mu - \tfrac{1}{2}\sigma^2\right)T + \sigma\sqrt{T}\,Z \right),
+\quad Z \sim \mathcal{N}(0,1)
+$$
+
+<!-- ======================================================== -->
+<h2 id="sec-replicate">5. 복제 포트폴리오 — BSM의 핵심 트릭</h2>
+
+<p>
+  여기가 BSM이 노벨상을 받은 이유다. 핵심 아이디어:
+</p>
+
+<div class="callout callout-purple">
+  <strong>"옵션과 똑같이 움직이는 포트폴리오를 주식 + 채권으로 만들 수 있다면,
+  옵션의 가격 = 그 포트폴리오 만드는 비용"</strong> 이어야 한다.<br>
+  (안 그러면 무위험 차익거래(arbitrage)가 생긴다.)
+</div>
+
+<p>
+  구체적으로: 매 순간 주식을 $\Delta_t$ 주만큼 보유하고, 나머지는 무위험 채권에 넣는다.
+  $\Delta_t$를 잘 조절하면 이 포트폴리오의 가치 변화가 옵션의 가치 변화와 정확히 같아진다.
+  이 조정 비율 $\Delta_t = \partial C/\partial S$ 가 바로 <strong>델타 헤지</strong>.
+</p>
+
+<p>
+  이때 신기한 일이 벌어진다 — 포트폴리오의 위험을 완전히 상쇄했으므로,
+  이 포트폴리오의 수익률은 <strong>무위험 이자율 $r$</strong> 과 같아야 한다.
+  주가의 실제 추세 $\mu$ 는 공식에서 사라지고, $r$로 대체된다.
+  그래서 가격은 사람마다 다른 위험 선호와 무관해진다.
+</p>
+
+<div class="callout callout-info">
+  이를 수학적으로 정리하면 <strong>Black-Scholes 편미분방정식</strong>:
+  $$\frac{\partial C}{\partial t} + rS\frac{\partial C}{\partial S}
+    + \tfrac{1}{2}\sigma^2 S^2 \frac{\partial^2 C}{\partial S^2} - rC = 0$$
+  경계조건 $C(T, S_T) = \max(S_T - K, 0)$ 와 함께 풀면 닫힌 해(closed-form)가 나온다.
+</div>
+
+<!-- ======================================================== -->
+<h2 id="sec-formula">6. 공식과 그 의미</h2>
+
+<p>위 PDE의 해 — 이게 그 유명한 BSM 공식이다:</p>
+
+$$
+\boxed{\,C = S_0\,N(d_1) - K\,e^{-rT}\,N(d_2)\,}
+$$
+
+$$
+d_1 = \frac{\ln(S_0/K) + (r + \tfrac{1}{2}\sigma^2)T}{\sigma\sqrt{T}},
+\qquad d_2 = d_1 - \sigma\sqrt{T}
+$$
+
+<p>$N(\cdot)$ 은 표준정규의 누적분포함수. 두 항을 따로 읽으면 의미가 분명해진다:</p>
+
+<table>
+  <thead><tr><th>항</th><th>의미</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>$S_0\,N(d_1)$</td>
+      <td><strong>옵션 행사 시 받게 되는 주식의 기대 현재가치</strong> (확률 $\sim N(d_1)$ 가중)</td>
+    </tr>
+    <tr>
+      <td>$K\,e^{-rT}\,N(d_2)$</td>
+      <td><strong>옵션 행사 시 내야 하는 행사가의 기대 현재가치</strong> (행사될 확률이 $N(d_2)$)</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>풋옵션은 put-call parity로 자연스럽게 따라온다:</p>
+
+$$
+P = K\,e^{-rT}\,N(-d_2) - S_0\,N(-d_1)
+$$
+
+<!-- ======================================================== -->
+<h2 id="sec-viz">7. 한 장으로 보는 BSM</h2>
+
+<figure>
+  <img src="bsm_intuition.png" alt="BSM 6패널 시각화">
+  <figcaption>
+    BSM을 직관으로 잡기 위한 6개 그림. 생성 스크립트: <code>notebooks/00_bsm_intuition.py</code>.
+  </figcaption>
+</figure>
+
+<table>
+  <thead><tr><th>#</th><th>그림</th><th>읽는 법</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>①</td><td>만기 페이오프</td>
+      <td>옵션이 만기에 주는 돈은 hockey-stick 모양. $K$를 기준으로 한쪽만 이득.</td>
+    </tr>
+    <tr>
+      <td>②</td><td>시간가치</td>
+      <td>같은 주가라도 만기까지 시간 $T$가 길수록 옵션이 비싸다.
+          $T \to 0$이면 BSM 곡선은 페이오프(검은 점선)에 수렴.</td>
+    </tr>
+    <tr>
+      <td>③</td><td>GBM 30개 경로</td>
+      <td>"주가가 무작위로 어떻게 움직일 수 있는지" 30번 시뮬한 미래.
+          이 경로들의 만기값으로 평균을 내면 ②번 가격이 나온다 (몬테카를로 가격).</td>
+    </tr>
+    <tr>
+      <td>④</td><td>$N(d_1), N(d_2)$</td>
+      <td>공식의 $N(d_1)$, $N(d_2)$는 결국 표준정규 위 두 점까지의 누적확률 — 빨강·파랑 면적.</td>
+    </tr>
+    <tr>
+      <td>⑤</td><td>Greeks</td>
+      <td>가격이 변수에 얼마나 민감한지. ATM($S=K$) 근처에서 Gamma·Vega가 최대.</td>
+    </tr>
+    <tr>
+      <td>⑥</td><td>Vol = Price</td>
+      <td>변동성 $\sigma$ 가 커질수록 옵션은 단조증가. <strong>옵션 트레이더가 "변동성을 거래한다"고 말하는 이유.</strong></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ======================================================== -->
+<h2 id="sec-greeks">8. Greeks — 가격이 무엇에 민감한가</h2>
+
+<p>
+  BSM 가격은 다섯 변수($S, K, T, r, \sigma$)의 함수다.
+  실무 트레이더는 가격 자체보다 <strong>각 변수에 대한 편미분</strong>으로 포지션의 위험을 관리한다.
+  이 편미분들에 그리스 문자 이름을 붙인 게 Greeks.
+</p>
+
+<table>
+  <thead><tr><th>이름</th><th>기호</th><th>정의</th><th>현실적 의미</th></tr></thead>
+  <tbody>
+    <tr><td>Delta</td><td>$\Delta$</td><td>$\partial C/\partial S$</td>
+        <td>주가 1원 변할 때 옵션 가격 변화. 헤지 비율 그 자체.</td></tr>
+    <tr><td>Gamma</td><td>$\Gamma$</td><td>$\partial^2 C/\partial S^2$</td>
+        <td>Delta가 얼마나 빨리 변하는지. ATM에서 최대 → 자주 헤지해야 함.</td></tr>
+    <tr><td>Vega</td><td>$\nu$</td><td>$\partial C/\partial \sigma$</td>
+        <td>변동성 1% 변할 때 가격 변화. "옵션은 변동성을 사고파는 것"의 정량.</td></tr>
+    <tr><td>Theta</td><td>$\Theta$</td><td>$\partial C/\partial t$</td>
+        <td>시간이 하루 지날 때 가격이 얼마나 닳는지 (보통 음수 — 시간가치 소멸).</td></tr>
+    <tr><td>Rho</td><td>$\rho$</td><td>$\partial C/\partial r$</td>
+        <td>이자율 변할 때 영향. 다른 그릭에 비해 보통 작다.</td></tr>
+  </tbody>
+</table>
+
+<div class="callout callout-ok">
+  이 프로젝트에서: <code>pricing.greeks.analytic.call_greeks</code> 가 BSM의 닫힌 형태로 모든 Greek을 한 번에 계산한다.
+  <code>pricing.greeks.bumping</code> 은 수치미분 (finite difference) 방식으로 같은 값을 검증한다.
+</div>
+
+<!-- ======================================================== -->
+<h2 id="sec-limits">9. BSM의 한계 (그리고 이 프로젝트가 푸는 것)</h2>
+
+<p>BSM의 우아함은 가정의 단순함에서 온다. 그런데 그 가정들이 현실에서는 깨진다:</p>
+
+<table>
+  <thead><tr><th>BSM 가정</th><th>현실</th><th>대안</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>변동성 $\sigma$ 상수</td>
+      <td>변동성도 시간에 따라 출렁임 (volatility of volatility)</td>
+      <td>Heston 모델 — $\sigma^2$도 SDE를 따름</td>
+    </tr>
+    <tr>
+      <td>주가는 연속 (점프 없음)</td>
+      <td>실적 발표·뉴스로 갭 발생</td>
+      <td>Merton jump-diffusion, Bates 모델</td>
+    </tr>
+    <tr>
+      <td>모든 행사가에서 $\sigma$ 동일</td>
+      <td>실제 시장에서는 $K$별로 IV가 다름 (<em>Volatility Smile/Skew</em>)</td>
+      <td>로컬볼/SVI 등 IV 곡면 캘리브레이션</td>
+    </tr>
+    <tr>
+      <td>유럽형 (만기에만 행사)</td>
+      <td>미국형·버뮤다·자동조기상환(ELS) 등 다양</td>
+      <td>이항/PDE/몬테카를로</td>
+    </tr>
+    <tr>
+      <td>연속·무비용 헤지 가능</td>
+      <td>거래비용·유동성 제약 존재</td>
+      <td>딥러닝 기반 Deep Hedging</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-yellow">
+  이 프로젝트(<code>quant-lab</code>)의 5-Layer 구조는 정확히 이 한계들을 하나씩 푸는 여정이다:
+  <ul>
+    <li><strong>Layer A</strong>: BSM·이항·MC — 고전 모델 (이 문서의 주제)</li>
+    <li><strong>Layer B</strong>: NN Pricer — BSM을 신경망으로 근사 (속도 ↑)</li>
+    <li><strong>Layer C</strong>: Deep Calibration — 시장 IV를 보고 모델 파라미터 역산</li>
+    <li><strong>Layer D</strong>: Deep Hedging — 거래비용 있을 때 최적 헤지 학습</li>
+    <li><strong>Layer E</strong>: 실데이터 — 한화 ELS 리프라이스, ETF iNAV 등</li>
+  </ul>
+  자세한 흐름은 <a href="e2e_flow.html">e2e_flow.html</a> 참고.
+</div>
+
+<!-- ======================================================== -->
+<h2 id="sec-takeaway">한 문장 요약</h2>
+
+<div class="callout callout-info" style="font-size: 16px;">
+  <strong>BSM</strong>은 "주가는 GBM을 따른다"는 가정 위에서,
+  <strong>주식·채권 복제 포트폴리오를 만들면 옵션 가격이 사람의 위험 선호와 무관하게 결정된다</strong>는
+  통찰을 닫힌 공식 $C = S_0 N(d_1) - K e^{-rT} N(d_2)$ 으로 표현한 것.
+</div>
+
+<p class="meta" style="margin-top: 32px; text-align: center;">
+  Generated 2026-04-25 · 시각화 스크립트: <code>notebooks/00_bsm_intuition.py</code>
+</p>
+
+</body>
+</html>

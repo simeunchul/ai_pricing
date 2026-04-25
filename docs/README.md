@@ -10,6 +10,8 @@
 | [nn_pricer_underfit_analysis.html](nn_pricer_underfit_analysis.html) | Layer B1 NN Pricer 의 underfit + Deep OTM 838% 문제 원인 분석, loss function 교체 방안, IV-space 평가 전환, 코드 위치 상세 맵 | 2026-04-24 |
 | [nn_pricer_retrain_results.html](nn_pricer_retrain_results.html) | 위 분석의 해결방안 실제 적용 결과. MSE → log-space MSE 로 교체 후 Before/After 비교 + 500k CPU 학습 결과 (플랜 목표 달성) | 2026-04-24 |
 | [deep_hedging_tuning.html](deep_hedging_tuning.html) | Layer B4 Deep Hedging PPO 미수렴 진단 및 v2 수정 결과. Action space 축소 + Buehler 2019 dense reward shaping + BSM behavior-cloning warm-start. TC=0 sanity PASS (1.02x), TC=30bps 7.8% 개선 (플랜 20% 목표 PARTIAL) | 2026-04-24 |
+| [resume_one_pager.md](resume_one_pager.md) | **이력서 원페이지** — 핵심 성과 5개 (수치 위주), JD 매핑, 라이브 데모 60초 시나리오 | 2026-04-25 |
+| [blog_drafts.md](blog_drafts.md) | **블로그 4편 초안** — 모노레포 소개 / NN Pricer 진단 / 한화 ELS 재가격 / Deep Hedging 실패. 발행 순서 권장 | 2026-04-25 |
 
 ## 열어보는 방법
 

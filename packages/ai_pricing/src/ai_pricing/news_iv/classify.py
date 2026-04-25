@@ -32,12 +32,35 @@ EVENT_TYPES: tuple[EventType, ...] = (
 # -----------------------------------------------------------------------------
 
 _KEYWORD_RULES: dict[EventType, tuple[str, ...]] = {
-    "earnings_miss":  ("어닝쇼크", "실적 부진", "적자 전환", "하향", "earnings miss"),
-    "earnings_beat":  ("어닝서프라이즈", "실적 호조", "흑자 전환", "상향", "earnings beat"),
-    "regulatory":     ("규제", "제재", "과징금", "조사", "시정", "regulatory"),
-    "macro_shock":    ("금리 인상", "금리 인하", "지정학", "전쟁", "유가 급등", "환율 급변"),
-    "mna":            ("인수", "합병", "M&A", "주식교환", "지분 인수"),
-    "rating_change":  ("등급 하향", "등급 상향", "신용등급", "rating"),
+    "earnings_miss":  (
+        "어닝쇼크", "실적 부진", "적자 전환", "하향", "earnings miss",
+        "missed estimates", "disappointing earnings", "earnings shortfall",
+        "lowered guidance", "profit warning", "loss widens",
+    ),
+    "earnings_beat":  (
+        "어닝서프라이즈", "실적 호조", "흑자 전환", "상향", "earnings beat",
+        "beat estimates", "exceeded expectations", "raised guidance",
+        "record profit", "strong earnings",
+    ),
+    "regulatory":     (
+        "규제", "제재", "과징금", "조사", "시정", "regulatory",
+        "antitrust", "investigation", "fine", "lawsuit", "sec",
+        "violation", "probe",
+    ),
+    "macro_shock":    (
+        "금리 인상", "금리 인하", "지정학", "전쟁", "유가 급등", "환율 급변",
+        "rate hike", "rate cut", "fed", "fomc", "inflation surge",
+        "oil spike", "war", "geopolitical",
+    ),
+    "mna":            (
+        "인수", "합병", "M&A", "주식교환", "지분 인수",
+        "acquires", "acquisition", "merger", "buyout", "takeover",
+        "stake purchase",
+    ),
+    "rating_change":  (
+        "등급 하향", "등급 상향", "신용등급", "rating",
+        "downgrade", "upgrade", "moody's", "s&p", "fitch",
+    ),
 }
 
 

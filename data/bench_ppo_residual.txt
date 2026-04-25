@@ -1,0 +1,5 @@
+=== Residual Hedger TC=0.003 ===
+BSM Δ daily   CVaR=1.8820
+Residual PPO  CVaR=2.0676  ratio=1.099
+improvement=-9.9%   |residual|=0.049
+verdict=FAIL
