@@ -306,5 +306,98 @@ python -m pytest packages/ -q</pre>
 </p>
 </div>
 
+<h2>10. Post-mortem — v3/v3b/v3c 추가 시도 결과 (2026-04-25)</h2>
+<div class="card">
+<p>v2 의 PARTIAL (7.8% 개선) 을 plan target (20%) 까지 끌어올리려 3가지 추가 변형 시도. <strong>모두 v2 보다 나쁨</strong>. 이 발견 자체가 중요한 진단.</p>
+
+<table>
+  <thead>
+    <tr><th>버전</th><th>주요 변경</th><th>Wall</th><th>Std (final)</th><th>CVaR ratio</th><th>Improvement</th><th>Verdict</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="label">v2 (sub-agent baseline)</td>
+      <td>500k step, λ=50, mult=5, BC 200×60</td>
+      <td>~1500s</td>
+      <td>~0.45</td>
+      <td><strong class="warn">0.92</strong></td>
+      <td class="warn">+7.8% (best)</td>
+      <td><span class="tag partial">PARTIAL</span></td>
+    </tr>
+    <tr>
+      <td class="label">v3</td>
+      <td>1M step, <strong>pow=1.5, mult=8, λ=80, tail_shock=10, lr=5e-5, ent=0.003</strong></td>
+      <td>~600s</td>
+      <td>0.46</td>
+      <td class="bad">2.75</td>
+      <td class="bad">−175%</td>
+      <td><span class="tag fail">FAIL</span></td>
+    </tr>
+    <tr>
+      <td class="label">v3b</td>
+      <td>1.5M step, v2 reward 그대로 + <strong>longer training</strong></td>
+      <td>~900s</td>
+      <td>0.025</td>
+      <td class="bad">1.27</td>
+      <td class="bad">−27%</td>
+      <td><span class="tag fail">FAIL</span></td>
+    </tr>
+    <tr>
+      <td class="label">v3c</td>
+      <td>600k step, <strong>weak shaping λ=10, ent=0.01</strong></td>
+      <td>~360s</td>
+      <td>0.16</td>
+      <td class="bad">1.90</td>
+      <td class="bad">−90%</td>
+      <td><span class="tag fail">FAIL</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>핵심 진단 — PPO + Buehler shaping 의 attractor 문제</h3>
+<p>3번 시도가 모두 실패한 패턴이 일관됨:</p>
+<ul>
+  <li><strong>v3</strong>: <code>pow=1.5</code> 와 <code>tail_shock=10</code> 이 reward scale 폭발시킴.
+      Terminal reward (수십~수백) 와 dense shaping (수천) 이 같이 노이즈 증폭.</li>
+  <li><strong>v3b</strong>: 학습 길어지자 policy std 가 <code>0.025</code> 까지 collapse.
+      Entropy 0.003 으로는 부족. Over-exploitation → BSM Δ 모방으로 수렴 후
+      그 너머 탐색 못 함.</li>
+  <li><strong>v3c</strong>: shaping 약화 시도 (λ=10) 했으나 여전히 BSM Δ 끌어당김. Entropy 키워도 효과 작음.</li>
+</ul>
+
+<p><strong>본질적 문제</strong>: dense shaping <code>−λ(V_hedge − V_opt)²</code> 의 minimum 은 정확히
+BSM Δ 헤지. 그런데 TC&gt;0 환경의 진짜 optimum 은 <em>BSM Δ 보다 적게 hedge</em>
+(하강 시 cost 절약). Shaping 이 PPO 를 BSM 으로 끌어당기고, terminal reward 가
+그 너머로 밀어내는 약한 신호. <strong>학습 budget 늘릴수록 shaping 의 BSM-attractor 가 이김</strong>.</p>
+
+<p>v2 가 7.8% 나온 건 budget 부족(~25분)으로 BSM 에 완전히 끌려가기 전에 멈춰서.
+즉 v2 의 결과는 <strong>under-trained 의 우연한 부산물</strong>이지 안정적 수렴이 아님.</p>
+
+<h3>다음 단계 — 알고리즘 변경 필수</h3>
+<p>이 한계는 hyperparameter 튜닝으로 해결 안 됨. Buehler 2019 원논문도
+PPO 가 아니라 <strong>policy gradient on terminal CVaR loss</strong> 로 직접 학습.
+구체적 경로:</p>
+<ul>
+  <li><strong>(a) CVaR surrogate</strong> — PPO 대신 actor-critic 변형으로
+      <code>−E[(payoff − replication)·I(≤ VaR)]</code> 직접 최적화. Distortion measure 활용.
+      구현 ~1일.</li>
+  <li><strong>(b) SAC + quantile regression</strong> — Distributional RL 로
+      tail 을 직접 학습. SB3-contrib 의 <code>QR-DQN</code> / 자체 구현. ~2일.</li>
+  <li><strong>(c) Imitation + residual learning</strong> — BC 로 BSM Δ 만들고
+      <em>편차 (residual)</em> 만 PPO 로 학습. Reward 는 cost 절약분 기준.
+      이론상 BSM 에 끌려갈 일 없음. 가장 간단한 해법, ~0.5일.</li>
+  <li><strong>(d) Randomized environment</strong> — 단일 (σ, T, K) 대신 분포에서 샘플링.
+      Generalization 향상 + over-fit 방지.</li>
+</ul>
+
+<h3>현재 commit 시점 결론</h3>
+<p>현재 best model 은 여전히 <code>models/ppo_tc03_v2.zip</code> (ratio 0.92).
+v3/v3b/v3c 모델은 <code>data/bench_ppo_v3*.txt</code> 에 raw log 만 보존하고 모델 파일은 commit 제외 (열위 결과 보존 가치 낮음).
+스크립트 <code>scripts/train_ppo_v3.py</code>, <code>v3b.py</code> 는 재현/검증용으로 commit.</p>
+
+<p class="small">관련 로그: <code>data/bench_ppo_v3.txt</code> · <code>data/bench_ppo_v3b.txt</code><br>
+실험 환경: 동일 CPU, n_envs=8, seed=0, eval seed=777 × 2000 paths</p>
+</div>
+
 </body>
 </html>

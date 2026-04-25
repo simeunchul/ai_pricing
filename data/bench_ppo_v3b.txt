@@ -1,0 +1,6 @@
+=== PPO v3b — v2 reward + longer training (1,500,000 steps, BC 1000x60ep, lr=0.0003, ent=0.003) ===
+
+--- TC=0.003 ---
+[BSM]  mean=-0.7462 std=0.4489 CVaR5%=1.8820 Sharpe=-26.3889 maxDD=-27.5516
+[PPO]  mean=-0.7537 std=0.6404 CVaR5%=2.3907 Sharpe=-18.6836 maxDD=-44.1831
+[ratio] PPO_CVaR / BSM_CVaR = 1.270  target<0.80  -> FAIL  (improvement=-27.0%) wall=906s

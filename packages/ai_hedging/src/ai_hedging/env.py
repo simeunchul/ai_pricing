@@ -61,6 +61,9 @@ class HedgingEnvConfig:
     action_high: float = 1.0
     # CVaR-oriented terminal reward weights
     loss_penalty_mult: float = 1.0    # extra multiplier on |terminal_pnl| when pnl<0
+    loss_penalty_pow: float = 1.0     # exponent: -|pnl|^pow when pnl<0; pow>1 amplifies tail
+    tail_shock_weight: float = 0.0    # extra penalty on per-step rep_err when |rep_err|>tail_shock_thr
+    tail_shock_thr: float = 0.05      # absolute rep_err threshold for tail-shock penalty
 
 
 class HedgingEnv(gym.Env if _HAS_GYM else object):
@@ -164,6 +167,10 @@ class HedgingEnv(gym.Env if _HAS_GYM else object):
             # Replication error per step (we want this to be zero):
             rep_err = dV_hedged - (V_opt_post - V_opt_pre)
             shape_reward = -self.cfg.shaping_lambda * (rep_err * rep_err)
+            # Tail-shock: extra penalty when single-step replication error spikes.
+            # Penalizes "moments of large mistake" — closer to CVaR objective than plain MSE.
+            if self.cfg.tail_shock_weight > 0 and abs(rep_err) > self.cfg.tail_shock_thr:
+                shape_reward -= self.cfg.tail_shock_weight * (abs(rep_err) - self.cfg.tail_shock_thr)
         else:
             shape_reward = 0.0
 
@@ -177,9 +184,10 @@ class HedgingEnv(gym.Env if _HAS_GYM else object):
             self.cash -= close_tc
             self.cum_tc += close_tc
             terminal_pnl = self.cash - payoff * self.cfg.notional
-            # CVaR-aware: amplify losses (pnl<0) by loss_penalty_mult
+            # CVaR-aware: amplify losses (pnl<0) by loss_penalty_mult, with optional power.
+            # pow>1 makes large losses dominate gradient (closer to CVaR than mean-abs).
             if terminal_pnl < 0:
-                term_reward = -abs(terminal_pnl) * self.cfg.loss_penalty_mult
+                term_reward = -(abs(terminal_pnl) ** self.cfg.loss_penalty_pow) * self.cfg.loss_penalty_mult
             else:
                 term_reward = -abs(terminal_pnl)
             reward = term_reward + shape_reward
