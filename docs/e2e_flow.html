@@ -465,6 +465,123 @@
   <figcaption>Layer A 는 이론·수식을 구현한 모든 Layer 의 ground truth 제공자</figcaption>
 </figure>
 
+<h3>Layer A 함수 레퍼런스</h3>
+<table>
+  <thead>
+    <tr><th style="width:22%">함수 / 클래스</th><th style="width:14%">위치</th><th>입력 → 출력</th><th>역할 / 핵심 식</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>BSMInputs</code></td>
+      <td><code>pricing/bsm.py</code></td>
+      <td>S, K, T, r, q, σ → frozen dataclass</td>
+      <td>모든 옵션 함수의 표준 입력 컨테이너. 음수 T/σ 거부.</td>
+    </tr>
+    <tr>
+      <td><code>call_price(i)</code><br><code>put_price(i)</code></td>
+      <td><code>pricing/bsm.py</code></td>
+      <td>BSMInputs → 가격 (float)</td>
+      <td>Black-Scholes 닫힌해. <code>S·e<sup>-qT</sup>·N(d₁) − K·e<sup>-rT</sup>·N(d₂)</code>.</td>
+    </tr>
+    <tr>
+      <td><code>forward_price(i)</code></td>
+      <td><code>pricing/bsm.py</code></td>
+      <td>BSMInputs → forward F</td>
+      <td><code>F = S·e<sup>(r−q)T</sup></code>. Risk-neutral 측도 하의 미래가.</td>
+    </tr>
+    <tr>
+      <td><code>binomial_european(i, N)</code></td>
+      <td><code>pricing/binomial.py</code></td>
+      <td>BSMInputs, 트리 단계 수 → 가격</td>
+      <td>CRR 트리. <code>u=e<sup>σ√Δt</sup></code>, q=(e<sup>(r−q)Δt</sup>−d)/(u−d). N→∞ 시 BSM 수렴.</td>
+    </tr>
+    <tr>
+      <td><code>binomial_american(i, N)</code></td>
+      <td><code>pricing/binomial.py</code></td>
+      <td>BSMInputs, N → American 가격</td>
+      <td>매 노드에서 hold vs early-exercise Bellman 비교. American put 가치 산출.</td>
+    </tr>
+    <tr>
+      <td><code>simulate_gbm_paths()</code></td>
+      <td><code>pricing/mc/engine.py</code></td>
+      <td>S0, r, q, σ, T, n_paths, n_steps → ndarray (n_paths, n_steps+1)</td>
+      <td>Geometric Brownian Motion 경로 생성. antithetic 옵션으로 분산 절반.</td>
+    </tr>
+    <tr>
+      <td><code>mc_price(i, payoff, ...)</code></td>
+      <td><code>pricing/mc/engine.py</code></td>
+      <td>BSMInputs + payoff 함수 → MCResult(price, stderr, paths)</td>
+      <td>경로 생성 후 payoff 평균을 e<sup>-rT</sup> 으로 할인. Asian/Barrier 도 가능.</td>
+    </tr>
+    <tr>
+      <td><code>antithetic_normals()</code></td>
+      <td><code>pricing/mc/variance_reduction.py</code></td>
+      <td>shape, rng → ndarray</td>
+      <td>Z 와 −Z 를 함께 생성. 평균 분산을 약 50% 감축.</td>
+    </tr>
+    <tr>
+      <td><code>control_variate_call()</code></td>
+      <td><code>pricing/mc/variance_reduction.py</code></td>
+      <td>BSMInputs, payoff → MCResult</td>
+      <td>유럽 콜 (BSM closed-form 알려진) 을 control variate 로 사용해 분산 추가 감축.</td>
+    </tr>
+    <tr>
+      <td><code>call_greeks(i)</code><br><code>put_greeks(i)</code></td>
+      <td><code>pricing/greeks/analytic.py</code></td>
+      <td>BSMInputs → Greeks(Δ, Γ, vega, Θ, ρ)</td>
+      <td>BSM 미분의 닫힌해. 헤지 비율(Δ), 시간감소(Θ), 변동성 민감도(vega) 동시 산출.</td>
+    </tr>
+    <tr>
+      <td><code>bumping_greeks(i, opt)</code></td>
+      <td><code>pricing/greeks/bumping.py</code></td>
+      <td>BSMInputs → Greeks</td>
+      <td>유한차분으로 Greeks 추정. analytic 과 1e-2 이내 일치 — sanity check 용.</td>
+    </tr>
+    <tr>
+      <td><code>implied_vol(price, i, opt)</code></td>
+      <td><code>pricing/iv.py</code></td>
+      <td>관측 가격 + 옵션 스펙 → σ</td>
+      <td>Brent 방법. <code>BSM(σ) = market price</code> 의 σ 역산. roundtrip &lt; 1e-6.</td>
+    </tr>
+    <tr>
+      <td><code>HestonParams</code></td>
+      <td><code>pricing/heston.py</code></td>
+      <td>(κ, θ, ξ, ρ, v₀) → dataclass</td>
+      <td>확률 변동성 모델 파라미터. κ=평균회귀속도, θ=장기 vol², ξ=vol-of-vol, ρ=주가-vol 상관.</td>
+    </tr>
+    <tr>
+      <td><code>heston_call_semi(...)</code></td>
+      <td><code>pricing/heston.py</code></td>
+      <td>S, K, T, r, HestonParams → 가격</td>
+      <td>Heston 특성함수 → Carr-Madan/Lewis 적분으로 closed-form 가격. <strong>Layer B2 ground truth</strong>.</td>
+    </tr>
+    <tr>
+      <td><code>heston_mc(i, p, payoff, ...)</code></td>
+      <td><code>pricing/heston.py</code></td>
+      <td>BSMInputs, HestonParams, payoff → MCResult</td>
+      <td>Heston SDE 의 Euler MC. semi vs MC 검증 (3-stderr 이내).</td>
+    </tr>
+    <tr>
+      <td><code>StepDownELS</code></td>
+      <td><code>pricing/els/step_down.py</code></td>
+      <td>S0[], barriers, KI, coupon, T → dataclass</td>
+      <td>한국형 step-down 자동조기상환 ELS 상품 스펙. 2~3자산 worst-of.</td>
+    </tr>
+    <tr>
+      <td><code>price_els(product, ...)</code></td>
+      <td><code>pricing/els/step_down.py</code></td>
+      <td>StepDownELS, r, q[], σ[], corr → ELSResult</td>
+      <td>다자산 GBM + Cholesky correlated MC + auto-call/KI 로직. <strong>한화 8286호 +2.17% 검증한 함수</strong>.</td>
+    </tr>
+    <tr>
+      <td><code>call_payoff(K)</code><br><code>asian_arith_call(K)</code><br><code>barrier_up_and_out_call(K, B)</code></td>
+      <td><code>pricing/payoffs.py</code></td>
+      <td>K (또는 B) → callable(paths) → payoff array</td>
+      <td>유럽 / 아시안 / 배리어 payoff factory. <code>mc_price()</code> 의 두 번째 인자.</td>
+    </tr>
+  </tbody>
+</table>
+
 <h3>실제 사용 예 — 최소 3줄</h3>
 <pre><code>from pricing.bsm import BSMInputs, call_price
 from pricing.greeks.analytic import call_greeks
@@ -559,6 +676,79 @@ print(call_greeks(i).delta)  # 0.5987</code></pre>
   </svg>
 </figure>
 
+<h4>B1 함수 레퍼런스</h4>
+<table>
+  <thead><tr><th style="width:24%">함수 / 클래스</th><th style="width:18%">위치</th><th>입력 → 출력</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>SAMPLING_RANGES</code></td>
+      <td><code>nn_pricer/data.py</code></td>
+      <td>dict</td>
+      <td>학습 도메인 정의. moneyness 0.6~1.4, T 1주~2년, σ 0.05~0.80 등. 이 박스 밖은 extrapolation 실패.</td>
+    </tr>
+    <tr>
+      <td><code>sample_inputs(n, seed)</code></td>
+      <td><code>nn_pricer/data.py</code></td>
+      <td>n → ndarray (n, 6)</td>
+      <td>SAMPLING_RANGES 위 uniform 샘플. K=1 정규화로 BSM homogeneity 활용 (학습 단순화).</td>
+    </tr>
+    <tr>
+      <td><code>label_bsm(X)</code></td>
+      <td><code>nn_pricer/data.py</code></td>
+      <td>(n, 6) → (n,) prices</td>
+      <td>각 샘플에 BSM closed-form 정답 부착. <strong>"NN 이 BSM 공식을 함수 근사 가능한가" 의 ground truth</strong>.</td>
+    </tr>
+    <tr>
+      <td><code>features_from_raw(X)</code></td>
+      <td><code>nn_pricer/data.py</code></td>
+      <td>(n, 6) → (n, 5) float32</td>
+      <td>S/K → log(S/K) (log-moneyness) 변환 + scaling. NN 입력으로 정규화.</td>
+    </tr>
+    <tr>
+      <td><code>generate_training_set()</code></td>
+      <td><code>nn_pricer/data.py</code></td>
+      <td>n → dict (train/val/test)</td>
+      <td>위 3개 합쳐 train/val/test 80/10/10 split. raw_test 도 함께 (디버깅용).</td>
+    </tr>
+    <tr>
+      <td><code>NNPricer</code></td>
+      <td><code>nn_pricer/model.py</code></td>
+      <td>(N, 5) → (N,) prices</td>
+      <td>MLP [5 → 128 → 128 → 64 → 1]. Tanh + Softplus 마지막. 가격 양수 보장.</td>
+    </tr>
+    <tr>
+      <td><code>make_loss(name, eps, α)</code></td>
+      <td><code>nn_pricer/train.py</code></td>
+      <td>"mse"/"rel"/"log"/"hybrid" → (train_fn, eval_fn)</td>
+      <td>4종 loss factory. <strong>log-space 가 deep OTM 폭발 해결 핵심</strong>: <code>(log(pred+ε)−log(y+ε))²</code>.</td>
+    </tr>
+    <tr>
+      <td><code>train(...)</code></td>
+      <td><code>nn_pricer/train.py</code></td>
+      <td>n, epochs, loss, ... → history</td>
+      <td>Adam + Cosine LR + early checkpoint on val_loss. 500k×50ep CPU 95분 → ATM IV 0.55 vp.</td>
+    </tr>
+    <tr>
+      <td><code>load_pricer(path, device)</code></td>
+      <td><code>nn_pricer/infer.py</code></td>
+      <td>checkpoint 경로 → (model, device)</td>
+      <td>학습 모델 로드. <strong>device 기본 'cpu'</strong> (VRAM 보호). weights_only=False.</td>
+    </tr>
+    <tr>
+      <td><code>price_batch(model, X)</code></td>
+      <td><code>nn_pricer/infer.py</code></td>
+      <td>(N, 6) raw 입력 → (N,) 가격</td>
+      <td>features_from_raw + forward + K 곱하기 (output 이 C/K 였으므로 복원).</td>
+    </tr>
+    <tr>
+      <td><code>run(model, n)</code></td>
+      <td><code>scripts/bench_nn_pricer.py</code></td>
+      <td>모델 경로, 샘플 수 → IV-space + strata 리포트</td>
+      <td>가격오차 → IV solver 역변환 → 5-bucket moneyness 분류. <strong>실무 표준 평가</strong>.</td>
+    </tr>
+  </tbody>
+</table>
+
 <h3>B2 (Deep Calib) 의 역방향 사용</h3>
 <p>
   B2 는 특이함. <strong>순방향</strong>(Heston params → IV surface)으로 학습하고,
@@ -573,6 +763,67 @@ from ai_pricing.deep_calib.calibrate import calibrate
 p_fit, rmse = calibrate(iv_market, model, ...)
 # → HestonParams(kappa=3.38, theta=0.047, xi=0.35, rho=-0.80, v0=0.04)</code></pre>
 
+<h4>B2 함수 레퍼런스</h4>
+<table>
+  <thead><tr><th style="width:24%">함수 / 클래스</th><th style="width:18%">위치</th><th>입력 → 출력</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>PARAM_RANGES</code></td>
+      <td><code>deep_calib/sampler.py</code></td>
+      <td>dict</td>
+      <td>Heston 5-param 도메인 (Horvath 2021 Table 1 기준). κ ∈ [0.1, 5], ρ ∈ [-0.95, 0] 등.</td>
+    </tr>
+    <tr>
+      <td><code>lhs(n, d, rng)</code></td>
+      <td><code>deep_calib/sampler.py</code></td>
+      <td>n, d → (n, d) [0,1]</td>
+      <td>Latin Hypercube Sampling. uniform 보다 5-param 공간 균등 커버.</td>
+    </tr>
+    <tr>
+      <td><code>sample_heston_params(n)</code></td>
+      <td><code>deep_calib/sampler.py</code></td>
+      <td>n → (n, 5) Heston 파라미터</td>
+      <td>LHS 로 (κ,θ,ξ,ρ,v₀) 샘플링. Feller 위반은 reject 안 하고 학습 신호로 흡수.</td>
+    </tr>
+    <tr>
+      <td><code>STRIKES, MATURITIES</code></td>
+      <td><code>deep_calib/surface.py</code></td>
+      <td>ndarray</td>
+      <td>5 strikes (0.8~1.2 K/S) × 5 maturities (1M~2Y) = 25 grid 점.</td>
+    </tr>
+    <tr>
+      <td><code>iv_surface(p, S, r)</code></td>
+      <td><code>deep_calib/surface.py</code></td>
+      <td>HestonParams → (25,) IV vector</td>
+      <td>각 grid 에 대해 <code>heston_call_semi</code> + <code>implied_vol</code>. 학습 라벨.</td>
+    </tr>
+    <tr>
+      <td><code>iv_surface_batch(params)</code></td>
+      <td><code>deep_calib/surface.py</code></td>
+      <td>(n, 5) → (n, 25)</td>
+      <td>n 개 샘플의 surface 일괄 생성. <strong>학습 데이터 생성 병목</strong> (3000개 ≈ 5분).</td>
+    </tr>
+    <tr>
+      <td><code>DeepCalibNet</code></td>
+      <td><code>deep_calib/model.py</code></td>
+      <td>(N, 5) → (N, 25)</td>
+      <td>MLP [5 → 256 → 256 → 256 → 25]. ELU activation. 순방향 surrogate.</td>
+    </tr>
+    <tr>
+      <td><code>train(...)</code></td>
+      <td><code>deep_calib/train.py</code></td>
+      <td>n, epochs, ... → checkpoint</td>
+      <td>X/Y 정규화 → MSE 학습. checkpoint 에 mean/std 저장 (역방향에서 사용).</td>
+    </tr>
+    <tr>
+      <td><code>calibrate(iv_market, model, ...)</code></td>
+      <td><code>deep_calib/calibrate.py</code></td>
+      <td>관측 IV (25,) + 모델 → HestonParams + RMSE</td>
+      <td><strong>역방향 핵심</strong>. param 텐서 위 Adam gradient descent + box projection. <strong>1.36초로 Heston calibration 완료 (semi-analytic Nelder-Mead 35초 대비 26×)</strong>.</td>
+    </tr>
+  </tbody>
+</table>
+
 <h3>B3 (News-IV) 파이프라인</h3>
 <pre><code>뉴스 텍스트                      가격 조정
    ↓                              ↑
@@ -581,6 +832,79 @@ fetch_naver_rss() / DART       call_price(replace(opt, sigma=iv_adj))
 classify_rule/finbert/claude  adjust_iv(base, event, conf)
    ↓                              ↑
 (event, confidence) ──────→ dominant_event() ────→ ΔIV lookup</code></pre>
+
+<h4>B3 함수 레퍼런스</h4>
+<table>
+  <thead><tr><th style="width:24%">함수 / 클래스</th><th style="width:18%">위치</th><th>입력 → 출력</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>NewsItem</code></td>
+      <td><code>news_iv/fetch.py</code></td>
+      <td>dataclass</td>
+      <td>(source, ticker, title, body, url, published) 표준 컨테이너.</td>
+    </tr>
+    <tr>
+      <td><code>fetch_naver_rss(ticker, days)</code></td>
+      <td><code>news_iv/fetch.py</code></td>
+      <td>ticker, 일수 → list[NewsItem]</td>
+      <td>네이버 금융 RSS 크롤 (feedparser). 1시간 캐싱. <strong>API 키 불필요</strong>.</td>
+    </tr>
+    <tr>
+      <td><code>fetch_dart_disclosures(corp, days)</code></td>
+      <td><code>news_iv/fetch.py</code></td>
+      <td>corp_code → list[NewsItem]</td>
+      <td>DART <code>list.json</code> API 호출. <code>DART_API_KEY</code> 필요.</td>
+    </tr>
+    <tr>
+      <td><code>EventType</code></td>
+      <td><code>news_iv/classify.py</code></td>
+      <td>Literal</td>
+      <td>7종: earnings_miss/beat, regulatory, macro_shock, mna, rating_change, neutral.</td>
+    </tr>
+    <tr>
+      <td><code>classify_rule(text)</code></td>
+      <td><code>news_iv/classify.py</code></td>
+      <td>str → EventType</td>
+      <td>키워드 매칭 ("어닝쇼크", "금리 인상" 등). 0원, 항상 동작. confidence=1.0 가정.</td>
+    </tr>
+    <tr>
+      <td><code>classify_finbert(text)</code></td>
+      <td><code>news_iv/classify.py</code></td>
+      <td>str → (EventType, confidence)</td>
+      <td><code>snunlp/KR-FinBert-SC</code> sentiment + rule fusion. 0원, 첫 실행 ~400MB 모델 다운.</td>
+    </tr>
+    <tr>
+      <td><code>classify_claude(text, model)</code></td>
+      <td><code>news_iv/classify.py</code></td>
+      <td>str → (EventType, confidence)</td>
+      <td>Claude Haiku 4.5 zero-shot 분류 (JSON 출력). 가장 정확. <code>ANTHROPIC_API_KEY</code> 필요.</td>
+    </tr>
+    <tr>
+      <td><code>IV_SHIFT_RULES</code></td>
+      <td><code>news_iv/iv_shift.py</code></td>
+      <td>dict[event → ΔIV (vp)]</td>
+      <td>전문가 prior. earnings_miss +0.03, macro_shock +0.05, neutral 0.</td>
+    </tr>
+    <tr>
+      <td><code>adjust_iv(base, event, conf)</code></td>
+      <td><code>news_iv/iv_shift.py</code></td>
+      <td>base σ, event, confidence → 새 σ</td>
+      <td>linear: <code>σ' = σ + ΔIV·conf</code>, [0.01, 2.0] 클립.</td>
+    </tr>
+    <tr>
+      <td><code>dominant_event(events)</code></td>
+      <td><code>news_iv/iv_shift.py</code></td>
+      <td>list[(event, conf)] → 1 event</td>
+      <td>여러 뉴스 중 |ΔIV|·conf 가장 큰 event 선택. 충돌 해소.</td>
+    </tr>
+    <tr>
+      <td><code>price_with_news(option, news, classifier)</code></td>
+      <td><code>news_iv/pipeline.py</code></td>
+      <td>BSMInputs + 뉴스 → dict</td>
+      <td>전체 파이프라인 한 줄. base_price / adjusted_price / iv_shift / dominant_event 반환.</td>
+    </tr>
+  </tbody>
+</table>
 
 <h3>B4 (Deep Hedging) RL 루프</h3>
 <pre><code>Episode 시작: S=100, 옵션 매도, 초기 premium 받음
@@ -597,6 +921,85 @@ terminal (step 30):
   payoff = max(S - K, 0)
   terminal_pnl = cash - payoff
   reward = -|terminal_pnl|    # minimize hedge error</code></pre>
+
+<h4>B4 함수 레퍼런스</h4>
+<table>
+  <thead><tr><th style="width:24%">함수 / 클래스</th><th style="width:18%">위치</th><th>입력 → 출력</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>HedgingEnvConfig</code></td>
+      <td><code>ai_hedging/env.py</code></td>
+      <td>dataclass</td>
+      <td>옵션 스펙 + reward shaping knob. <code>shaping_lambda</code>, <code>loss_penalty_mult</code>, action box 등.</td>
+    </tr>
+    <tr>
+      <td><code>HedgingEnv</code></td>
+      <td><code>ai_hedging/env.py</code></td>
+      <td>Gymnasium env</td>
+      <td>한 옵션 lifetime (30 step) 의 short-call hedging 시뮬. obs 5-dim, action [0,1]. <strong>경로 자체를 GBM 으로 합성 — 실데이터 아님</strong>.</td>
+    </tr>
+    <tr>
+      <td><code>env.step(action)</code></td>
+      <td><code>ai_hedging/env.py</code></td>
+      <td>action → (obs, reward, done, info)</td>
+      <td>tc 차감 → GBM tick → cash 업데이트 → reward 계산. terminal 시 payoff 정산.</td>
+    </tr>
+    <tr>
+      <td><code>BSMDeltaHedger</code></td>
+      <td><code>baselines/bsm_delta.py</code></td>
+      <td>obs → action ∈ [0, 1]</td>
+      <td>Layer A 의 <code>call_greeks</code> 호출하여 매 tick Δ 헤지. <strong>비교 baseline</strong>.</td>
+    </tr>
+    <tr>
+      <td><code>rebalance_interval(cfg, every, hedger)</code></td>
+      <td><code>baselines/bsm_delta.py</code></td>
+      <td>설정, 리밸런싱 주기 → PnL stats</td>
+      <td>BSM Δ 를 every step 마다 적용. daily/weekly 비교 가능.</td>
+    </tr>
+    <tr>
+      <td><code>train_ppo(...)</code></td>
+      <td><code>agents/ppo_hedger.py</code></td>
+      <td>env_cfg, steps, BC 옵션 → 저장된 모델</td>
+      <td>SB3 PPO. <strong>device='cpu'</strong> 강제 (VRAM 보호). MlpPolicy.</td>
+    </tr>
+    <tr>
+      <td><code>_bc_warmstart(...)</code></td>
+      <td><code>agents/ppo_hedger.py</code></td>
+      <td>model + env → BSM Δ 모방으로 pretrain</td>
+      <td>2000 paths × 60ep MSE supervised. PPO 가 random init 으로 시작 시 수렴 어려움 → BSM Δ 점에서 시작.</td>
+    </tr>
+    <tr>
+      <td><code>evaluate_ppo(model, cfg, n)</code></td>
+      <td><code>agents/ppo_hedger.py</code></td>
+      <td>모델 경로 + 환경 → PnL 통계</td>
+      <td>deterministic 평가 (model.predict). 2000 paths 평균.</td>
+    </tr>
+    <tr>
+      <td><code>cvar_loss(pnl, α)</code></td>
+      <td><code>ai_hedging/reward.py</code></td>
+      <td>PnL array, α=0.05 → 양수 (tail loss)</td>
+      <td>하위 α 분위 평균의 절댓값. <strong>플랜 핵심 지표</strong>: BSM 대비 20% 개선 목표.</td>
+    </tr>
+    <tr>
+      <td><code>mean_var_loss(pnl, λ)</code></td>
+      <td><code>ai_hedging/reward.py</code></td>
+      <td>PnL, λ → scalar</td>
+      <td><code>−E[PnL] + λ·Var[PnL]</code>. Buehler 의 mean-variance objective.</td>
+    </tr>
+    <tr>
+      <td><code>sharpe(pnl, ann)</code></td>
+      <td><code>ai_hedging/reward.py</code></td>
+      <td>PnL → Sharpe ratio</td>
+      <td>μ/σ 의 √252 환산.</td>
+    </tr>
+    <tr>
+      <td><code>max_drawdown(equity)</code></td>
+      <td><code>ai_hedging/reward.py</code></td>
+      <td>equity 곡선 → 최대 낙폭</td>
+      <td>cum_max 대비 가장 낮은 점.</td>
+    </tr>
+  </tbody>
+</table>
 
 <!-- ================================================================ -->
 <h2 id="layer-c-d-e">7. Layer C / D / E — 비교 · 운영 · 가속</h2>
@@ -615,6 +1018,55 @@ terminal (step 30):
   <strong>주의</strong> — compare_all 의 <code>mean_rel_err</code> 는 deep OTM 분모 0 문제로 왜곡.
   <strong>실제 평가는 <code>scripts/bench_nn_pricer.py</code> 의 IV-space error 를 봐야 함</strong>.
 </div>
+
+<h4>Layer C 함수 레퍼런스</h4>
+<table>
+  <thead><tr><th style="width:24%">함수 / 클래스</th><th style="width:18%">위치</th><th>입력 → 출력</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>PricingStats</code></td>
+      <td><code>experiments/metrics.py</code></td>
+      <td>frozen dataclass</td>
+      <td>method, mean_err, max_err, mean_rel_err, p95_rel_err, inference_ms 표준 row.</td>
+    </tr>
+    <tr>
+      <td><code>HedgingStats</code></td>
+      <td><code>experiments/metrics.py</code></td>
+      <td>frozen dataclass</td>
+      <td>method, mean_pnl, std, cvar_5, sharpe, max_dd, turnover, inference_ms.</td>
+    </tr>
+    <tr>
+      <td><code>pricing_stats_from_arrays(...)</code></td>
+      <td><code>experiments/metrics.py</code></td>
+      <td>preds, truth → PricingStats</td>
+      <td>오차 → 통계 변환. p95 rel err 도 함께.</td>
+    </tr>
+    <tr>
+      <td><code>hedging_stats_from_arrays(...)</code></td>
+      <td><code>experiments/metrics.py</code></td>
+      <td>pnl array → HedgingStats</td>
+      <td>CVaR + drawdown + Sharpe 일괄 계산. cum-sum equity 기반.</td>
+    </tr>
+    <tr>
+      <td><code>_bsm_panel(n, seed)</code></td>
+      <td><code>experiments/compare_pricers.py</code></td>
+      <td>n → (raw, true_prices)</td>
+      <td>uniform 도메인에서 옵션 패널 + BSM 정답. 모든 method 의 공통 입력.</td>
+    </tr>
+    <tr>
+      <td><code>bench_bsm(raw)</code><br><code>bench_nn_pricer(raw, model)</code></td>
+      <td><code>experiments/compare_pricers.py</code></td>
+      <td>raw 옵션 → (preds, ms/option)</td>
+      <td>각 방법 별 가격 + 추론시간 측정. 공정 비교를 위한 동일 timer.</td>
+    </tr>
+    <tr>
+      <td><code>run_all(...)</code></td>
+      <td><code>experiments/compare_all.py</code></td>
+      <td>모델 경로들 + tc → 두 CSV</td>
+      <td><strong>5-method 통합 비교</strong>. all_methods_pricing.csv + all_methods_hedging.csv.</td>
+    </tr>
+  </tbody>
+</table>
 
 <h3 class="layer-D">Layer D — Auto-Trading</h3>
 <p>
@@ -635,6 +1087,97 @@ terminal (step 30):
   <li>API 오류 3회 연속 → 정지</li>
 </ul>
 
+<h4>Layer D 함수 레퍼런스</h4>
+<table>
+  <thead><tr><th style="width:24%">함수 / 클래스</th><th style="width:18%">위치</th><th>입력 → 출력</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>KISConfig</code></td>
+      <td><code>autotrader/broker/kis_client.py</code></td>
+      <td>dataclass + <code>from_env()</code></td>
+      <td>환경변수에서 앱키/계좌/dry_run 로드. 실거래 가드 (env=prod + DRY=false 만 허용).</td>
+    </tr>
+    <tr>
+      <td><code>KISClient.token()</code></td>
+      <td><code>autotrader/broker/kis_client.py</code></td>
+      <td>→ access_token</td>
+      <td>OAuth2 client_credentials. 캐싱 (.kis_token.json) 으로 호출 횟수 절약.</td>
+    </tr>
+    <tr>
+      <td><code>KISClient.quote(symbol)</code></td>
+      <td><code>autotrader/broker/kis_client.py</code></td>
+      <td>종목코드 → 시세 dict</td>
+      <td>FHKST01010100 — 주식현재가 조회.</td>
+    </tr>
+    <tr>
+      <td><code>KISClient.balance()</code></td>
+      <td><code>autotrader/broker/kis_client.py</code></td>
+      <td>→ 잔고 dict</td>
+      <td>VTTC8434R (모의) / TTTC8434R (실). 보유종목 + 평가금액.</td>
+    </tr>
+    <tr>
+      <td><code>KISClient.order(...)</code></td>
+      <td><code>autotrader/broker/kis_client.py</code></td>
+      <td>symbol, qty, side, price → response</td>
+      <td><strong>핵심 가드 함수</strong>. <code>cfg.dry_run=True</code> 면 mock 반환, false 면 실제 주문 (지정가/시장가).</td>
+    </tr>
+    <tr>
+      <td><code>InavEstimator</code></td>
+      <td><code>autotrader/market/inav.py</code></td>
+      <td>(constituents, weights, cash) → estimator</td>
+      <td>ETF 의 iNAV 를 구성종목 바스켓에서 추정. 발행사가 공시 안 하는 시점 보완.</td>
+    </tr>
+    <tr>
+      <td><code>InavEstimator.estimate(prices)</code></td>
+      <td><code>autotrader/market/inav.py</code></td>
+      <td>{종목: 가격} → iNAV (float)</td>
+      <td><code>Σ wᵢ · pᵢ + cash_weight</code>. 가중합.</td>
+    </tr>
+    <tr>
+      <td><code>deviation(etf, inav)</code></td>
+      <td><code>autotrader/market/inav.py</code></td>
+      <td>두 가격 → relative gap</td>
+      <td><code>(ETF − iNAV)/iNAV</code>. + 면 ETF 비싸 (sell), − 면 싸 (buy).</td>
+    </tr>
+    <tr>
+      <td><code>EtfInavArbitrage</code></td>
+      <td><code>autotrader/strategies/etf_inav_arb.py</code></td>
+      <td>threshold 설정 → strategy state</td>
+      <td>iNAV 괴리 평균회귀 전략. enter_threshold (30bps) 진입, exit_threshold (5bps) 청산.</td>
+    </tr>
+    <tr>
+      <td><code>strategy.decide(deviation)</code></td>
+      <td><code>autotrader/strategies/etf_inav_arb.py</code></td>
+      <td>괴리율 → Signal (BUY/SELL/HOLD)</td>
+      <td>현재 포지션 + threshold 조합 룰. position 0 → enter, ±position → exit.</td>
+    </tr>
+    <tr>
+      <td><code>RiskLimits / RiskState</code></td>
+      <td><code>autotrader/risk/limits.py</code></td>
+      <td>dataclass</td>
+      <td>한도 (포지션 20%, 손실 −1.5%, 시간대) + 현재 상태 (equity, error_count).</td>
+    </tr>
+    <tr>
+      <td><code>check(state, limits, now)</code></td>
+      <td><code>autotrader/risk/limits.py</code></td>
+      <td>(state, limits, time) → (ok, reason)</td>
+      <td>모든 가드 일괄 체크. False 반환 → runner 가 매매 차단 + 사유 로그.</td>
+    </tr>
+    <tr>
+      <td><code>mock_prices(seed, tick)</code></td>
+      <td><code>autotrader/runner.py</code></td>
+      <td>tick → (etf 가격, 구성종목 dict)</td>
+      <td><code>--dry</code> 모드에서 KIS API 대신 사용. gaussian noise + deterministic baseline.</td>
+    </tr>
+    <tr>
+      <td><code>run(symbol, seconds, ...)</code></td>
+      <td><code>autotrader/runner.py</code></td>
+      <td>심볼 + 시간 → 로그 list[dict]</td>
+      <td>메인 루프: tick → 시세 → iNAV → 괴리 → risk check → strategy → order → log.</td>
+    </tr>
+  </tbody>
+</table>
+
 <h3 class="layer-E">Layer E — C++ MC Kernel</h3>
 <p>
   pybind11 + OpenMP + Xorshift64 RNG. numpy 대비 14.8× (MC 1M paths × 252 steps).
@@ -649,6 +1192,43 @@ terminal (step 30):
 assert _HAS_NATIVE, "C++ extension not built"
 r = mc_euro_call(100, 100, 1, 0.03, 0, 0.2, n_paths=1_000_000, n_steps=252)
 print(r.price, r.stderr)</code></pre>
+
+<h4>Layer E 함수 레퍼런스</h4>
+<table>
+  <thead><tr><th style="width:24%">함수 / 클래스</th><th style="width:18%">위치</th><th>입력 → 출력</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>Xorshift64</code></td>
+      <td><code>fastmc/cpp/mc_kernel.cpp</code></td>
+      <td>seed → state</td>
+      <td>Marsaglia 의 64-bit xorshift PRNG. 메르센 트위스터 보다 빠름. <code>uniform()</code>, <code>normal()</code> (Box-Muller).</td>
+    </tr>
+    <tr>
+      <td><code>fastmc::mc_euro_call(...)</code></td>
+      <td><code>fastmc/cpp/mc_kernel.cpp</code></td>
+      <td>S0, K, T, r, q, σ, paths, steps, seed, n_threads → MCResult (C++)</td>
+      <td>OpenMP 병렬 GBM MC. antithetic 짝 단위 처리. parallel reduction 으로 합/제곱합 계산.</td>
+    </tr>
+    <tr>
+      <td><code>PYBIND11_MODULE(_fastmc)</code></td>
+      <td><code>fastmc/cpp/bindings.cpp</code></td>
+      <td>C++ ↔ Python</td>
+      <td>MCResult 클래스 + <code>mc_euro_call</code> 함수 노출. <code>stderr</code> alias 도 함께 (Python 호환).</td>
+    </tr>
+    <tr>
+      <td><code>fastmc.mc_euro_call(...)</code></td>
+      <td><code>fastmc/python/fastmc/__init__.py</code></td>
+      <td>Python wrapper</td>
+      <td>C++ 빌드 성공 시 native 사용 / 실패 시 numpy fallback. <strong>14.8× 가속</strong> (vs numpy).</td>
+    </tr>
+    <tr>
+      <td><code>fastmc._HAS_NATIVE</code></td>
+      <td><code>fastmc/python/fastmc/__init__.py</code></td>
+      <td>bool</td>
+      <td>C++ 확장 로드 여부 검사 플래그. fallback 사용 중 인지 알려줌.</td>
+    </tr>
+  </tbody>
+</table>
 
 <!-- ================================================================ -->
 <h2 id="metrics">8. 지표 카탈로그</h2>
