@@ -58,12 +58,12 @@
 
 <h1>quant-lab 전체 레이어 상태 리포트</h1>
 <p class="meta">
-  2026-04-24 · 5 Layer 모두 실제 학습·빌드·테스트까지 진행한 스냅샷. CPU-only 환경.
+  2026-04-25 · 5 Layer 모두 실제 학습·빌드·테스트까지 진행한 스냅샷. CPU-only 환경.
 </p>
 
 <div class="callout callout-ok">
-  <strong>한 줄 요약</strong> — <strong>Layer A/B1/B2/E 는 플랜 목표 달성</strong>, Layer B3 (News-IV) 는 프레임워크 완성 (분류 규칙 수준), <strong>Layer B4 (Deep Hedging) 만 RL 수렴 미완</strong> (플랜 위험표 예측대로 action space/reward 추가 튜닝 필요).
-  Layer D 는 DRY_RUN 스모크 통과, 실 API 는 계좌 필요.
+  <strong>한 줄 요약</strong> — <strong>Layer A/B1/B2/B4/E 모두 플랜 목표 달성</strong>. Layer B3 (News-IV) 는 프레임워크 완성 (분류 규칙 수준), Layer D 는 DRY_RUN 스모크 통과 (실 API 는 계좌 필요).
+  <strong>2026-04-25 update</strong>: Layer B4 가 PPO 5번 실패 후 Buehler 2019 PG-on-CVaR 직접 구현으로 <strong>+24.5% CVaR 개선</strong> 달성하여 <em>수렴 미완</em> → <em>PASS</em> 로 전환.
 </div>
 
 <!-- =================================================== -->
@@ -105,15 +105,15 @@
     </tr>
     <tr>
       <td><strong>B4</strong> Deep Hedging</td>
-      <td><span class="badge badge-todo">수렴 미완</span></td>
-      <td>TC=0 에서도 BSM Δ CVaR 0.76 vs PPO 1.85</td>
-      <td class="bad">200k step CPU 로 미수렴. action space/reward 튜닝 필요 (Part 8 위험표에 예측됨)</td>
+      <td><span class="badge badge-ok">완료</span></td>
+      <td>TC=0.3% · Buehler PG-on-CVaR · CVaR ratio <strong>0.755</strong> (vs BSM Δ) · CPU 2분 16초</td>
+      <td class="good">+24.5% 개선 (목표 ≥20%). PPO 5번 실패 후 알고리즘 변경으로 PASS</td>
     </tr>
     <tr>
       <td><strong>C</strong> Comparison</td>
       <td><span class="badge badge-ok">완료</span></td>
       <td><code>data/all_methods_pricing.csv</code>, <code>data/all_methods_hedging.csv</code></td>
-      <td class="good">프레임워크 동작. B4 수치만 재학습 후 갱신 필요</td>
+      <td class="good">프레임워크 동작. 2026-04-25 Buehler v2 결과 추가됨</td>
     </tr>
     <tr>
       <td><strong>D</strong> KIS Auto-Trading</td>
@@ -216,35 +216,33 @@
 </div>
 
 <!-- =================================================== -->
-<h2>5. 상세 결과 — Layer B4 (Deep Hedging) <span class="badge badge-todo">미완</span></h2>
+<h2>5. 상세 결과 — Layer B4 (Deep Hedging) <span class="badge badge-ok">PASS</span></h2>
 
 <table>
   <thead>
-    <tr><th>Setting</th><th>Strategy</th><th>Mean PnL</th><th>Std</th><th>CVaR@5%</th></tr>
+    <tr><th>Setting</th><th>Strategy</th><th>Mean PnL</th><th>Std</th><th>CVaR@5%</th><th>vs BSM</th></tr>
   </thead>
   <tbody>
     <tr>
-      <td rowspan="2">TC = 0 (sanity check)</td>
-      <td>BSM Δ (daily)</td><td class="num">+0.089</td><td class="num good">0.36</td><td class="num good">0.76</td>
+      <td rowspan="3">TC = 0.3% (plan target)</td>
+      <td>BSM Δ (daily)</td><td class="num">-0.748</td><td class="num">0.45</td><td class="num">1.868</td><td class="num">기준선</td>
     </tr>
     <tr>
-      <td>PPO TC=0 (200k step)</td><td class="num">+0.098</td><td class="num bad">1.00</td><td class="num bad">1.85</td>
+      <td>PPO (5번 시도 best)</td><td class="num bad">-1.056</td><td class="num bad">5.60</td><td class="num bad">20.83</td><td class="num bad">−11.1×</td>
     </tr>
-    <tr>
-      <td rowspan="2">TC = 0.3% (plan target)</td>
-      <td>BSM Δ (daily)</td><td class="num">-0.748</td><td class="num good">0.45</td><td class="num good">1.88</td>
-    </tr>
-    <tr>
-      <td>PPO TC=0.3% (200k step)</td><td class="num bad">-1.056</td><td class="num bad">5.60</td><td class="num bad">20.83</td>
+    <tr style="background:#e6f3ea">
+      <td><strong>Buehler v2 (PG-on-CVaR)</strong></td>
+      <td class="num">-0.573</td><td class="num good">0.558</td><td class="num good"><strong>1.411</strong></td>
+      <td class="num good"><strong>+24.5%</strong></td>
     </tr>
   </tbody>
 </table>
 
-<div class="callout callout-warn">
-  <strong>수렴 미완 진단</strong> — TC=0 sanity check 에서조차 BSM Δ 대비 CVaR 2.4× 악화.
-  PPO 가 policy std ~1.0 으로 수렴해서 실제로는 거의 랜덤 action.
-  플랜 Part 8 risk table 에 <em>"Week 7 RL 수렴 실패 → action space 축소, reward clipping"</em> 로
-  이미 예측된 케이스. <strong>200k step CPU 학습으로는 부족</strong>.
+<div class="callout callout-ok">
+  <strong>PASS 진단 (2026-04-25)</strong> — PPO 5번 시도 모두 BSM 못 이긴 후 알고리즘 변경.
+  Buehler 2019 원논문대로 <em>"PPO 안 쓰고 CVaR loss 에 직접 backward"</em> 로
+  단 136초 (CPU) 만에 ratio 0.755 = <strong>+24.5% 개선</strong> 달성.
+  자세한 분석: <a href="2026-04-25/B4_buehler_implementation.html">B4_buehler_implementation.html</a>.
 </div>
 
 <h3>가능성 있는 수정 방향 (별도 task)</h3>
@@ -335,6 +333,7 @@
     <tr><td>A-BSMΔ-daily</td><td class="num">-0.74</td><td class="num good">0.44</td><td class="num good">1.83</td><td class="num">-1.69</td></tr>
     <tr><td>A-BSMΔ-weekly</td><td class="num">-0.49</td><td class="num">0.91</td><td class="num">2.85</td><td class="num">-0.54</td></tr>
     <tr><td>B4-DeepHedging-PPO</td><td class="num bad">-1.38</td><td class="num bad">6.11</td><td class="num bad">22.51</td><td class="num">-0.23</td></tr>
+    <tr style="background:#e6f3ea"><td><strong>B4-DeepHedging-Buehler v2</strong></td><td class="num good">-0.57</td><td class="num good">0.56</td><td class="num good"><strong>1.41</strong></td><td class="num">-1.03</td></tr>
   </tbody>
 </table>
 
@@ -348,7 +347,7 @@
     <li>Horvath 2021 Deep Calibration 재현: Heston 5-param 역매핑을 semi-analytic 최적화 대비 <strong>26× 가속</strong>, IV RMSE 0.5 vol pts 달성</li>
     <li>C++ pybind11 + OpenMP MC kernel, numpy 대비 <strong>14.8× 가속</strong></li>
     <li>KIS Developers API 클라이언트 + ETF iNAV 전략 + DRY_RUN 3단계 risk guard (포지션 20%, 일일손실 1.5%, 장 open/close 10분 차단)</li>
-    <li>Buehler 2019 Deep Hedging gym 환경 + PPO agent 구현 (수렴 튜닝은 진행 중)</li>
+    <li>Buehler 2019 Deep Hedging — PPO 5번 실패 후 원논문 PG-on-CVaR 직접 구현으로 BSM Δ 대비 <strong>CVaR +24.5% 개선</strong> (TC=30bps, CPU 2분 학습)</li>
     <li>News/LLM → IV shift 파이프라인: rule / FinBERT(KR) / Claude API 3중 분류기, event → ΔIV lookup</li>
   </ul>"
 </div>
@@ -357,7 +356,7 @@
 <h2>9. 남은 작업 (우선순위)</h2>
 
 <ol>
-  <li><strong>Deep Hedging 수렴 튜닝</strong> — §5 표의 action space 축소 + reward shaping 부터</li>
+  <li><strong>Deep Hedging 실데이터 전환</strong> — GBM tick → KOSPI200 historical 일별 수익률로 환경 교체, +24.5% 개선이 실시장에서도 유지되는지 검증</li>
   <li><strong>News/LLM 실제 데이터 백테스트</strong> — DART 공시 + 네이버 RSS 1주치로 IV shift 가설 검증</li>
   <li><strong>한화 ELS 공시 1~2건 재가격</strong> — DART 에서 수동 다운 후 <code>data/els_samples/</code></li>
   <li><strong>KIS 모의투자 3영업일 무중단 운영</strong> — 장중 시간에 runner 돌리기</li>

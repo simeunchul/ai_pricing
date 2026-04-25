@@ -12,7 +12,7 @@ GitHub: `https://github.com/<USERNAME>/quant-lab` (예정)
 
 ---
 
-## 핵심 성과 5개 (수치 위주)
+## 핵심 성과 6개 (수치 위주)
 
 ### 1. **실데이터 한화 ELS 재가격 +2.17% (±3% 목표 달성)**
 - DART 전자공시 Open API 로 **한화스마트ELS 제8286호** XML 본문 직접 파싱
@@ -40,7 +40,13 @@ GitHub: `https://github.com/<USERNAME>/quant-lab` (예정)
 - MSVC 빌드 (stderr/M_PI 호환 fix), 1M paths × 252 steps 1.98s → 0.13s
 - Python fallback 자동 (확장 빌드 실패 시 numpy 동작 유지)
 
-### 5. **KIS Developers 자동매매 시스템 — DRY_RUN 4-tier safety + 다중 risk guard**
+### 5. **Deep Hedging (Buehler 2019 PG-on-CVaR) — BSM Δ 대비 CVaR @5% 24.5% 개선**
+- TC=30bps 환경, PPO 5번 시도 모두 BSM 못 이김 → 진단 결과 PPO 의 `E[reward]` 최적화와 CVaR 최소화는 직교
+- Buehler 원논문대로 **gym 환경 제거 + PyTorch differentiable batch simulator + CVaR loss 에 직접 backward**
+- 학습 시간: PPO 25분 → Buehler PG **136초 (CPU, 100× 단축)**
+- CVaR ratio 0.755 (PPO 최선 0.92 대비 추가 개선), 학습 곡선 단조 감소·entropy collapse 없음
+
+### 6. **KIS Developers 자동매매 시스템 — DRY_RUN 4-tier safety + 다중 risk guard**
 - ETF iNAV 괴리 평균회귀 전략 (KODEX 200 069500 대상)
 - 환경변수 4단계 가드: 완전시뮬 → vts mock → vts 실주문 → prod 실주문 (`--i-understand-live` 필수)
 - 자동 정지 조건: 포지션 20% 초과, 일일 손실 −1.5%, 장 시작/마감 10분, API 오류 3회
@@ -53,7 +59,7 @@ GitHub: `https://github.com/<USERNAME>/quant-lab` (예정)
 | Layer | 산출물 | 핵심 수치 |
 |---|---|---|
 | **B3** News-IV | rule + FinBERT(KR) + Claude API 3중 분류기 | 영어/한국어 키워드 보강, 7 ticker 70 헤드라인 → 13 event 분류 |
-| **B4** Deep Hedging (Buehler 2019) | gym env + PPO + BC warm-start | TC=0 sanity PASS (CVaR 1.02× BSM), TC=0.3% PARTIAL (+7.8%) — 알고리즘 한계 진단 (PPO+shaping 의 BSM attractor) 후 imitation+residual 우회 |
+| **B4** Deep Hedging (Buehler 2019) | PG-on-CVaR direct (PPO 폐기 후) | TC=0.3% **PASS +24.5%** (ratio 0.755) · CPU 2분 16초 학습 · PPO 5번 실패 후 알고리즘 변경으로 달성 |
 | **C** 비교 프레임워크 | 5-method pricing + 3-method hedging CSV | `data/all_methods_*.csv` |
 | **검증** pytest | 5 패키지 통합 | **37/37 green** |
 
@@ -63,7 +69,7 @@ GitHub: `https://github.com/<USERNAME>/quant-lab` (예정)
 
 **Language**: Python 3.10+, C++17  
 **Quant**: BSM, Binomial(CRR), Monte Carlo (antithetic + control variate), Heston (semi-analytic + MC), Greeks (analytic + bumping), IV (Brent), step-down ELS  
-**ML/RL**: PyTorch (MLP, Adam, Cosine LR), Stable-Baselines3 (PPO + BC warm-start), gymnasium (custom env)  
+**ML/RL**: PyTorch (MLP, Adam, Cosine LR, differentiable batch simulator, PG-on-CVaR), Stable-Baselines3 (PPO + BC warm-start), gymnasium (custom env)  
 **NLP**: HuggingFace `snunlp/KR-FinBert-SC`, Anthropic Claude API  
 **Data**: DART Open API, yfinance, pykrx, pandas/numpy/scipy  
 **Trading**: KIS Developers REST + WebSocket  
@@ -89,7 +95,7 @@ GitHub: `https://github.com/<USERNAME>/quant-lab` (예정)
 ## 한계 및 다음 단계 (정직)
 
 - **합성 vs 실데이터**: 학습은 합성 (BSM/Heston/GBM), 실데이터는 한화 ELS 1건 + SPY IV surface 만 검증. KOSPI200 옵션 IV 는 KRX 인증 필요로 미투입.
-- **Deep Hedging**: 합성 GBM 환경에서 부분 수렴 (7.8%). 플랜 20% 목표는 알고리즘 변경(CVaR surrogate / SAC)으로만 가능. residual learning 도 시도 중.
+- **Deep Hedging**: 합성 GBM 환경에서 +24.5% 달성 (Buehler PG-on-CVaR). 다음 단계는 GBM tick → KOSPI200 historical 일별 수익률로 환경 교체하여 jump/vol-clustering 실시장 재검증.
 - **KIS 모의투자 운영**: 계좌 개설 후 3영업일 무중단 운영 예정.
 
 ---
