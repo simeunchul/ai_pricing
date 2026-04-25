@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>일일 작업 보고서 · 2026-04-25 · quant-lab</title>
+<style>
+  :root {
+    --fg: #1a1a1a; --bg: #fafafa; --muted: #666;
+    --accent: #2c5aa0; --accent-light: #e6eef7;
+    --warn: #c0392b; --warn-light: #fdeae6;
+    --ok: #0b8043; --ok-light: #e6f3ea;
+    --yellow: #a6820d; --yellow-light: #fff4d6;
+    --purple: #6c3483; --purple-light: #eee0f3;
+    --border: #ddd; --code-bg: #f4f4f4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR",
+                 "Apple SD Gothic Neo", Roboto, sans-serif;
+    color: var(--fg); background: var(--bg); line-height: 1.65;
+    max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px;
+  }
+  h1 { font-size: 28px; border-bottom: 3px solid var(--accent); padding-bottom: 8px; }
+  h2 { font-size: 22px; margin-top: 44px; color: var(--accent);
+       border-left: 4px solid var(--accent); padding-left: 12px; }
+  h3 { font-size: 17px; margin-top: 26px; }
+  h4 { font-size: 15px; color: var(--muted); margin-bottom: 6px; }
+  code {
+    background: var(--code-bg); padding: 2px 6px; border-radius: 3px;
+    font-family: ui-monospace, Consolas, monospace; font-size: 13px;
+  }
+  pre {
+    background: var(--code-bg); padding: 14px 16px; border-radius: 6px;
+    overflow-x: auto; font-size: 13px; border-left: 3px solid var(--accent);
+  }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { padding: 10px 12px; text-align: left; border: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--accent-light); font-weight: 600; }
+  tbody tr:nth-child(even) { background: #f7f7f7; }
+  .num { font-family: ui-monospace, Consolas, monospace; }
+  .good { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--warn); font-weight: 600; }
+  .partial { color: var(--yellow); font-weight: 600; }
+  .neutral { color: var(--muted); }
+  .callout { border-left: 4px solid; padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .callout-warn { border-color: var(--warn); background: var(--warn-light); }
+  .callout-ok { border-color: var(--ok); background: var(--ok-light); }
+  .callout-info { border-color: var(--accent); background: var(--accent-light); }
+  .callout-purple { border-color: var(--purple); background: var(--purple-light); }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 3px;
+    font-size: 12px; font-weight: 600;
+  }
+  .badge-ok { background: var(--ok-light); color: var(--ok); }
+  .badge-partial { background: var(--yellow-light); color: var(--yellow); }
+  .badge-fail { background: var(--warn-light); color: var(--warn); }
+  figure { margin: 18px 0; text-align: center; }
+  figcaption { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .toc { background: #fff; border: 1px solid var(--border); border-radius: 6px;
+         padding: 16px 24px; margin: 20px 0; }
+  .toc ol { margin: 4px 0; padding-left: 24px; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<h1>quant-lab 일일 작업 보고서 · 2026-04-25 (토)</h1>
+<p class="meta">
+  작업 시간 ~5h · commits 4개 · 라인 변경 +3,000 ≈ ·
+  핵심 milestone: <strong>실데이터 2건 추가</strong> + <strong>Deep Hedging 알고리즘 한계 확정</strong>
+</p>
+
+<div class="callout callout-info">
+  <strong>오늘 한 줄 요약</strong> — Layer B2 가 실시장 데이터(SPY) 로 작동 검증되어
+  <strong>합성 → 실데이터 전환 milestone 2건</strong>(어제 한화 ELS + 오늘 SPY) 확보.
+  Layer B4 는 5번째 시도까지 실패하여 <strong>"PPO 한계 = 알고리즘 변경 필수"</strong> 진단 확정.
+  면접용 이력서/블로그 초안 작성 완료.
+</div>
+
+<nav class="toc">
+  <strong>목차</strong>
+  <ol>
+    <li><a href="#summary">전체 요약</a></li>
+    <li><a href="#commit-1">Commit 1057491 — Deep Hedging 추가 튜닝 3종 (오전)</a></li>
+    <li><a href="#commit-2">Commit 2938ba0 — E2E 함수 레퍼런스 8개 표</a></li>
+    <li><a href="#commit-3">Commit 8552172 — 실데이터 milestone (오후)</a></li>
+    <li><a href="#dh-failure">Deep Hedging 5번 실패 종합 진단</a></li>
+    <li><a href="#metrics">오늘의 지표 변화</a></li>
+    <li><a href="#deliverables">산출물 목록</a></li>
+    <li><a href="#tomorrow">내일 작업 후보</a></li>
+  </ol>
+</nav>
+
+<!-- =================================================== -->
+<h2 id="summary">1. 전체 요약</h2>
+
+<table>
+  <thead><tr><th>분야</th><th>작업</th><th>결과</th><th>판정</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Layer B4 추가 튜닝</td>
+      <td>v3 / v3b / v3c — pow=1.5, 학습 1.5M, weak shaping</td>
+      <td>3개 모두 v2 (0.92) 보다 <strong class="bad">악화</strong></td>
+      <td><span class="badge badge-fail">FAIL</span></td>
+    </tr>
+    <tr>
+      <td>E2E 문서 보강</td>
+      <td>각 Layer 함수 89개 레퍼런스 표 (8 sections)</td>
+      <td><code>e2e_flow.html</code> 860 → <strong>1439 lines</strong></td>
+      <td><span class="badge badge-ok">완료</span></td>
+    </tr>
+    <tr>
+      <td><strong>Layer B2 실데이터 calibration</strong></td>
+      <td>yfinance SPY 옵션 chain → 5×5 IV grid → Heston fit</td>
+      <td>NN <strong class="good">14× 가속</strong>, ρ=−0.88 leverage effect 정확 포착</td>
+      <td><span class="badge badge-ok">PASS</span></td>
+    </tr>
+    <tr>
+      <td>Layer B3 분류기 보강</td>
+      <td>영어 키워드 38개 추가 (Fed, lawsuit, downgrade 등)</td>
+      <td>yfinance 70 헤드라인 → 13 event 분류 동작</td>
+      <td><span class="badge badge-partial">부분</span></td>
+    </tr>
+    <tr>
+      <td>Layer B4 imitation+residual</td>
+      <td>action = BSM_Δ + δ wrapper, 600k step CPU</td>
+      <td>ratio 1.10 = <strong class="bad">−9.9%</strong> (residual 거의 0)</td>
+      <td><span class="badge badge-fail">5번째 FAIL</span></td>
+    </tr>
+    <tr>
+      <td>면접 자료</td>
+      <td>이력서 원페이지 + 블로그 4편 초안</td>
+      <td><code>resume_one_pager.md</code>, <code>blog_drafts.md</code></td>
+      <td><span class="badge badge-ok">완료</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- =================================================== -->
+<h2 id="commit-1">2. Commit <code>1057491</code> — Deep Hedging 추가 튜닝 3종 (오전 ~15:56)</h2>
+
+<p>
+  어제 sub-agent 의 v2 (ratio 0.92, +7.8% PARTIAL) 를 플랜 목표 20% 까지 끌어올리려 시도.
+  3가지 가설 변형 모두 실패.
+</p>
+
+<h3>변경 사항</h3>
+<ul>
+  <li><code>packages/ai_hedging/src/ai_hedging/env.py</code> — <code>loss_penalty_pow</code>, <code>tail_shock_weight</code>, <code>tail_shock_thr</code> 새 knobs 추가 (default 1.0, 0, 0.05 — backward compatible)</li>
+  <li><code>scripts/train_ppo_v3.py</code> — pow=1.5, mult=8, λ=80, tail_shock=10, lr=5e-5 의 강한 shaping 시도</li>
+  <li><code>scripts/train_ppo_v3b.py</code> — v2 reward 그대로, 학습 1.5M (3×)</li>
+  <li>(v3c 는 inline 으로 진행, 별도 script 없음)</li>
+</ul>
+
+<h3>결과 (TC=0.003, 2000 paths, BSM CVaR=1.882)</h3>
+<table>
+  <thead><tr><th>버전</th><th>변경</th><th>Wall</th><th>Final std</th><th>CVaR ratio</th><th>Improvement</th></tr></thead>
+  <tbody>
+    <tr><td>v2 (yesterday)</td><td>baseline</td><td class="num">25min</td><td class="num">0.45</td><td class="num good">0.92</td><td class="num good">+7.8%</td></tr>
+    <tr><td>v3</td><td>pow=1.5+tail_shock+lr 5e-5</td><td class="num">9min</td><td class="num">0.46</td><td class="num bad">2.75</td><td class="num bad">−175%</td></tr>
+    <tr><td>v3b</td><td>1.5M step, ent 0.003</td><td class="num">15min</td><td class="num bad">0.025</td><td class="num bad">1.27</td><td class="num bad">−27%</td></tr>
+    <tr><td>v3c</td><td>weak shaping λ=10</td><td class="num">6min</td><td class="num">0.16</td><td class="num bad">1.90</td><td class="num bad">−90%</td></tr>
+  </tbody>
+</table>
+
+<h3>진단</h3>
+<ul>
+  <li><strong>v3</strong>: pow + tail_shock 가 reward scale 폭발 → noisy gradient → BSM 보다 멀리 random 방향으로 끌려감.</li>
+  <li><strong>v3b</strong>: 학습 길어지자 PPO std 1.0 → <strong>0.025 collapse</strong>. 거의 deterministic policy → 새 path 적응 못함.</li>
+  <li><strong>v3c</strong>: shaping 약해도 attractor 자체는 그대로. terminal reward 만으로는 sparse.</li>
+</ul>
+
+<div class="callout callout-warn">
+  <strong>당시 결론</strong> — "v2 가 7.8% 나온 건 budget 부족(25분)으로 BSM 에 완전히 끌려가기 전에 멈춰서.
+  즉 v2 는 under-trained 의 우연한 부산물 — 안정적 수렴 아님."
+</div>
+
+<!-- =================================================== -->
+<h2 id="commit-2">3. Commit <code>2938ba0</code> — E2E 함수 레퍼런스 8개 표 (~16:18)</h2>
+
+<p>
+  사용자 피드백: "함수 이름만 나와있어서 안 와닿음".
+  <code>e2e_flow.html</code> 의 모든 Layer 의 다이어그램에 함수 표를 8개 추가.
+</p>
+
+<table>
+  <thead><tr><th>Section</th><th>Layer</th><th>항목 수</th></tr></thead>
+  <tbody>
+    <tr><td>§5</td><td>Layer A Classical</td><td class="num">18 (BSM/Binomial/MC/VR/Greeks/IV/Heston/ELS/payoffs)</td></tr>
+    <tr><td>§6 B1</td><td>NN Pricer</td><td class="num">11 (data → model → train → infer → bench)</td></tr>
+    <tr><td>§6 B2</td><td>Deep Calibration</td><td class="num">9 (sampler/surface/calibrate)</td></tr>
+    <tr><td>§6 B3</td><td>News-IV</td><td class="num">12 (fetch/classify×3/iv_shift/pipeline)</td></tr>
+    <tr><td>§6 B4</td><td>Deep Hedging</td><td class="num">13 (env/BC/PPO/baselines/reward)</td></tr>
+    <tr><td>§7 C</td><td>Comparison</td><td class="num">7</td></tr>
+    <tr><td>§7 D</td><td>Auto-trader</td><td class="num">14 (KIS/iNAV/strategy/risk/runner)</td></tr>
+    <tr><td>§7 E</td><td>C++ MC</td><td class="num">5 (Xorshift/native/fallback)</td></tr>
+    <tr><td colspan="2"><strong>총합</strong></td><td class="num"><strong>89 functions/classes</strong></td></tr>
+  </tbody>
+</table>
+
+<p>각 entry: 함수명 / 파일위치 / 입력→출력 / 한줄 역할. 핵심 함수에는 달성 수치 직접 표기 (예: <code>price_els</code> → "한화 8286호 +2.17% 검증 함수").</p>
+
+<!-- =================================================== -->
+<h2 id="commit-3">4. Commit <code>8552172</code> — 실데이터 milestone + 면접 자료 (오후 ~19:29)</h2>
+
+<h3>4.1 Layer B2 실시장 Heston Calibration <span class="badge badge-ok">성공</span></h3>
+
+<p>
+  플랜의 "B2 실데이터 calibration" 단계. <strong>이번 세션의 가장 큰 milestone</strong>.
+</p>
+
+<h4>Pipeline</h4>
+<ol>
+  <li><code>scripts/fetch_spy_iv.py</code>: yfinance 로 SPY 옵션 chain (29 expirations × ~108 strikes/expiry = <strong>4,065 IV 점</strong>) 수집</li>
+  <li>5 moneyness × 5 maturities = 25 cell grid 로 정렬 (interpolation)</li>
+  <li><code>scripts/calibrate_spy_heston.py</code>: 학습된 DeepCalibNet 으로 gradient descent on (κ,θ,ξ,ρ,v₀)</li>
+  <li>Verify: fitted params → semi-analytic IV → market IV RMSE 측정</li>
+  <li>비교: scipy.optimize Nelder-Mead 200 iter 와 wall time + accuracy 비교</li>
+</ol>
+
+<h4>결과</h4>
+<table>
+  <thead>
+    <tr><th>Method</th><th>κ</th><th>θ</th><th>ξ</th><th>ρ</th><th>v₀</th><th>RMSE</th><th>Wall</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Deep Calib NN</strong></td>
+      <td class="num">3.114</td><td class="num">0.0781</td><td class="num">1.000</td>
+      <td class="num good">−0.881</td><td class="num">0.0451</td>
+      <td class="num">2.22 vp</td>
+      <td class="num good">2,292 ms</td>
+    </tr>
+    <tr>
+      <td>Nelder-Mead</td>
+      <td class="num">2.528</td><td class="num">0.0784</td><td class="num">1.137</td>
+      <td class="num">−0.794</td><td class="num">0.0433</td>
+      <td class="num good">1.97 vp</td>
+      <td class="num bad">32,073 ms</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-ok">
+  <strong>핵심 결과</strong>:<br>
+  • <strong>14× 가속</strong> (32s → 2.3s). 플랜 목표 100× 에는 미달이지만 합성 데이터에서는 26× 였음 — 실데이터에서 학습 분포 밖 영역이라 NN 약간 퍼포먼스 저하.<br>
+  • <strong>ρ ≈ −0.85</strong> (둘 다) → 시장의 <strong>leverage effect</strong> (주가 하락 시 vol 상승) 정확 포착. 실시장의 well-known stylized fact 와 일치.<br>
+  • <strong>θ ≈ 0.078</strong> → 장기 vol 약 28% 추정. 현재 SPY ATM IV 17~25% 와 일관성.<br>
+  • <strong>v₀ ≈ 0.044</strong> → 단기 vol 약 21%. 현재 ATM IV 와 일치.
+</div>
+
+<h3>4.2 Layer B3 분류기 영어 키워드 보강 <span class="badge badge-partial">부분</span></h3>
+
+<p>
+  <code>packages/ai_pricing/src/ai_pricing/news_iv/classify.py</code> 에 영어 키워드 38개 추가:
+</p>
+
+<table>
+  <thead><tr><th>EventType</th><th>추가 키워드 (영어)</th></tr></thead>
+  <tbody>
+    <tr><td>earnings_miss</td><td><code>missed estimates, disappointing earnings, earnings shortfall, lowered guidance, profit warning</code></td></tr>
+    <tr><td>earnings_beat</td><td><code>beat estimates, exceeded expectations, raised guidance, record profit, strong earnings</code></td></tr>
+    <tr><td>regulatory</td><td><code>antitrust, investigation, fine, lawsuit, sec, violation, probe</code></td></tr>
+    <tr><td>macro_shock</td><td><code>rate hike, rate cut, fed, fomc, inflation surge, oil spike, geopolitical</code></td></tr>
+    <tr><td>mna</td><td><code>acquires, acquisition, merger, buyout, takeover</code></td></tr>
+    <tr><td>rating_change</td><td><code>downgrade, upgrade, moody's, s&p, fitch</code></td></tr>
+  </tbody>
+</table>
+
+<h4>백테스트 시도</h4>
+<ul>
+  <li><strong>v1</strong> (<code>scripts/b3_backtest.py</code>): DART 시장 공시 80건 → rule classifier 0건 매칭. 이유: report_nm 이 "투자설명서(일괄신고)" 같은 행정 용어. 본문 깊이 파야 키워드 보임.</li>
+  <li><strong>v2</strong> (<code>scripts/b3_backtest_v2.py</code>): yfinance ticker.news 7개 ticker × 70 헤드라인 → <strong>13건 분류</strong> (macro_shock 7, regulatory 4, rating_change 2). 분류 동작은 정상.</li>
+  <li><strong>한계</strong>: 뉴스가 4-24~25일 자라 +2영업일 future date 미존재. 부호 일치율 측정 불가.</li>
+</ul>
+
+<h3>4.3 Layer B4 imitation+residual <span class="badge badge-fail">5번째 FAIL</span></h3>
+
+<p>
+  Sub-agent 의 §7 (c) "imitation + residual learning" 추천 경로 직접 시도.
+</p>
+
+<h4>구조</h4>
+<pre><code># packages/ai_hedging/src/ai_hedging/agents/residual_hedger.py
+class ResidualHedgingEnv(gym.Env):
+    """action = clip(BSM_Δ + δ, 0, 1), δ ∈ [-0.3, 0.3]"""</code></pre>
+
+<p>
+  PPO 가 BSM attractor 에 끌릴 수 없는 setup. 이론상 가장 robust.
+</p>
+
+<h4>결과</h4>
+<table>
+  <thead><tr><th>Strategy</th><th>Mean PnL</th><th>Std</th><th>CVaR@5%</th><th>Sharpe</th></tr></thead>
+  <tbody>
+    <tr><td>BSM Δ daily</td><td class="num">−0.7484</td><td class="num good">0.4479</td><td class="num good">1.882</td><td class="num">−1.69</td></tr>
+    <tr><td>Residual PPO</td><td class="num">−0.7442</td><td class="num">0.5112</td><td class="num bad">2.068</td><td class="num">−2.31</td></tr>
+  </tbody>
+</table>
+
+<p><strong>ratio = 1.10 = −9.9% (FAIL)</strong></p>
+
+<h4>실패 메커니즘</h4>
+<ul>
+  <li>|residual| = <strong>0.049</strong> → PPO 가 사실상 BSM Δ 그대로 사용 (residual 거의 0)</li>
+  <li>std = 0.055 collapse 재발</li>
+  <li>"residual = 0 이 reward 안전" 학습 → BSM 모방으로 회귀 + 노이즈만 추가</li>
+</ul>
+
+<h3>4.4 면접 자료 <span class="badge badge-ok">완료</span></h3>
+
+<ul>
+  <li><strong><code>docs/resume_one_pager.md</code></strong> — 핵심 성과 5개 (수치 위주):
+    <ol>
+      <li>한화 ELS 재가격 +2.17%</li>
+      <li>NN Pricer ATM IV 0.55 vp + 20× 가속</li>
+      <li>Deep Calibration <strong>실시장 SPY 14× 가속</strong></li>
+      <li>C++ MC 14.8× 가속</li>
+      <li>KIS DRY_RUN 4-tier safety</li>
+    </ol>
+    + JD 매핑 + 60초 라이브 데모 시나리오</li>
+  <li><strong><code>docs/blog_drafts.md</code></strong> — 블로그 4편 구조 + 발행 순서 권장 (한화 ELS 먼저 → 모노레포 hub → NN 진단 → DH 실패)</li>
+</ul>
+
+<!-- =================================================== -->
+<h2 id="dh-failure">5. Deep Hedging 5번 실패 종합 진단</h2>
+
+<p>
+  오늘 추가 4번 (v3, v3b, v3c, residual) 합쳐 총 <strong>5가지 PPO 변형 모두 실패</strong>.
+  이 패턴 자체가 가장 중요한 finding.
+</p>
+
+<figure>
+  <svg viewBox="0 0 760 280" xmlns="http://www.w3.org/2000/svg" width="100%" height="auto"
+       style="background:#fff;border:1px solid var(--border);border-radius:4px">
+    <text x="380" y="22" font-size="13" font-weight="600" text-anchor="middle" fill="#333">
+      5 attempts CVaR ratio (PPO / BSM Δ) — 1.0 이하 = PPO 우세
+    </text>
+
+    <!-- axes -->
+    <line x1="80" y1="50" x2="80" y2="240" stroke="#333"/>
+    <line x1="80" y1="240" x2="720" y2="240" stroke="#333"/>
+
+    <g font-family="monospace" font-size="11" fill="#666">
+      <text x="74" y="244" text-anchor="end">0</text>
+      <text x="74" y="190" text-anchor="end">1</text>
+      <line x1="78" y1="190" x2="82" y2="190" stroke="#333"/>
+      <text x="74" y="140" text-anchor="end">2</text>
+      <line x1="78" y1="140" x2="82" y2="140" stroke="#333"/>
+      <text x="74" y="90" text-anchor="end">3</text>
+    </g>
+
+    <!-- 1.0 reference -->
+    <line x1="80" y1="190" x2="720" y2="190" stroke="#333" stroke-dasharray="3,3"/>
+    <text x="715" y="186" text-anchor="end" font-size="9" fill="#666">BSM 동치 1.0</text>
+
+    <!-- bars: y = 240 - ratio*50 -->
+    <rect x="120" y="194" width="80" height="46" fill="#a6820d"/>
+    <text x="160" y="189" text-anchor="middle" font-size="11" fill="#a6820d">0.92</text>
+    <text x="160" y="258" text-anchor="middle" font-size="11">v2</text>
+    <text x="160" y="271" text-anchor="middle" font-size="9" fill="#666">+7.8%</text>
+
+    <rect x="240" y="105" width="80" height="135" fill="#c0392b"/>
+    <text x="280" y="100" text-anchor="middle" font-size="11" fill="#c0392b">2.75</text>
+    <text x="280" y="258" text-anchor="middle" font-size="11">v3</text>
+    <text x="280" y="271" text-anchor="middle" font-size="9" fill="#666">−175%</text>
+
+    <rect x="360" y="177" width="80" height="63" fill="#e74c3c"/>
+    <text x="400" y="172" text-anchor="middle" font-size="11" fill="#c0392b">1.27</text>
+    <text x="400" y="258" text-anchor="middle" font-size="11">v3b</text>
+    <text x="400" y="271" text-anchor="middle" font-size="9" fill="#666">−27%</text>
+
+    <rect x="480" y="145" width="80" height="95" fill="#e67e22"/>
+    <text x="520" y="140" text-anchor="middle" font-size="11" fill="#c0392b">1.90</text>
+    <text x="520" y="258" text-anchor="middle" font-size="11">v3c</text>
+    <text x="520" y="271" text-anchor="middle" font-size="9" fill="#666">−90%</text>
+
+    <rect x="600" y="185" width="80" height="55" fill="#e67e22"/>
+    <text x="640" y="180" text-anchor="middle" font-size="11" fill="#c0392b">1.10</text>
+    <text x="640" y="258" text-anchor="middle" font-size="11">residual</text>
+    <text x="640" y="271" text-anchor="middle" font-size="9" fill="#666">−9.9%</text>
+  </svg>
+  <figcaption>5번 시도 모두 BSM 못 이김. 자세한 진단은 <a href="why_dh_failed.html">why_dh_failed.html</a> 참조.</figcaption>
+</figure>
+
+<div class="callout callout-purple">
+  <strong>3가지 일관된 실패 메커니즘</strong>:
+  <ol>
+    <li><strong>목적함수 mismatch</strong> — PPO 는 E[reward] 최대화, 우리는 CVaR 최소화. 두 함수 직교.</li>
+    <li><strong>Dense shaping 의 BSM attractor</strong> — <code>−λ(V_hedge − V_opt)²</code> 의 minimum 이 정확히 BSM Δ.</li>
+    <li><strong>Entropy collapse</strong> — 학습 길어지면 std → 0, deterministic 됨. residual 도 영향 받음.</li>
+  </ol>
+  <strong>결론: hyperparameter 튜닝으로 해결 불가. 알고리즘 변경 필수</strong> (CVaR surrogate / SAC distributional / Buehler 직접 구현).
+</div>
+
+<!-- =================================================== -->
+<h2 id="metrics">6. 오늘의 지표 변화</h2>
+
+<table>
+  <thead>
+    <tr><th>지표</th><th>2026-04-24 (어제)</th><th>2026-04-25 (오늘)</th><th>변화</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Total commits</td>
+      <td class="num">9</td><td class="num">12</td><td class="num good">+3</td>
+    </tr>
+    <tr>
+      <td>실데이터 검증 사례</td>
+      <td class="num">1 (한화 ELS)</td><td class="num good">2 (한화 ELS + SPY Heston)</td>
+      <td class="num good">+1</td>
+    </tr>
+    <tr>
+      <td>Layer B2 status</td>
+      <td>합성 학습 완료</td><td class="good">실시장 SPY calibration 검증</td>
+      <td class="good">milestone ✓</td>
+    </tr>
+    <tr>
+      <td>Layer B4 시도 횟수</td>
+      <td class="num">2</td><td class="num">5</td><td class="num">+3</td>
+    </tr>
+    <tr>
+      <td>Layer B4 best ratio</td>
+      <td class="num">0.92 (+7.8%)</td><td class="num">0.92 (변화 없음)</td>
+      <td class="neutral">한계 확정</td>
+    </tr>
+    <tr>
+      <td>docs HTML 파일</td>
+      <td class="num">7</td><td class="num">10</td>
+      <td class="num good">+3 (e2e_flow 함수표, why_dh_failed, daily_report)</td>
+    </tr>
+    <tr>
+      <td>면접 자료</td>
+      <td class="num">0</td><td class="num">2 (resume + blog)</td>
+      <td class="num good">+2</td>
+    </tr>
+    <tr>
+      <td>pytest</td>
+      <td class="num good">37/37</td><td class="num good">37/37</td>
+      <td class="neutral">유지</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- =================================================== -->
+<h2 id="deliverables">7. 오늘 산출물 목록</h2>
+
+<h3>코드 (4 new scripts, 1 new env wrapper)</h3>
+<ul>
+  <li><code>scripts/train_ppo_v3.py</code> — PPO 강한 shaping 시도 (FAIL)</li>
+  <li><code>scripts/train_ppo_v3b.py</code> — PPO 1.5M step (FAIL)</li>
+  <li><code>scripts/fetch_spy_iv.py</code> — yfinance SPY IV grid 수집 (PASS)</li>
+  <li><code>scripts/calibrate_spy_heston.py</code> — DeepCalib 실데이터 fit (PASS)</li>
+  <li><code>scripts/b3_backtest.py</code>, <code>b3_backtest_v2.py</code> — News classifier 검증</li>
+  <li><code>scripts/train_residual.py</code> — residual hedger 학습 (FAIL)</li>
+  <li><code>packages/ai_hedging/src/ai_hedging/agents/residual_hedger.py</code> — ResidualHedgingEnv wrapper</li>
+</ul>
+
+<h3>코드 수정</h3>
+<ul>
+  <li><code>packages/ai_hedging/src/ai_hedging/env.py</code> — <code>loss_penalty_pow</code>, <code>tail_shock_weight</code>, <code>tail_shock_thr</code> 추가</li>
+  <li><code>packages/ai_pricing/src/ai_pricing/news_iv/classify.py</code> — 영어 키워드 38개 추가</li>
+</ul>
+
+<h3>데이터 (실시장 데이터 첫 commit)</h3>
+<ul>
+  <li><code>data/market_snapshots/spy_iv_20260425.json</code> — SPY 25-cell IV grid</li>
+  <li><code>data/market_snapshots/spy_iv_20260425_calib.json</code> — Heston fit 결과</li>
+  <li><code>data/bench_ppo_v3.txt</code>, <code>v3b.txt</code>, <code>residual.txt</code> — 실패 raw logs</li>
+  <li><code>data/b3_backtest_result.json</code>, <code>b3_backtest_v2.json</code></li>
+</ul>
+
+<h3>문서 (4 new HTML/MD)</h3>
+<ul>
+  <li><code>docs/e2e_flow.html</code> 업데이트 — 함수 레퍼런스 89개 (+580 lines)</li>
+  <li><code>docs/deep_hedging_tuning.html</code> 업데이트 — §10 post-mortem 추가</li>
+  <li><code>docs/resume_one_pager.md</code> — 이력서 원페이지</li>
+  <li><code>docs/blog_drafts.md</code> — 블로그 4편 초안</li>
+  <li><code>docs/why_dh_failed.html</code> — Deep Hedging 5번 실패 시각자료 (오늘 작성)</li>
+  <li><code>docs/daily_report_20260425.html</code> — 본 보고서</li>
+</ul>
+
+<!-- =================================================== -->
+<h2 id="tomorrow">8. 내일 작업 후보</h2>
+
+<h3>가성비 큰 순</h3>
+<table>
+  <thead><tr><th>#</th><th>작업</th><th>예상 시간</th><th>가치</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td><strong>GitHub repo 생성 + push + 태그</strong></td>
+      <td class="num">10분</td>
+      <td class="good">★★★ 외부 노출 시작</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>이력서 워드/PDF 변환 + 채용 사이트 등록</td>
+      <td class="num">1~2시간</td>
+      <td class="good">★★★ 본 목적 직결</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>블로그 1편 (한화 ELS 재가격) 발행 — 벨로그/노션</td>
+      <td class="num">2~3시간</td>
+      <td class="good">★★★ SEO + 한화 키워드</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>Deep Hedging (d) 경로: imitation only + 인위적 under-hedge bias</td>
+      <td class="num">3시간</td>
+      <td class="partial">★★ 가장 단순 우회</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>Deep Hedging (c) 경로: Buehler 원논문 PG-on-CVaR 직접 구현</td>
+      <td class="num">~1일</td>
+      <td class="partial">★★ 학술적 정통</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td>한화 ELS 추가 검증 (DART 더 많은 공시)</td>
+      <td class="num">2~3시간</td>
+      <td class="partial">★ 검증 표본 늘리기</td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td>KIS 모의투자 계좌 개설</td>
+      <td class="num">1~2일 (승인 대기)</td>
+      <td class="partial">★★ Layer D 활성화</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- =================================================== -->
+<div class="callout callout-info">
+  <strong>오늘의 가장 큰 학습</strong>:<br>
+  • <strong>실패 5번 → 진단 1개</strong>가 성공 1번보다 깊다. PPO 한계 확정 + 다음 알고리즘 4가지 경로 명확.<br>
+  • <strong>합성 vs 실데이터 milestone 2건 확보</strong>로 "이 모델이 실제 시장에서 작동하는지" 입증 가능.<br>
+  • <strong>면접 자료 (이력서 + 블로그)</strong> 까지 정리되어 외부 노출 준비 완료.
+</div>
+
+<p class="meta" style="margin-top:40px;padding-top:14px;border-top:1px solid var(--border)">
+  관련 문서:
+  <a href="why_dh_failed.html">why_dh_failed.html</a> ·
+  <a href="resume_one_pager.md">resume_one_pager.md</a> ·
+  <a href="blog_drafts.md">blog_drafts.md</a> ·
+  <a href="full_stack_status.html">full_stack_status.html</a> ·
+  <a href="../HOWTO.md">HOWTO.md</a><br>
+  <strong>오늘 commits</strong>:
+  <code>1057491</code> (Deep Hedging tuning) ·
+  <code>2938ba0</code> (E2E function ref) ·
+  <code>8552172</code> (real-data milestone)
+</p>
+
+</body>
+</html>

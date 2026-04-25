@@ -12,6 +12,8 @@
 | [deep_hedging_tuning.html](deep_hedging_tuning.html) | Layer B4 Deep Hedging PPO 미수렴 진단 및 v2 수정 결과. Action space 축소 + Buehler 2019 dense reward shaping + BSM behavior-cloning warm-start. TC=0 sanity PASS (1.02x), TC=30bps 7.8% 개선 (플랜 20% 목표 PARTIAL) | 2026-04-24 |
 | [resume_one_pager.md](resume_one_pager.md) | **이력서 원페이지** — 핵심 성과 5개 (수치 위주), JD 매핑, 라이브 데모 60초 시나리오 | 2026-04-25 |
 | [blog_drafts.md](blog_drafts.md) | **블로그 4편 초안** — 모노레포 소개 / NN Pricer 진단 / 한화 ELS 재가격 / Deep Hedging 실패. 발행 순서 권장 | 2026-04-25 |
+| [why_dh_failed.html](why_dh_failed.html) | **Deep Hedging 5번 모두 실패한 이유** 시각 분석. 목적함수 mismatch (PPO=E[reward] vs CVaR), BSM attractor 다이어그램, entropy collapse 곡선, 4가지 알고리즘 변경 경로, 면접 talking points 3개 | 2026-04-25 |
+| [daily_report_20260425.html](daily_report_20260425.html) | **2026-04-25 일일 작업 보고서** — 3 commits 의 변경사항, B2 SPY 실데이터 milestone, B4 5번째 실패, 면접 자료 작성 | 2026-04-25 |
 
 ## 열어보는 방법
 
