@@ -14,6 +14,7 @@
 | [blog_drafts.md](blog_drafts.md) | **블로그 4편 초안** — 모노레포 소개 / NN Pricer 진단 / 한화 ELS 재가격 / Deep Hedging 실패. 발행 순서 권장 | 2026-04-25 |
 | [why_dh_failed.html](why_dh_failed.html) | **Deep Hedging 5번 모두 실패한 이유** 시각 분석. 목적함수 mismatch (PPO=E[reward] vs CVaR), BSM attractor 다이어그램, entropy collapse 곡선, 4가지 알고리즘 변경 경로, 면접 talking points 3개 | 2026-04-25 |
 | [daily_report_20260425.html](daily_report_20260425.html) | **2026-04-25 일일 작업 보고서** — 3 commits 의 변경사항, B2 SPY 실데이터 milestone, B4 5번째 실패, 면접 자료 작성 | 2026-04-25 |
+| [2026-04-25/B4_buehler_implementation.html](2026-04-25/B4_buehler_implementation.html) | **🏆 Layer B4 Buehler 2019 직접 구현으로 플랜 목표 달성.** PPO 5번 실패 후 PG-on-CVaR 직접 구현. CPU 2분 16초 학습으로 ratio 0.755 = **+24.5% 개선** (PASS ≥20%) | 2026-04-25 |
 
 ## 열어보는 방법
 
