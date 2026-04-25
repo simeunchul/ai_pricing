@@ -62,8 +62,9 @@
 </p>
 
 <div class="callout callout-ok">
-  <strong>한 줄 요약</strong> — <strong>Layer A/B1/B2/B4/E 모두 플랜 목표 달성</strong>. Layer B3 (News-IV) 는 프레임워크 완성 (분류 규칙 수준), Layer D 는 DRY_RUN 스모크 통과 (실 API 는 계좌 필요).
+  <strong>한 줄 요약</strong> — <strong>Layer A/B1/B2/B4/E 모두 플랜 목표 달성</strong>. Layer B3 (News-IV) 는 실데이터 가설 검증 + 진단 완료 (naive FAIL, magnitude-stratified 60% PASS), Layer D 는 DRY_RUN 스모크 통과 (실 API 는 계좌 필요).
   <strong>2026-04-25 update</strong>: Layer B4 가 PPO 5번 실패 후 Buehler 2019 PG-on-CVaR 직접 구현으로 <strong>+24.5% CVaR 개선</strong> 달성하여 <em>수렴 미완</em> → <em>PASS</em> 로 전환.
+  <strong>2026-04-26 update</strong>: Layer B3 가 FOMC+CPI N=46 매크로 백테스트로 <strong>vol-crush 진단</strong> 완료 — naive 룰 34.8% FAIL, top-20% magnitude 60% PASS.
 </div>
 
 <!-- =================================================== -->
@@ -99,9 +100,9 @@
     </tr>
     <tr>
       <td><strong>B3</strong> News/LLM IV</td>
-      <td><span class="badge badge-partial">프레임워크</span></td>
-      <td>rule/FinBERT/Claude 분류기 3종 · IV_SHIFT_RULES 적용</td>
-      <td class="partial">코드·테스트 완료. 실제 백테스트 데이터 필요</td>
+      <td><span class="badge badge-partial">실데이터 진단 완료</span></td>
+      <td>rule 분류기 + FOMC/CPI 46건 × VIX 부호 일치율 <strong>34.8%</strong> (FAIL) · top-20% magnitude만 60% (PASS) · vol-crush 진단</td>
+      <td class="partial">naive 가설 깨짐 → surprise-강도 가중 v2 설계 (다음 단계). 자세한 분석: <a href="2026-04-26/B3_news_iv_backtest.html">B3_news_iv_backtest.html</a></td>
     </tr>
     <tr>
       <td><strong>B4</strong> Deep Hedging</td>
@@ -213,6 +214,34 @@
   <strong>κ identifiability</strong>: 복원된 κ=3.38 vs 실제 1.80. Heston 모델에서 κ 와 θ 는
   <strong>kappa-theta redundancy</strong> 가 있어 IV surface 만으로는 정확히 분리 안 됨.
   실무에서 알려진 현상. IV surface 는 유사하게 복원됨 (RMSE 0.56 vp).
+</div>
+
+<!-- =================================================== -->
+<h2>4b. 상세 결과 — Layer B3 (News-IV) <span class="badge badge-partial">진단 완료</span></h2>
+
+<p>
+  매크로 이벤트 N=46 (FOMC 18 + CPI 28, 2024-01 ~ 2026-04) × VIX 일별 close 부호 일치율.
+  자세한 분석: <a href="2026-04-26/B3_news_iv_backtest.html">B3_news_iv_backtest.html</a>.
+</p>
+
+<table>
+  <thead>
+    <tr><th>Subset</th><th>n</th><th>부호 일치율</th><th>판정 (목표 ≥55%)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Naive 전체 (룰 단방향)</td><td class="num">46</td><td class="num bad">34.8%</td><td><span class="badge badge-todo">FAIL</span></td></tr>
+    <tr><td>FOMC 단독</td><td class="num">18</td><td class="num bad">33.3%</td><td><span class="badge badge-todo">FAIL</span></td></tr>
+    <tr><td>CPI 단독</td><td class="num">28</td><td class="num bad">35.7%</td><td><span class="badge badge-todo">FAIL</span></td></tr>
+    <tr><td>Hawkish/hot subset</td><td class="num">11</td><td class="num">45.5%</td><td><span class="badge badge-partial">WEAK</span></td></tr>
+    <tr style="background:#e6f3ea"><td><strong>Top-20% magnitude (|ΔVIX|≥9.4%)</strong></td><td class="num">10</td><td class="num good"><strong>60.0%</strong></td><td><span class="badge badge-ok">PASS (조건부)</span></td></tr>
+    <tr style="background:#e6f3ea"><td><strong>케이스 스터디 5건 (대형)</strong></td><td class="num">5</td><td class="num good">60.0%</td><td><span class="badge badge-ok">정성 PASS</span></td></tr>
+  </tbody>
+</table>
+
+<div class="callout callout-yellow">
+  <strong>핵심 진단 (vol crush)</strong> — 매크로 발표일은 시장이 미리 예상하므로 발표 후 평균적으로 IV 가 <em>떨어진다</em>.
+  단순 룰 <code>macro_shock = +0.05</code> 단방향 가정은 본질을 놓친다. <strong>top-20% magnitude</strong> 만 60% 일치 — 시그널은 surprise 강도에만 존재.
+  다음 단계는 룰 → 룰×sentiment 강도 가중 (FinBERT confidence / Claude 강도 점수).
 </div>
 
 <!-- =================================================== -->
@@ -348,7 +377,7 @@
     <li>C++ pybind11 + OpenMP MC kernel, numpy 대비 <strong>14.8× 가속</strong></li>
     <li>KIS Developers API 클라이언트 + ETF iNAV 전략 + DRY_RUN 3단계 risk guard (포지션 20%, 일일손실 1.5%, 장 open/close 10분 차단)</li>
     <li>Buehler 2019 Deep Hedging — PPO 5번 실패 후 원논문 PG-on-CVaR 직접 구현으로 BSM Δ 대비 <strong>CVaR +24.5% 개선</strong> (TC=30bps, CPU 2분 학습)</li>
-    <li>News/LLM → IV shift 파이프라인: rule / FinBERT(KR) / Claude API 3중 분류기, event → ΔIV lookup</li>
+    <li>News-IV 가설 매크로 백테스트 — FOMC+CPI N=46 × VIX 부호 일치율 <strong>34.8% (FAIL)</strong> → vol-crush 진단 + magnitude top-20% <strong>60% PASS</strong> 정직한 narrative</li>
   </ul>"
 </div>
 
@@ -357,11 +386,11 @@
 
 <ol>
   <li><strong>Deep Hedging 실데이터 전환</strong> — GBM tick → KOSPI200 historical 일별 수익률로 환경 교체, +24.5% 개선이 실시장에서도 유지되는지 검증</li>
-  <li><strong>News/LLM 실제 데이터 백테스트</strong> — DART 공시 + 네이버 RSS 1주치로 IV shift 가설 검증</li>
-  <li><strong>한화 ELS 공시 1~2건 재가격</strong> — DART 에서 수동 다운 후 <code>data/els_samples/</code></li>
-  <li><strong>KIS 모의투자 3영업일 무중단 운영</strong> — 장중 시간에 runner 돌리기</li>
+  <li><strong>News-IV v2 (vol-crush 진단 활용)</strong> — <code>IV_SHIFT_RULES</code> 단방향 → 룰×FinBERT confidence 가중. 매크로 백테스트 34.8% → 50%대 회복 + 전체 PASS 목표</li>
+  <li><strong>한화 ELS 공시 1~2건 추가 재가격</strong> — 표본 1건 → 3건으로 ±3% 주장 견고화</li>
+  <li><strong>KIS 모의투자 3영업일 무중단 운영</strong> — 계좌 발급 후 장중 시간에 runner 돌리기</li>
   <li><strong>(선택) GPU 여유시 NN Pricer 500k → GPU 에서 더 큰 규모 실험</strong></li>
-  <li><strong>블로그 포스트 4편 작성</strong> — 이 문서 기반으로 한국어 각색</li>
+  <li><strong>블로그 포스트 5편 발행</strong> — <code>docs/blog_drafts.md</code> 5편 (Buehler / 한화 ELS / 모노레포 / NN Pricer / News-IV vol-crush) 한국어 각색 + 벨로그/티스토리 발행</li>
 </ol>
 
 <p class="meta" style="margin-top:40px;padding-top:14px;border-top:1px solid var(--border)">
