@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>포트폴리오 일괄 갱신 (B4 PASS 반영) · 2026-04-25 · quant-lab</title>
+<style>
+  :root {
+    --fg: #1a1a1a; --bg: #fafafa; --muted: #666;
+    --accent: #2c5aa0; --accent-light: #e6eef7;
+    --warn: #c0392b; --warn-light: #fdeae6;
+    --ok: #0b8043; --ok-light: #e6f3ea;
+    --yellow: #a6820d; --yellow-light: #fff4d6;
+    --purple: #6c3483; --purple-light: #eee0f3;
+    --border: #ddd; --code-bg: #f4f4f4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR",
+                 "Apple SD Gothic Neo", Roboto, sans-serif;
+    color: var(--fg); background: var(--bg); line-height: 1.65;
+    max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px;
+  }
+  h1 { font-size: 28px; border-bottom: 3px solid var(--accent); padding-bottom: 8px; }
+  h2 { font-size: 22px; margin-top: 44px; color: var(--accent);
+       border-left: 4px solid var(--accent); padding-left: 12px; }
+  h3 { font-size: 17px; margin-top: 26px; }
+  code {
+    background: var(--code-bg); padding: 2px 6px; border-radius: 3px;
+    font-family: ui-monospace, Consolas, monospace; font-size: 13px;
+  }
+  pre {
+    background: var(--code-bg); padding: 14px 16px; border-radius: 6px;
+    overflow-x: auto; font-size: 13px; border-left: 3px solid var(--accent);
+  }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { padding: 10px 12px; text-align: left; border: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--accent-light); font-weight: 600; }
+  tbody tr:nth-child(even) { background: #f7f7f7; }
+  .num { font-family: ui-monospace, Consolas, monospace; }
+  .good { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--warn); font-weight: 600; }
+  .neutral { color: var(--muted); }
+  .callout { border-left: 4px solid; padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .callout-warn { border-color: var(--warn); background: var(--warn-light); }
+  .callout-ok { border-color: var(--ok); background: var(--ok-light); }
+  .callout-info { border-color: var(--accent); background: var(--accent-light); }
+  .callout-purple { border-color: var(--purple); background: var(--purple-light); }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 3px;
+    font-size: 12px; font-weight: 600;
+  }
+  .badge-ok { background: var(--ok-light); color: var(--ok); }
+  .badge-fail { background: var(--warn-light); color: var(--warn); }
+  .badge-todo { background: var(--yellow-light); color: var(--yellow); }
+  figure { margin: 18px 0; text-align: center; }
+  figcaption { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .arrow { color: var(--accent); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<h1>포트폴리오 일괄 갱신 — B4 PASS 반영</h1>
+<p class="meta">
+  2026-04-25 · Buehler PG-on-CVaR 성공 (커밋 <code>e12dc14</code>) 직후, 면접용 산출물 4개 파일에
+  "B4 수렴 미완 → PASS +24.5%" narrative 일괄 반영. 끊겼던 작업 재개 후 커밋 완료.
+</p>
+
+<div class="callout callout-ok">
+  <strong>한 줄 결과</strong> — 이력서·블로그 초안·풀스택 상태 리포트·비교 CSV 4개 파일을
+  Buehler 결과로 동기화. <strong>이력서 핵심 성과 5개 → 6개</strong>,
+  <strong>블로그 4편 발행 순서 4번 → 1번</strong> 으로 격상. 커밋 2개 (포트폴리오 + CLAUDE.md 규칙) 추가.
+</div>
+
+<!-- =========================================== -->
+<h2>1. 무엇을 시도했는지 (배경 + 접근)</h2>
+
+<h3>왜 일괄 갱신이 필요했나</h3>
+<p>
+  같은 날 오후 Buehler 2019 직접 구현 (커밋 <code>e12dc14</code>) 으로
+  Layer B4 의 판정이 "수렴 미완 (PARTIAL +7.8%)" 에서 "PASS (+24.5%)" 로 뒤집혔다.
+  이것은 단순히 한 줄 수치 변경이 아니라, 면접용 포트폴리오 전체의
+  <strong>narrative 가 바뀌는 사건</strong>이다:
+</p>
+<ul>
+  <li>이력서의 "핵심 성과" 섹션 — 기존 5개 (B4 빠짐) → 6개 (B4 추가)</li>
+  <li>블로그 4편 — 기존엔 "정직한 실패 보고" 였으나 이제 "5번 실패 → 1번 성공" 의 가장 강한 스토리</li>
+  <li>풀스택 상태 리포트 — B4 칸이 빨간 "미완" 에서 초록 "PASS" 로</li>
+  <li>비교 CSV — Buehler v2 행 추가하지 않으면 다른 보고서들과 수치 모순</li>
+</ul>
+
+<h3>접근</h3>
+<p>
+  4개 파일을 한 트랜잭션처럼 수정하고 단일 커밋으로 묶는다. 누락 시 보고서 간 수치 모순이
+  생기므로 stage → diff 검토 → commit 순서를 엄격히 지킨다.
+</p>
+
+<!-- =========================================== -->
+<h2>2. 무엇이 (어떻게) 끊겼고 왜 — 표 + 도표</h2>
+
+<h3>이전 세션 끊김 시점 진단</h3>
+<table>
+  <thead>
+    <tr>
+      <th>시점</th><th>상태</th><th>commit</th><th>push</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>① Buehler 알고리즘 구현·학습</td>
+      <td><span class="badge badge-ok">완료</span></td>
+      <td><code>e12dc14</code></td>
+      <td><span class="badge badge-fail">미푸시</span></td>
+    </tr>
+    <tr>
+      <td>② resume / blog / status / csv 4파일 수정</td>
+      <td><span class="badge badge-ok">로컬 저장</span></td>
+      <td class="bad">미커밋</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>③ CLAUDE.md (보고서 규칙) 신규 작성</td>
+      <td><span class="badge badge-ok">로컬 저장</span></td>
+      <td class="bad">미커밋 (untracked)</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>④ 오늘자 보고서</td>
+      <td><span class="badge badge-todo">B4 1건만 있음</span></td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td><strong>⑤ 연결 끊김</strong></td>
+      <td colspan="3" class="bad">②~④ 모두 작업 중간에 인터럽트</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>흐름도 (작업 의존성)</h3>
+<pre style="background:#fff; border-left: 3px solid var(--purple);">
+[B4 Buehler 성공]   ── 커밋 e12dc14 (있음, 미푸시)
+        │
+        ├──→ [resume 6개 성과로 재구성] ─┐
+        ├──→ [blog 4편 narrative 재작성]  ├─→ <strong>단일 커밋</strong> (없었음)
+        ├──→ [status B4 PASS 갱신]       │
+        └──→ [csv Buehler-v2 행 추가]   ─┘
+                                          │
+[CLAUDE.md 보고서 규칙] ──────────────→ <strong>별도 커밋</strong> (없었음)
+                                          │
+                                          ▼
+                                  <strong>git push origin master</strong> (없었음)
+                                          │
+                                          ▼
+                              [오늘자 portfolio_update.html 보고서] (이 문서)
+</pre>
+
+<h3>SVG: 끊김 시점 진행률</h3>
+<figure>
+<svg width="780" height="180" viewBox="0 0 780 180" xmlns="http://www.w3.org/2000/svg">
+  <!-- baseline -->
+  <line x1="40" y1="120" x2="740" y2="120" stroke="#bbb" stroke-width="1.5"/>
+  <!-- progress filled -->
+  <rect x="40" y="100" width="280" height="40" fill="#0b8043" opacity="0.85"/>
+  <!-- progress unfilled -->
+  <rect x="320" y="100" width="420" height="40" fill="#fdeae6" stroke="#c0392b" stroke-width="1"/>
+  <!-- divider -->
+  <line x1="320" y1="80" x2="320" y2="160" stroke="#c0392b" stroke-width="2" stroke-dasharray="4,3"/>
+  <text x="324" y="78" font-size="12" fill="#c0392b" font-weight="700">⚡ 끊김</text>
+
+  <text x="40" y="92" font-size="12" fill="#0b8043" font-weight="700">완료</text>
+  <text x="180" y="125" font-size="13" fill="#fff" font-weight="700" text-anchor="middle">e12dc14 (B4 코드 커밋)</text>
+
+  <text x="332" y="92" font-size="12" fill="#c0392b" font-weight="700">미완료</text>
+  <text x="530" y="125" font-size="12" fill="#c0392b" text-anchor="middle">포트폴리오 4파일 커밋 + CLAUDE.md + push + 보고서</text>
+
+  <!-- ticks -->
+  <text x="40" y="170" font-size="11" fill="#666">14:20 (Buehler 성공)</text>
+  <text x="320" y="170" font-size="11" fill="#666" text-anchor="middle">20:17 (B4 보고서 작성 후 끊김)</text>
+  <text x="740" y="170" font-size="11" fill="#666" text-anchor="end">현재 (재개)</text>
+</svg>
+<figcaption>끊김 시점은 B4 단독 보고서까지 작성하고 포트폴리오 갱신 작업 시작 직후로 추정.</figcaption>
+</figure>
+
+<!-- =========================================== -->
+<h2>3. 어떻게 해결했는지 — 코드/체크리스트</h2>
+
+<h3>재개 절차</h3>
+<ol>
+  <li><code>git status</code> + <code>git log</code> + <code>git diff --stat</code> 로 끊김 지점 복원</li>
+  <li>4개 파일 diff 를 모두 읽어 narrative 일관성 검증 (resume·blog·status·csv 가 같은 수치 인용하는지)</li>
+  <li>4파일 한 커밋, CLAUDE.md 별도 커밋으로 분리 (기능 vs 규칙)</li>
+  <li>push 시도 → 인증 인터랙티브로 차단 → 사용자 직접 실행으로 위임</li>
+  <li>오늘자 <code>portfolio_update.html</code> 작성 (이 문서)</li>
+</ol>
+
+<h3>실제 커밋 (재개 후)</h3>
+<pre>e0b5007  docs(portfolio): Buehler v2 PASS 반영 — resume/blog/status 일괄 갱신
+7854e72  docs: CLAUDE.md — 작업 보고서 작성 규칙 (비전공자 친화 + 시각화 + Glossary 필수)</pre>
+
+<!-- =========================================== -->
+<h2>4. 최종 결과 — 비교표 + 차트</h2>
+
+<h3>4개 파일 변경 요지</h3>
+<table>
+  <thead>
+    <tr><th>파일</th><th>Before (어제)</th><th>After (오늘)</th><th>변경 단위</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>docs/resume_one_pager.md</code></td>
+      <td>핵심 성과 <strong>5개</strong> (B4 누락)</td>
+      <td>핵심 성과 <strong>6개</strong> (B4 +24.5% 추가) · ML/RL 기술스택에 "differentiable batch simulator, PG-on-CVaR" 추가</td>
+      <td class="num">+10 / −4</td>
+    </tr>
+    <tr>
+      <td><code>docs/blog_drafts.md</code></td>
+      <td>블로그 4편 = "Deep Hedging 실패 진단" · 발행 순서 <strong>4번</strong></td>
+      <td>블로그 4편 = "PPO 5번 실패 → Buehler 1번 성공 +24.5%" · 발행 순서 <strong>1번</strong> 으로 격상</td>
+      <td class="num">+28 / −24</td>
+    </tr>
+    <tr>
+      <td><code>docs/full_stack_status.html</code></td>
+      <td>B4 = <span class="badge badge-todo">수렴 미완</span> · 표·callout·남은작업 모두 부정적 톤</td>
+      <td>B4 = <span class="badge badge-ok">PASS</span> · CVaR ratio 0.755 · 비교표에 Buehler-v2 행 추가</td>
+      <td class="num">+24 / −25</td>
+    </tr>
+    <tr>
+      <td><code>data/all_methods_hedging.csv</code></td>
+      <td>3 행 (BSM-daily, BSM-weekly, PPO)</td>
+      <td>4 행 (+ <code>B4-DeepHedging-Buehler-v2</code>: cvar_5=<strong>1.4109</strong>)</td>
+      <td class="num">+1</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>SVG: 면접용 narrative 변화</h3>
+<figure>
+<svg width="780" height="220" viewBox="0 0 780 220" xmlns="http://www.w3.org/2000/svg">
+  <!-- y axis -->
+  <line x1="60" y1="30" x2="60" y2="180" stroke="#666" stroke-width="1.5"/>
+  <line x1="60" y1="180" x2="740" y2="180" stroke="#666" stroke-width="1.5"/>
+  <!-- target line at 20% -->
+  <line x1="60" y1="80" x2="740" y2="80" stroke="#a6820d" stroke-width="1" stroke-dasharray="5,3"/>
+  <text x="744" y="84" font-size="11" fill="#a6820d" font-weight="700">목표 +20%</text>
+  <!-- baseline 0% -->
+  <text x="744" y="184" font-size="11" fill="#666">BSM Δ (기준선 0%)</text>
+
+  <!-- bars: PPO v1, v2(7.8% PARTIAL), v3, v3b, v3c, Buehler v1, Buehler v2 -->
+  <!-- PPO v1: -1100% (매우 큰 음수) — 클립 -->
+  <rect x="100" y="180" width="50" height="20" fill="#c0392b" opacity="0.85"/>
+  <text x="125" y="217" font-size="10.5" fill="#666" text-anchor="middle">PPO v1</text>
+  <text x="125" y="213" font-size="10" fill="#c0392b" text-anchor="middle">−11×</text>
+
+  <!-- PPO v2: 7.8% (PARTIAL) -->
+  <rect x="180" y="161" width="50" height="19" fill="#a6820d" opacity="0.85"/>
+  <text x="205" y="217" font-size="10.5" fill="#666" text-anchor="middle">PPO v2</text>
+  <text x="205" y="155" font-size="10" fill="#a6820d" text-anchor="middle" font-weight="700">+7.8%</text>
+
+  <!-- PPO v3, v3b, v3c: ~0~5% -->
+  <rect x="260" y="170" width="50" height="10" fill="#c0392b" opacity="0.7"/>
+  <text x="285" y="217" font-size="10.5" fill="#666" text-anchor="middle">PPO v3</text>
+
+  <rect x="340" y="172" width="50" height="8" fill="#c0392b" opacity="0.7"/>
+  <text x="365" y="217" font-size="10.5" fill="#666" text-anchor="middle">PPO v3b</text>
+
+  <rect x="420" y="175" width="50" height="5" fill="#c0392b" opacity="0.7"/>
+  <text x="445" y="217" font-size="10.5" fill="#666" text-anchor="middle">PPO v3c</text>
+
+  <!-- Buehler v1: ~+11% (PARTIAL) -->
+  <rect x="510" y="153" width="50" height="27" fill="#0b8043" opacity="0.85"/>
+  <text x="535" y="217" font-size="10.5" fill="#0b8043" text-anchor="middle" font-weight="700">Buehler v1</text>
+  <text x="535" y="147" font-size="10" fill="#0b8043" text-anchor="middle" font-weight="700">+11%</text>
+
+  <!-- Buehler v2: +24.5% PASS -->
+  <rect x="600" y="119" width="60" height="61" fill="#0b8043"/>
+  <text x="630" y="217" font-size="10.5" fill="#0b8043" text-anchor="middle" font-weight="700">Buehler v2</text>
+  <text x="630" y="113" font-size="11" fill="#0b8043" text-anchor="middle" font-weight="700">+24.5% PASS</text>
+
+  <!-- title -->
+  <text x="400" y="20" font-size="13" fill="#1a1a1a" text-anchor="middle" font-weight="700">CVaR@5% 개선율 (vs BSM Δ daily, TC=30bps) — PPO 5종 실패 → Buehler v2 PASS</text>
+</svg>
+<figcaption>이 그래프는 이력서·블로그·풀스택 상태 리포트 모두에서 핵심 시각자료로 인용된다.</figcaption>
+</figure>
+
+<h3>이력서 "핵심 성과 6개" 최종 라인업</h3>
+<table>
+  <thead><tr><th>#</th><th>성과</th><th>핵심 수치</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>실데이터 한화 ELS 재가격</td><td class="num good">+2.17% vs 공시 (±3% 목표)</td></tr>
+    <tr><td>2</td><td>NN Pricer (Bergomi 합성 BSM call)</td><td class="num good">log-MSE 1.1e-3 (500k epoch CPU)</td></tr>
+    <tr><td>3</td><td>Heston Deep Calibration (Horvath 2021)</td><td class="num good">26× 가속, IV RMSE 0.5 vol pts</td></tr>
+    <tr><td>4</td><td>C++ pybind11 + OpenMP MC kernel</td><td class="num good">14.8× 가속</td></tr>
+    <tr style="background:#e6f3ea;"><td><strong>5 (NEW)</strong></td><td><strong>Deep Hedging (Buehler 2019 PG-on-CVaR)</strong></td><td class="num good"><strong>+24.5% CVaR (CPU 2분 학습)</strong></td></tr>
+    <tr><td>6</td><td>KIS Developers 자동매매 시스템</td><td class="num">DRY_RUN 4-tier safety</td></tr>
+  </tbody>
+</table>
+
+<!-- =========================================== -->
+<h2>5. 비전공자용 요약 (TL;DR)</h2>
+<div class="callout callout-info">
+  <ol style="margin: 0; padding-left: 22px;">
+    <li><strong>아침</strong>: 5번 실패한 RL 알고리즘 (PPO) 을 버리고 원논문 (Buehler 2019) 방식으로 재구현
+        해서 <strong>"위험 24.5% 감소"</strong> 라는 면접용 한 방을 얻음.</li>
+    <li><strong>오후</strong>: 그 결과를 <strong>이력서·블로그 초안·전체 상태 리포트·비교표</strong>
+        4군데에 빠짐없이 반영 — 보고서들끼리 숫자가 어긋나면 면접에서 신뢰 무너짐.</li>
+    <li><strong>저녁</strong>: 작업 도중 연결 끊김 → 변경사항 중 <strong>커밋 안된 것</strong> 만 4개,
+        <strong>푸시 안된 것</strong>은 8개.</li>
+    <li><strong>지금</strong>: 끊긴 시점부터 그대로 이어받아 커밋 2개 (포트폴리오 + CLAUDE.md 규칙) 추가, 푸시는
+        인증 문제로 사용자 직접 실행 필요.</li>
+  </ol>
+</div>
+
+<!-- =========================================== -->
+<h2>6. 관련 파일 / 커밋</h2>
+<table>
+  <thead><tr><th>종류</th><th>경로</th><th>설명</th></tr></thead>
+  <tbody>
+    <tr><td>commit</td><td><code>e12dc14</code></td><td>Buehler PG-on-CVaR 본 구현 (어제·오늘의 토대)</td></tr>
+    <tr><td>commit (NEW)</td><td><code>e0b5007</code></td><td>resume / blog / status / csv 4 파일 일괄 갱신</td></tr>
+    <tr><td>commit (NEW)</td><td><code>7854e72</code></td><td>CLAUDE.md — 보고서 작성 규칙</td></tr>
+    <tr><td>file</td><td><code>docs/resume_one_pager.md</code></td><td>핵심 성과 6개 / 기술스택 / 한계 섹션</td></tr>
+    <tr><td>file</td><td><code>docs/blog_drafts.md</code></td><td>블로그 4편 narrative 재작성, 발행 순서 1번</td></tr>
+    <tr><td>file</td><td><code>docs/full_stack_status.html</code></td><td>5 Layer 종합 리포트</td></tr>
+    <tr><td>file</td><td><code>data/all_methods_hedging.csv</code></td><td>method 비교 CSV (PPO vs Buehler v2)</td></tr>
+    <tr><td>file</td><td><code>docs/2026-04-25/B4_buehler_implementation.html</code></td><td>같은 날 작성한 B4 단독 보고서 (이 문서의 선행 보고서)</td></tr>
+    <tr><td>pending</td><td><code>git push origin master</code></td><td>총 10 커밋 미푸시 — 사용자 직접 실행 필요 (wincredman 인증)</td></tr>
+  </tbody>
+</table>
+
+<!-- =========================================== -->
+<h2>7. 용어 정리집 (Glossary)</h2>
+<table>
+  <thead><tr><th>용어</th><th>한 줄 설명</th><th>본문에서의 역할</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>CVaR (Conditional Value-at-Risk)</strong></td>
+      <td>"최악의 5% 손실의 평균" — 분포 꼬리 위험을 한 숫자로 압축한 지표</td>
+      <td>B4 의 단일 평가 지표. 모든 파일에서 핵심 수치는 CVaR ratio</td>
+    </tr>
+    <tr>
+      <td><strong>BSM Δ (Black-Scholes-Merton Delta)</strong></td>
+      <td>옵션 가격을 기초자산 변동에 1차 연동시키는 전통적 헤지 비율</td>
+      <td>모든 비교의 기준선 (baseline = 0%, ratio = 1.0)</td>
+    </tr>
+    <tr>
+      <td><strong>TC (Transaction Cost)</strong></td>
+      <td>거래비용. 30bps = 거래대금의 0.3%</td>
+      <td>TC=0 sanity vs TC=0.3% real-world 두 환경 분리. 플랜 목표는 TC=0.3% 환경에서 ≥20%</td>
+    </tr>
+    <tr>
+      <td><strong>PPO (Proximal Policy Optimization)</strong></td>
+      <td>가장 널리 쓰이는 강화학습 알고리즘. <code>E[reward 합]</code> 을 최대화</td>
+      <td>5번 실패의 주체. CVaR (꼬리 위험 최소화) 와 목적함수가 직교라 본질적으로 부적합</td>
+    </tr>
+    <tr>
+      <td><strong>PG-on-CVaR</strong></td>
+      <td>Policy Gradient 를 CVaR loss 에 직접 적용. gym/PPO 없이 <code>loss.backward()</code> 한 줄</td>
+      <td>Buehler 2019 의 핵심. 알고리즘 변경의 본질이자 +24.5% 의 원인</td>
+    </tr>
+    <tr>
+      <td><strong>narrative</strong></td>
+      <td>면접·블로그에서 통하는 "한 줄 스토리"</td>
+      <td>"수렴 미완 → 정직한 실패" 에서 "5번 실패 → 1번 성공" 으로 전환된 것이 이번 갱신의 핵심</td>
+    </tr>
+    <tr>
+      <td><strong>untracked</strong></td>
+      <td>git 이 아직 추적하지 않는 파일 (한번도 add 안된 신규 파일)</td>
+      <td>CLAUDE.md 가 untracked 상태로 끊김 → 분리 커밋 사유</td>
+    </tr>
+    <tr>
+      <td><strong>wincredman</strong></td>
+      <td>Windows Credential Manager — git 이 GitHub 인증 정보 저장하는 백엔드</td>
+      <td>비대화형 세션에서 prompt 띄우려다 실패 → push 사용자 위임 사유</td>
+    </tr>
+    <tr>
+      <td><strong>plan target</strong></td>
+      <td>9주 스프린트 플랜에 사전 명시된 정량 목표 (B4: CVaR 개선 ≥ 20%)</td>
+      <td>+24.5% 가 PASS 인 이유. 이 숫자가 없으면 "그래서 얼마면 좋은 건데" 답이 없음</td>
+    </tr>
+    <tr>
+      <td><strong>ratio (CVaR ratio)</strong></td>
+      <td>policy CVaR ÷ BSM CVaR. 1보다 작으면 BSM 보다 좋음</td>
+      <td>0.755 = (1 − 0.755) × 100 = 24.5% 개선 의 산식 출발점</td>
+    </tr>
+  </tbody>
+</table>
+
+</body>
+</html>
