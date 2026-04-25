@@ -1,0 +1,91 @@
+{
+  "_note": "US FOMC meeting dates (statement release day) and BLS CPI release dates. Source: federalreserve.gov FOMC calendar, bls.gov release schedule. All dates = announcement effective day in ET. 2026-04-25 cutoff.",
+  "_event_type_mapping": "FOMC and CPI both → 'macro_shock' in classify_rule (rate hike/cut, FOMC keywords).",
+  "fomc": [
+    {"date": "2024-01-31", "title": "FOMC Statement (Jan 2024) — rate hold", "decision": "hold", "rate_target": "5.25-5.50"},
+    {"date": "2024-03-20", "title": "FOMC Statement (Mar 2024) — rate hold + dot plot", "decision": "hold", "rate_target": "5.25-5.50"},
+    {"date": "2024-05-01", "title": "FOMC Statement (May 2024) — rate hold + QT taper", "decision": "hold", "rate_target": "5.25-5.50"},
+    {"date": "2024-06-12", "title": "FOMC Statement (Jun 2024) — rate hold + dot plot", "decision": "hold", "rate_target": "5.25-5.50"},
+    {"date": "2024-07-31", "title": "FOMC Statement (Jul 2024) — rate hold, dovish guidance", "decision": "hold", "rate_target": "5.25-5.50"},
+    {"date": "2024-09-18", "title": "FOMC Statement (Sep 2024) — rate cut 50bps (jumbo)", "decision": "cut", "rate_target": "4.75-5.00"},
+    {"date": "2024-11-07", "title": "FOMC Statement (Nov 2024) — rate cut 25bps", "decision": "cut", "rate_target": "4.50-4.75"},
+    {"date": "2024-12-18", "title": "FOMC Statement (Dec 2024) — rate cut 25bps + hawkish dot plot", "decision": "cut", "rate_target": "4.25-4.50"},
+    {"date": "2025-01-29", "title": "FOMC Statement (Jan 2025) — rate hold", "decision": "hold", "rate_target": "4.25-4.50"},
+    {"date": "2025-03-19", "title": "FOMC Statement (Mar 2025) — rate hold + dot plot", "decision": "hold", "rate_target": "4.25-4.50"},
+    {"date": "2025-05-07", "title": "FOMC Statement (May 2025) — rate hold", "decision": "hold", "rate_target": "4.25-4.50"},
+    {"date": "2025-06-18", "title": "FOMC Statement (Jun 2025) — rate hold + dot plot", "decision": "hold", "rate_target": "4.25-4.50"},
+    {"date": "2025-07-30", "title": "FOMC Statement (Jul 2025) — rate hold", "decision": "hold", "rate_target": "4.25-4.50"},
+    {"date": "2025-09-17", "title": "FOMC Statement (Sep 2025) — rate cut 25bps", "decision": "cut", "rate_target": "4.00-4.25"},
+    {"date": "2025-10-29", "title": "FOMC Statement (Oct 2025) — rate cut 25bps", "decision": "cut", "rate_target": "3.75-4.00"},
+    {"date": "2025-12-10", "title": "FOMC Statement (Dec 2025) — rate hold + dot plot", "decision": "hold", "rate_target": "3.75-4.00"},
+    {"date": "2026-01-28", "title": "FOMC Statement (Jan 2026) — rate cut 25bps", "decision": "cut", "rate_target": "3.50-3.75"},
+    {"date": "2026-03-18", "title": "FOMC Statement (Mar 2026) — rate hold + dot plot", "decision": "hold", "rate_target": "3.50-3.75"}
+  ],
+  "cpi": [
+    {"date": "2024-01-11", "title": "CPI release (Dec 2023 data)", "yoy": "3.4%", "surprise": "hot"},
+    {"date": "2024-02-13", "title": "CPI release (Jan 2024 data)", "yoy": "3.1%", "surprise": "hot"},
+    {"date": "2024-03-12", "title": "CPI release (Feb 2024 data)", "yoy": "3.2%", "surprise": "hot"},
+    {"date": "2024-04-10", "title": "CPI release (Mar 2024 data) — sticky inflation", "yoy": "3.5%", "surprise": "hot"},
+    {"date": "2024-05-15", "title": "CPI release (Apr 2024 data)", "yoy": "3.4%", "surprise": "inline"},
+    {"date": "2024-06-12", "title": "CPI release (May 2024 data) — coincides FOMC", "yoy": "3.3%", "surprise": "cool"},
+    {"date": "2024-07-11", "title": "CPI release (Jun 2024 data) — soft", "yoy": "3.0%", "surprise": "cool"},
+    {"date": "2024-08-14", "title": "CPI release (Jul 2024 data)", "yoy": "2.9%", "surprise": "inline"},
+    {"date": "2024-09-11", "title": "CPI release (Aug 2024 data)", "yoy": "2.5%", "surprise": "inline"},
+    {"date": "2024-10-10", "title": "CPI release (Sep 2024 data)", "yoy": "2.4%", "surprise": "hot"},
+    {"date": "2024-11-13", "title": "CPI release (Oct 2024 data)", "yoy": "2.6%", "surprise": "inline"},
+    {"date": "2024-12-11", "title": "CPI release (Nov 2024 data)", "yoy": "2.7%", "surprise": "inline"},
+    {"date": "2025-01-15", "title": "CPI release (Dec 2024 data)", "yoy": "2.9%", "surprise": "cool"},
+    {"date": "2025-02-12", "title": "CPI release (Jan 2025 data) — sticky", "yoy": "3.0%", "surprise": "hot"},
+    {"date": "2025-03-12", "title": "CPI release (Feb 2025 data)", "yoy": "2.8%", "surprise": "cool"},
+    {"date": "2025-04-10", "title": "CPI release (Mar 2025 data)", "yoy": "2.4%", "surprise": "cool"},
+    {"date": "2025-05-13", "title": "CPI release (Apr 2025 data)", "yoy": "2.3%", "surprise": "cool"},
+    {"date": "2025-06-11", "title": "CPI release (May 2025 data)", "yoy": "2.4%", "surprise": "inline"},
+    {"date": "2025-07-15", "title": "CPI release (Jun 2025 data)", "yoy": "2.7%", "surprise": "hot"},
+    {"date": "2025-08-12", "title": "CPI release (Jul 2025 data)", "yoy": "2.7%", "surprise": "inline"},
+    {"date": "2025-09-11", "title": "CPI release (Aug 2025 data)", "yoy": "2.9%", "surprise": "hot"},
+    {"date": "2025-10-15", "title": "CPI release (Sep 2025 data)", "yoy": "3.0%", "surprise": "hot"},
+    {"date": "2025-11-13", "title": "CPI release (Oct 2025 data)", "yoy": "2.8%", "surprise": "cool"},
+    {"date": "2025-12-10", "title": "CPI release (Nov 2025 data) — coincides FOMC", "yoy": "2.7%", "surprise": "inline"},
+    {"date": "2026-01-13", "title": "CPI release (Dec 2025 data)", "yoy": "2.6%", "surprise": "cool"},
+    {"date": "2026-02-11", "title": "CPI release (Jan 2026 data)", "yoy": "2.8%", "surprise": "hot"},
+    {"date": "2026-03-12", "title": "CPI release (Feb 2026 data)", "yoy": "2.6%", "surprise": "cool"},
+    {"date": "2026-04-10", "title": "CPI release (Mar 2026 data)", "yoy": "2.5%", "surprise": "inline"}
+  ],
+  "case_studies": [
+    {
+      "date": "2024-08-05",
+      "ticker": "SPY",
+      "title": "Yen carry trade unwind / VIX spike — global macro shock (BoJ rate hike spillover)",
+      "expected_event": "macro_shock",
+      "narrative": "Aug 5 2024 SPY -3% intraday, VIX intraday spike to 65 (recorded close ~38). Largest VIX 1-day jump since COVID."
+    },
+    {
+      "date": "2024-09-18",
+      "ticker": "SPY",
+      "title": "FOMC 50bps jumbo cut — easing-cycle start",
+      "expected_event": "macro_shock",
+      "narrative": "First cut in 4 years, surprised some who expected 25bps. VIX dropped post-meeting confirmation."
+    },
+    {
+      "date": "2024-12-18",
+      "ticker": "SPY",
+      "title": "FOMC hawkish dot plot — fewer 2025 cuts than expected",
+      "expected_event": "macro_shock",
+      "narrative": "Dec 18 2024 SPY -3% (worst FOMC reaction since 2001), VIX +74% in single day (one of biggest VIX jumps ever)."
+    },
+    {
+      "date": "2024-04-10",
+      "ticker": "SPY",
+      "title": "CPI hot print Mar 2024 — sticky inflation, rate-cut expectations crushed",
+      "expected_event": "macro_shock",
+      "narrative": "CPI 3.5% YoY vs 3.4% est. SPY -1%, VIX +6%. Re-priced 2024 cut path."
+    },
+    {
+      "date": "2025-09-17",
+      "ticker": "SPY",
+      "title": "FOMC cut + new chair signaling — dovish tone",
+      "expected_event": "macro_shock",
+      "narrative": "Sep 17 2025 first cut since Dec 2024. VIX dropped on confirmation."
+    }
+  ]
+}
