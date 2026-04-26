@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>내일 (2026-04-27 월) 09:00 KIS 운영 사전 체크리스트 · quant-lab</title>
+<style>
+  :root {
+    --fg: #1a1a1a; --bg: #fafafa; --muted: #666;
+    --accent: #2c5aa0; --accent-light: #e6eef7;
+    --warn: #c0392b; --warn-light: #fdeae6;
+    --ok: #0b8043; --ok-light: #e6f3ea;
+    --yellow: #a6820d; --yellow-light: #fff4d6;
+    --border: #ddd; --code-bg: #f4f4f4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR",
+                 "Apple SD Gothic Neo", Roboto, sans-serif;
+    color: var(--fg); background: var(--bg); line-height: 1.65;
+    max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px;
+  }
+  h1 { font-size: 28px; border-bottom: 3px solid var(--accent); padding-bottom: 8px; }
+  h2 { font-size: 22px; margin-top: 44px; color: var(--accent);
+       border-left: 4px solid var(--accent); padding-left: 12px; }
+  h3 { font-size: 17px; margin-top: 26px; }
+  code { background: var(--code-bg); padding: 2px 6px; border-radius: 3px;
+         font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+  pre { background: var(--code-bg); padding: 14px 16px; border-radius: 6px;
+        overflow-x: auto; font-size: 13px; border-left: 3px solid var(--accent); }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { padding: 10px 12px; text-align: left; border: 1px solid var(--border);
+           vertical-align: top; }
+  th { background: var(--accent-light); font-weight: 600; }
+  tbody tr:nth-child(even) { background: #f7f7f7; }
+  .num { font-family: ui-monospace, Consolas, monospace; }
+  .good { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--warn); font-weight: 600; }
+  .partial { color: var(--yellow); font-weight: 600; }
+  .neutral { color: var(--muted); }
+  .callout { border-left: 4px solid; padding: 12px 16px; margin: 16px 0;
+             border-radius: 0 6px 6px 0; }
+  .callout-warn { border-color: var(--warn); background: var(--warn-light); }
+  .callout-ok { border-color: var(--ok); background: var(--ok-light); }
+  .callout-info { border-color: var(--accent); background: var(--accent-light); }
+  .callout-yellow { border-color: var(--yellow); background: var(--yellow-light); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 3px;
+           font-size: 12px; font-weight: 600; }
+  .badge-ok { background: var(--ok-light); color: var(--ok); }
+  .badge-todo { background: var(--warn-light); color: var(--warn); }
+  .badge-partial { background: var(--yellow-light); color: var(--yellow); }
+  .meta { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h1>내일 (2026-04-27 월) 09:00 KIS 운영 사전 체크리스트</h1>
+<p class="meta">
+  2026-04-26 작성 · 내일 아침 첫 실 운영 직전 시점에 따라 읽기.
+</p>
+
+<div class="callout callout-warn">
+  <strong>현재 검증 상태 정리</strong> — 토큰/시세/DRY mock 은 OK. <strong>잔고 + 구성종목 시세 + 실주문</strong> 3가지는 장외 시간이라 미검증. 내일 09:10 이후 실제 검증해야 함.
+</div>
+
+<!-- ============================================ -->
+<h2>1. 지금까지 검증된 것 vs 미검증</h2>
+
+<table>
+  <thead><tr><th>항목</th><th>상태</th><th>근거</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>OAuth2 토큰 발급</td>
+      <td><span class="badge badge-ok">검증됨</span></td>
+      <td>verify_kis.py 통과, 24h 유효</td>
+    </tr>
+    <tr>
+      <td>KODEX 200 (069500) 시세</td>
+      <td><span class="badge badge-ok">검증됨</span></td>
+      <td>98,000원 (-0.36%) 받힘</td>
+    </tr>
+    <tr>
+      <td>DRY_RUN 주문 mock</td>
+      <td><span class="badge badge-ok">검증됨</span></td>
+      <td>kis_client.order() mock path 동작</td>
+    </tr>
+    <tr>
+      <td><strong>잔고 조회</strong></td>
+      <td><span class="badge badge-todo">미검증</span></td>
+      <td>장외라 500 에러. 내일 09:10 이후 재시도 시 OK 예상</td>
+    </tr>
+    <tr>
+      <td><strong>구성종목 시세 (basket)</strong></td>
+      <td><span class="badge badge-todo">미검증</span></td>
+      <td>장외라 500. 장중엔 정상 작동 예상. tolerance (50% fail 시 forced HOLD) 있음</td>
+    </tr>
+    <tr>
+      <td><strong>실주문 endpoint (KIS_DRY_RUN=false)</strong></td>
+      <td><span class="badge badge-todo">미검증</span></td>
+      <td>장중에 1주 매수+매도 1회 시험 권장 (test_real_order_oneshot.py)</td>
+    </tr>
+    <tr>
+      <td>End-to-end loop 장중</td>
+      <td><span class="badge badge-todo">미검증</span></td>
+      <td>장외에서 4 tick graceful 종료까지만 확인</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ============================================ -->
+<h2>2. 내일 09:00 직전 사전 체크 (08:50)</h2>
+
+<h3>Step 1 — verify_kis.py 재실행</h3>
+
+<pre><code>cd d:\simeunchul\ai_pricing
+python scripts/verify_kis.py</code></pre>
+
+<p>기대 결과 (장중이라 4가지 모두 OK):</p>
+<pre><code>  ✓ 토큰 발급         : OK
+  ✓ 시세 조회         : OK
+  ✓ 잔고 조회         : OK   ← 어제는 ⚠ (장외) 였던 것. 내일 OK 되어야
+  ✓ DRY_RUN 주문 mock : OK</code></pre>
+
+<p>잔고 OK 안 나오면 KIS Developers 사이트에서 모의투자 활성화 상태 재확인.</p>
+
+<h3>Step 2 — 매매 모드 결정 (08:55)</h3>
+
+<table>
+  <thead><tr><th>모드</th><th>.env 설정</th><th>의미</th><th>권장</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>A. DRY_RUN</strong></td>
+      <td><code>KIS_DRY_RUN=true</code></td>
+      <td>시세 받고 신호 생성하지만 주문 mock. 가상머니도 안 씀.</td>
+      <td><span class="badge badge-ok">첫날 권장</span></td>
+    </tr>
+    <tr>
+      <td><strong>B. 실 모의매매</strong></td>
+      <td><code>KIS_DRY_RUN=false</code></td>
+      <td>모의투자 가상머니로 실제 매매. 손익 실현됨 (가상).</td>
+      <td>둘째날부터 권장 (Step 3 검증 후)</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-info">
+  <strong>이력서 narrative 관점</strong>: 첫날은 DRY_RUN 으로 안전하게 데이터 수집하고
+  로그 분석. 둘째날부터 실 매매로 전환. "3영업일 무중단 운영" 의 첫 단계.
+</div>
+
+<!-- ============================================ -->
+<h2>3. 09:15 — 실주문 endpoint 1회 시험 (옵션 B 시 필수)</h2>
+
+<p>실 매매 모드로 가기 전에 endpoint 작동 확인:</p>
+
+<pre><code>python scripts/test_real_order_oneshot.py</code></pre>
+
+<p>이 스크립트가 하는 일 (안전):</p>
+<ol>
+  <li>잔고 확인 → 예수금 / 보유 KODEX 200 수량</li>
+  <li>KODEX 200 시세</li>
+  <li><strong>1주 시장가 매수</strong> → 주문번호 확인</li>
+  <li>5초 대기 후 잔고 재조회 → 1주 늘었나 확인</li>
+  <li><strong>1주 시장가 매도</strong> → 정리</li>
+  <li>최종 잔고 → 시작과 동일 (예수금만 슬리피지 만큼 줄어듦)</li>
+</ol>
+
+<p>예상 결과:</p>
+<pre><code>  순 슬리피지: -50원 ~ -100원 (시장가 매수+매도 1tick 차이)
+  최종 포지션: 0주 (시작 0주, 차이 0)
+
+  ✓ 매수+매도 endpoint 모두 정상. runner 실행 안전.</code></pre>
+
+<p>이 스크립트는 <strong>장중 (09:10~15:20) 만 실행</strong>. 그 외엔 자동 거부.</p>
+
+<!-- ============================================ -->
+<h2>4. 09:00~ — Production runner 실행</h2>
+
+<h3>옵션 A: DRY_RUN (안전, 첫날 권장)</h3>
+<pre><code># .env 의 KIS_DRY_RUN=true 그대로
+python scripts/run_kis_paper_trading.py</code></pre>
+
+<h3>옵션 B: 실 모의매매</h3>
+<pre><code># .env 편집:
+#   KIS_DRY_RUN=false  ← true 에서 변경
+
+python scripts/run_kis_paper_trading.py</code></pre>
+
+<h3>이후 자동 진행</h3>
+<ul>
+  <li><strong>09:00 ~ 09:10</strong>: 시세 받지만 매매 차단 (장 시작 보호)</li>
+  <li><strong>09:10 ~ 15:20</strong>: 정상 매매 (iNAV 괴리 ≥ 30bps 시 진입)</li>
+  <li><strong>15:20 ~ 15:30</strong>: 매매 차단 (장 마감 보호)</li>
+  <li><strong>15:30</strong>: 자동 종료 + 로그 저장</li>
+</ul>
+
+<h3>중간 종료 (필요 시)</h3>
+<p>터미널에서 <strong>Ctrl+C</strong> → graceful shutdown → 로그 정상 저장.</p>
+
+<!-- ============================================ -->
+<h2>5. 운영 중 모니터링 — 다른 터미널에서</h2>
+
+<h3>실시간 로그 보기</h3>
+<pre><code># 다른 터미널 열고:
+type data\kis_trading_log_20260427.json
+
+# 또는 (Linux/Mac):
+cat data/kis_trading_log_20260427.json | tail -30</code></pre>
+
+<h3>찾아볼 패턴</h3>
+
+<table>
+  <thead><tr><th>로그 패턴</th><th>의미</th><th>대응</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>"sig":"BUY"</code> 또는 <code>"SELL"</code></td>
+      <td>매매 발생</td>
+      <td>order_response 의 rt_cd=0 인지 확인</td>
+    </tr>
+    <tr>
+      <td><code>"dev_bps":+/- 30 이상</code></td>
+      <td>iNAV 괴리 진입 임계 도달</td>
+      <td>signal 발생 정상</td>
+    </tr>
+    <tr>
+      <td><code>basket coverage X% — signal forced HOLD</code></td>
+      <td>구성종목 시세 일부 fail</td>
+      <td>tolerance 동작. 안전 (50% 이하 fresh 시 매매 안 함)</td>
+    </tr>
+    <tr>
+      <td><code>risk halt: outside trading hours</code></td>
+      <td>09:10 이전 또는 15:20 이후</td>
+      <td>정상 (시간 가드 작동)</td>
+    </tr>
+    <tr>
+      <td><code>tick N error: HTTPError</code></td>
+      <td>일시 API 장애</td>
+      <td>9회 누적 시 자동 종료. 재시작 필요</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ============================================ -->
+<h2>6. 가능한 시나리오 + 대응</h2>
+
+<table>
+  <thead><tr><th>#</th><th>시나리오</th><th>대응</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>매매 신호 한 번도 안 발생 (HOLD 만)</td>
+      <td><strong>정상</strong>. KOSPI 대형 ETF 평소 5~15bps. 30bps 임계 못 넘김. "정상적인 LP가 잘 작동하는 시장" 의 증거.</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>basket coverage 50% 미만 자주</td>
+      <td>모의투자 시세 한계. enter_threshold 보수적으로 조정 또는 ETF 만 보고 단순 mean-revert.</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>매매 발생 후 손실 누적 −1.5%</td>
+      <td>자동 정지 (risk guard). 다음날 재시작.</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>API 9회 연속 에러 → 종료</td>
+      <td>네트워크 / KIS 장애. 잠시 후 재시작.</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>실주문 endpoint reject (rt_cd != 0)</td>
+      <td>예수금 부족, 매매 정지 종목 등. 로그 msg1 확인 + KIS HTS 로 잔고 직접 확인.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ============================================ -->
+<h2>7. 운영 후 분석 (15:30 이후)</h2>
+
+<pre><code># 로그 요약 보기
+python -c "
+import json
+data = json.load(open('data/kis_trading_log_20260427.json'))
+print(f'총 ticks: {len(data)}')
+signals = [r for r in data if r['signal'] != 'HOLD']
+print(f'매매 신호: {len(signals)} 건')
+for s in signals[:10]:
+    print(f'  {s[\"ts\"][11:19]} {s[\"signal\"]} dev={s[\"dev_bps\"]:+.1f}bps')
+"</code></pre>
+
+<p>3영업일 누적되면 종합 보고서 작성:</p>
+<ul>
+  <li><code>docs/2026-04-29/3day_paper_trading_review.html</code> — 일별 PnL, 매매 횟수, risk halt 발생 등</li>
+</ul>
+
+<!-- ============================================ -->
+<h2>8. 운영 일정 (3영업일)</h2>
+
+<table>
+  <thead><tr><th>일자</th><th>모드</th><th>운영 내용</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>4/27 (월) 1일차</td>
+      <td>DRY_RUN 또는 실매매</td>
+      <td>시스템 안정성 검증 + 매매 신호 빈도 측정</td>
+    </tr>
+    <tr>
+      <td>4/28 (화) 2일차</td>
+      <td>실매매 (가상)</td>
+      <td>실제 가상머니 매매 → PnL 누적</td>
+    </tr>
+    <tr>
+      <td>4/29 (수) 3일차</td>
+      <td>실매매 (가상)</td>
+      <td>3일째. 종합 분석 보고서 작성</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ============================================ -->
+<h2>9. 빠른 참조 — 명령어 모음</h2>
+
+<pre><code># 사전 검증
+python scripts/verify_kis.py
+
+# 실주문 endpoint 시험 (장중만)
+python scripts/test_real_order_oneshot.py
+
+# Production runner
+python scripts/run_kis_paper_trading.py
+
+# 옵션
+python scripts/run_kis_paper_trading.py --duration 1800     # 30분만
+python scripts/run_kis_paper_trading.py --enter-bps 50      # 진입 임계 50bps 로
+python scripts/run_kis_paper_trading.py --max-position 5    # 최대 5주
+
+# 로그 분석
+type data\kis_trading_log_20260427.json | findstr "BUY\|SELL"</code></pre>
+
+<!-- ============================================ -->
+<h2>10. 관련 파일</h2>
+
+<table>
+  <thead><tr><th>파일</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>scripts/verify_kis.py</code></td>
+      <td>4가지 (token/quote/balance/order mock) 검증</td>
+    </tr>
+    <tr>
+      <td><code>scripts/test_real_order_oneshot.py</code></td>
+      <td>실주문 endpoint 1회 시험 (1주 매수+매도, 장중만)</td>
+    </tr>
+    <tr>
+      <td><code>scripts/run_kis_paper_trading.py</code></td>
+      <td>장중 자동 production runner</td>
+    </tr>
+    <tr>
+      <td><code>.env</code></td>
+      <td>KIS_APP_KEY / SECRET / ACCOUNT (gitignored)</td>
+    </tr>
+    <tr>
+      <td><code>data/kis_trading_log_YYYYMMDD.json</code></td>
+      <td>일별 매매 로그 (gitignored)</td>
+    </tr>
+  </tbody>
+</table>
+
+<p class="meta" style="margin-top:40px;padding-top:14px;border-top:1px solid var(--border)">
+  본 보고서: <code>docs/2026-04-26/tomorrow_morning_checklist.html</code> (CLAUDE.md 일일 보고서 규칙)<br>
+  관련 보고서: <a href="kis_paper_trading_setup.html">kis_paper_trading_setup.html</a>
+</p>
+
+</body>
+</html>
