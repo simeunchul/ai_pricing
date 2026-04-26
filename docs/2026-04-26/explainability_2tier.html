@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2-tier Explainability plug-in · 2026-04-26 · quant-lab</title>
+<style>
+  :root {
+    --fg: #1a1a1a; --bg: #fafafa; --muted: #666;
+    --accent: #2c5aa0; --accent-light: #e6eef7;
+    --warn: #c0392b; --warn-light: #fdeae6;
+    --ok: #0b8043; --ok-light: #e6f3ea;
+    --yellow: #a6820d; --yellow-light: #fff4d6;
+    --purple: #6c3483; --purple-light: #eee0f3;
+    --border: #ddd; --code-bg: #f4f4f4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR",
+                 "Apple SD Gothic Neo", Roboto, sans-serif;
+    color: var(--fg); background: var(--bg); line-height: 1.65;
+    max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px;
+  }
+  h1 { font-size: 28px; border-bottom: 3px solid var(--accent); padding-bottom: 8px; }
+  h2 { font-size: 22px; margin-top: 44px; color: var(--accent);
+       border-left: 4px solid var(--accent); padding-left: 12px; }
+  h3 { font-size: 17px; margin-top: 26px; }
+  code { background: var(--code-bg); padding: 2px 6px; border-radius: 3px;
+         font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+  pre { background: var(--code-bg); padding: 14px 16px; border-radius: 6px;
+        overflow-x: auto; font-size: 13px; border-left: 3px solid var(--accent); }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { padding: 10px 12px; text-align: left; border: 1px solid var(--border);
+           vertical-align: top; }
+  th { background: var(--accent-light); font-weight: 600; }
+  tbody tr:nth-child(even) { background: #f7f7f7; }
+  .num { font-family: ui-monospace, Consolas, monospace; }
+  .good { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--warn); font-weight: 600; }
+  .neutral { color: var(--muted); }
+  .callout { border-left: 4px solid; padding: 12px 16px; margin: 16px 0;
+             border-radius: 0 6px 6px 0; }
+  .callout-warn { border-color: var(--warn); background: var(--warn-light); }
+  .callout-ok { border-color: var(--ok); background: var(--ok-light); }
+  .callout-info { border-color: var(--accent); background: var(--accent-light); }
+  .callout-purple { border-color: var(--purple); background: var(--purple-light); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 3px;
+           font-size: 12px; font-weight: 600; }
+  .badge-ok { background: var(--ok-light); color: var(--ok); }
+  .meta { color: var(--muted); font-size: 13px; }
+  .layer-cust { background: #fff8d6; padding: 6px 10px; border-radius: 4px;
+                border-left: 3px solid var(--yellow); margin: 4px 0; font-size: 13px; }
+  .layer-reg { background: #e6eef7; padding: 6px 10px; border-radius: 4px;
+               border-left: 3px solid var(--accent); margin: 4px 0; font-size: 12.5px;
+               font-family: ui-monospace, Consolas, monospace; }
+</style>
+</head>
+<body>
+
+<h1>2-tier Explainability plug-in — Customer 자연어 + Regulator 수치</h1>
+<p class="meta">
+  2026-04-26 · gotothemoon AIOps 의 2-layer 패턴을 quant-lab compliance 모듈에 plug-in.
+  기존 4 audit_log call site 무수정 + 신규 facade 1개 + 41/41 pytest green.
+</p>
+
+<div class="callout callout-ok">
+  <strong>한 줄 결과</strong> — <code>compliance/explainer_facade.py</code> 신규 모듈로
+  누적 23 audit_log entries 가 <strong>customer 자연어 + regulator 수치 양층</strong> 동시 출력.
+  추후 한화 desk 의 ELS 고객 추천 / 로보어드바이저 영역으로 확장 시
+  <code>facade.register()</code> 한 줄로 통합.
+</div>
+
+<!-- ============================================ -->
+<h2>1. 무엇을 시도했는지</h2>
+
+<h3>사용자 통찰</h3>
+<blockquote style="border-left:4px solid var(--accent); padding:8px 16px; margin:14px 0; background:#f0f4f8">
+"설명력을 고객대상과 규제당국 대상을 나눠서 두 가지 층위로
+— 고객대상에게는 이해하기 쉬운 자연어로,
+규제당국에게는 모델의 성능으로 — 추가할 순 없음?
+gotothemoon 프로젝트처럼."
+</blockquote>
+
+<h3>접근법 — 추천 시스템은 별도 스프린트, explainability 만 plug-in</h3>
+<ul>
+  <li>추천 시스템 (Layer F) 는 무겁고 별도 R&D track 으로 미루기</li>
+  <li>대신 <strong>2-tier explainer 만 가져와서</strong> 기존 compliance 모듈에 추가</li>
+  <li>추후 추천 시스템 추가 시 동일 facade 그대로 차용 가능</li>
+</ul>
+
+<!-- ============================================ -->
+<h2>2. compliance 모듈의 4번째 가드</h2>
+
+<table>
+  <thead><tr><th>#</th><th>모듈</th><th>역할</th><th>대상</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>1</td><td><code>audit_log.DecisionLog</code></td>
+      <td>모든 AI 결정 JSON Lines append-only 기록</td>
+      <td>regulator (사후 재현)</td>
+    </tr>
+    <tr>
+      <td>2</td><td><code>deviation_monitor</code></td>
+      <td>BSM/Heston 기준 ±5% 임계 자동 감지</td>
+      <td>regulator (drift 탐지)</td>
+    </tr>
+    <tr>
+      <td>3</td><td><code>hitl_gate</code></td>
+      <td>high-severity 결정 사람 검증 escalation</td>
+      <td>regulator (감독 의무)</td>
+    </tr>
+    <tr style="background:#fff8e6">
+      <td><strong>4</strong></td>
+      <td><strong><code>explainer_facade</code> (NEW)</strong></td>
+      <td><strong>customer 자연어 + regulator 수치 양층 동시 생성</strong></td>
+      <td><strong>고객 + regulator 둘 다</strong></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ============================================ -->
+<h2>3. 어떻게 — 설계 핵심 3가지</h2>
+
+<h3>A. 결정론적 — LLM 호출 없음</h3>
+<p>
+  Template 기반 (model_name, stage) → format string. 같은 결정 → 같은 자연어 보장.
+  감사관이 <em>"왜 이 자연어가 나왔는지"</em> 묻기 어려운 LLM 출력의 비결정성 회피.
+  (추후 LLM 옵션 추가 가능, 지금은 baseline.)
+</p>
+
+<h3>B. Plug-in — 기존 4 audit_log call site 무수정</h3>
+<p>
+  <code>desk_day.py</code>, <code>bench_lp_strategies.py</code> 의 4곳 audit append 호출은 손대지 않음.
+  facade 는 <em>읽기 전용</em>으로 entry 받아 자연어 생성. 이미 누적된 23 entries 도 사후 enrich 가능.
+</p>
+
+<h3>C. 확장 가능 — register() 한 줄로 신규 모델</h3>
+<pre><code># 추후 추천 시스템 추가 시:
+facade.register(
+    "PLE_distilled_recommender", "recommend",
+    lambda e: f"투자 성향 {e.inputs['risk']} → {e.output['top_product']} 추천",
+)</code></pre>
+
+<!-- ============================================ -->
+<h2>4. 변경 / 신규 파일 (계획대로 정확히)</h2>
+
+<table>
+  <thead><tr><th>종류</th><th>경로</th><th>변화</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>수정</td>
+      <td><code>packages/compliance/src/compliance/audit_log.py</code></td>
+      <td>+1 line (<code>customer_layer: str | None = None</code>)</td>
+    </tr>
+    <tr>
+      <td>수정</td>
+      <td><code>packages/compliance/src/compliance/__init__.py</code></td>
+      <td>+ explainer_facade exports + DecisionEntry 추가 export</td>
+    </tr>
+    <tr>
+      <td>신규</td>
+      <td><code>packages/compliance/src/compliance/explainer_facade.py</code></td>
+      <td>~230 lines (5 templates + fallback + facade class)</td>
+    </tr>
+    <tr>
+      <td>신규</td>
+      <td><code>scripts/demo_explainer_facade.py</code></td>
+      <td>~140 lines (23 entries enrich + 4 sample 출력 + backward compat 검증)</td>
+    </tr>
+    <tr>
+      <td>수정 X</td>
+      <td><code>scripts/desk_day.py</code></td>
+      <td>(무수정 — 회귀 위험 0)</td>
+    </tr>
+    <tr>
+      <td>수정 X</td>
+      <td><code>scripts/bench_lp_strategies.py</code></td>
+      <td>(무수정)</td>
+    </tr>
+    <tr>
+      <td>수정 X</td>
+      <td>4 audit append call site</td>
+      <td>(무수정)</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ============================================ -->
+<h2>5. 결과 — 4 distinct (model, stage) 페어 자연어 변환 시연</h2>
+
+<h3>① ELS 가격평가 (가장 높은 편차 — 21% breach)</h3>
+<div class="layer-cust">
+  <strong>customer:</strong> 한화 ELS NAV 7,890.40원. 발행가 대비 +21.10%. KI 확률 67.9%.
+</div>
+<div class="layer-reg">
+  <strong>regulator:</strong> deviation_pct=21.0957 breach=<span class="bad">True</span> hitl=<span class="bad">True</span>
+  output.price_krw=7890.4 output.ki_hit_prob=0.6789
+</div>
+
+<h3>② NN Pricer vs BSM 일관성</h3>
+<div class="layer-cust">
+  <strong>customer:</strong> S=100/K=100 NN 가격 1.98 vs BSM 1.84. 차이 +7.21% (편차 주의).
+</div>
+<div class="layer-reg">
+  <strong>regulator:</strong> deviation_pct=7.2056 breach=<span class="bad">True</span> hitl=<span class="bad">True</span>
+  output.call_price=1.9773
+</div>
+
+<h3>③ Deep Hedging 결정 (Buehler PG-on-CVaR)</h3>
+<div class="layer-cust">
+  <strong>customer:</strong> 오늘 헤지 비율 0.4315. BSM Δ 0.5366 대비 +10.51%. 변동성 13.9% 환경 반영.
+</div>
+<div class="layer-reg">
+  <strong>regulator:</strong> deviation_pct=10.51 breach=<span class="good">False</span> hitl=<span class="good">False</span>
+  output.hedge_ratio=0.4315
+</div>
+
+<h3>④ ETF LP 양방향 호가 (Avellaneda-Stoikov, 재고 한도 임계)</h3>
+<div class="layer-cust">
+  <strong>customer:</strong> 양방향 호가 bid 71,643.80 / ask 71,715.48, spread 1.29, 재고 -22/20, γ=0.1, 재고 한도 임계 도달 — 보수적 호가.
+</div>
+<div class="layer-reg">
+  <strong>regulator:</strong> deviation_pct=110.0 breach=<span class="bad">True</span> hitl=<span class="bad">True</span>
+  output.bid=71643.80 output.ask=71715.48 output.spread=1.29
+</div>
+
+<h3>⑤ Generic fallback (unknown model)</h3>
+<div class="layer-cust">
+  <strong>customer:</strong> UnknownModel_v9 모델이 experimental_stage 단계에서 결과 산출 — 기준 4.20 대비 +8.60% — HITL 검토 권장.
+</div>
+<p>
+  현재 audit log 에 등록되지 않은 (model, stage) 페어가 들어와도 facade 가 안전하게 generic 자연어 생성.
+  template 작성 안 한 모델도 사용자에게 의미 전달 가능.
+</p>
+
+<!-- ============================================ -->
+<h2>6. 검증</h2>
+
+<table>
+  <thead><tr><th>검증</th><th>결과</th></tr></thead>
+  <tbody>
+    <tr><td>pytest 41 passed (기존 동일)</td><td><span class="badge badge-ok">PASS</span></td></tr>
+    <tr><td>23 entries 모두 자연어 변환 OK</td><td><span class="badge badge-ok">PASS</span></td></tr>
+    <tr><td>4 distinct (model, stage) 페어 정확 매칭</td><td><span class="badge badge-ok">PASS</span></td></tr>
+    <tr><td>unknown (model, stage) → generic fallback</td><td><span class="badge badge-ok">PASS</span></td></tr>
+    <tr><td>backward compat — explicit customer_layer append</td><td><span class="badge badge-ok">PASS</span></td></tr>
+    <tr><td>enriched JSONL 저장 (23 entries × 2 layer)</td><td><span class="badge badge-ok">PASS</span></td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================ -->
+<h2>7. 추후 추천 시스템 추가 path (이번 작업으로 깔린 골조)</h2>
+
+<p>한화 desk 가 ELS 고객 추천 / 로보어드바이저 / 펀드 추천 시스템을 추가한다고 가정:</p>
+
+<pre><code># 1. 신규 패키지
+packages/recommender/src/recommender/
+    customer_profile.py    # 위험 성향 / 자금 / 만기
+    product_catalog.py     # 한화 ELS 카탈로그 (DART 자동 수집)
+    ple_distill.py         # gotothemoon 의 PLE 패턴 차용
+    recommender.py         # content-based + collaborative
+
+# 2. 추천 결정도 audit log 에 기록
+log.append(
+    model_name="PLE_distilled_recommender",
+    stage="recommend",
+    inputs={"risk": "안정형", "horizon": 1, "amount": 1_000_000},
+    output={"top_product": "한화 ELB 1057호", "score": 0.91},
+    reference_model="popularity_baseline",
+    reference_value="KODEX 200",
+    deviation_pct=...,    # 추천 vs 인기 baseline 차이
+)
+
+# 3. facade 에 template 1줄 등록
+facade.register(
+    "PLE_distilled_recommender", "recommend",
+    lambda e: (
+        f"투자 성향 {e.inputs['risk']} + {e.inputs['horizon']}년 자금 → "
+        f"{e.output['top_product']} 추천 (score {e.output['score']:.2f})"
+    )
+)
+
+# 4. 끝. 같은 2-tier 인프라 그대로 동작.</code></pre>
+
+<div class="callout callout-purple">
+  <strong>면접 narrative</strong>: 본 작업으로 추천 시스템 통합의 사전 골조 완성.
+  "한화 desk 의 ELS 고객 추천 / 로보어드바이저 / 신상품 매칭 등 어떤 AI 결정도
+  audit_log + deviation + HITL + 2-tier 자연어 의 동일 인프라 위에서 동작."
+  gotothemoon 의 감사로그·PLE·Causal 패턴이 quant-lab 으로 cross-pollination.
+</div>
+
+<!-- ============================================ -->
+<h2>8. 면접 답안 (예상 질문)</h2>
+
+<div class="callout callout-info">
+  <strong>Q</strong>: "AI 결정을 고객에게는 어떻게 설명할 건가요?"<br><br>
+  <strong>A</strong>: "audit log 에 모든 AI 결정 (timestamp + 입력 + 출력 + 편차) 기록은
+  regulator 층 입니다. 그 위에 <code>ExplainerFacade</code> 를 plug-in 해서 customer 층 자연어 동시 생성.
+  예: ELS NAV 21% breach 가 regulator 에는 'deviation_pct=21.0957 breach=True', 고객에는
+  '한화 ELS NAV 7,890원, 발행가 대비 +21.10%, KI 확률 67.9%' 로 동시 출력.
+  결정론적 template 기반 — 감사관이 자연어 출처를 묻기 어려운 LLM 비결정성 회피."
+</div>
+
+<div class="callout callout-info">
+  <strong>Q</strong>: "AI 기본법 시행령 변화 시 대응?"<br><br>
+  <strong>A</strong>: "compliance 모듈에 4종 가드 (audit + deviation + HITL + 2-tier) 가
+  baseline. 시행령이 추천 시스템 / 알고리즘 거래 / ELS pricing 을 명시 고영향으로 분류해도
+  facade.register() 한 줄로 신규 모델 추가만 하면 됨. 모듈성 + 확장성 입증."
+</div>
+
+<div class="callout callout-info">
+  <strong>Q</strong>: "왜 LLM 안 썼나요?"<br><br>
+  <strong>A</strong>: "감사관이 <em>'왜 이 자연어가 나왔는지'</em> 묻을 때 결정론적 template
+  은 1:1 추적 가능. LLM 출력은 동일 입력에서도 다른 결과 → 감사 곤란. baseline 은 결정론적,
+  고객 다양성 필요 시 LLM layer 추가는 별도 스프린트."
+</div>
+
+<!-- ============================================ -->
+<h2>9. 한계 / 다음 단계 (정직)</h2>
+
+<table>
+  <thead><tr><th>한계</th><th>다음 단계</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Template hardcoded — 신규 모델마다 1줄 register</td>
+      <td>(필요 시) LLM 옵션 추가 — 다양한 표현. 단 재현성 보장 위해 prompt 고정.</td>
+    </tr>
+    <tr>
+      <td>desk_day 운영 흐름에 자동 통합 X</td>
+      <td>desk_day 의 7 stage 끝에 facade.explain() 호출 추가 (1 시간 작업)</td>
+    </tr>
+    <tr>
+      <td>customer 층 wording 의 "법적 적정성" 미검증</td>
+      <td>시행령 후속 가이드라인 발표 후 wording 조정. compliance 부서와 협의.</td>
+    </tr>
+    <tr>
+      <td>추천 시스템 (Layer F) 자체는 미구현</td>
+      <td>이번 작업으로 통합 path 만 깔림. 별도 스프린트.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ============================================ -->
+<h2>10. 관련 파일 / 산출물</h2>
+
+<table>
+  <thead><tr><th>파일</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>packages/compliance/src/compliance/explainer_facade.py</code></td>
+      <td>핵심 모듈 — TwoTierExplanation + ExplainerFacade + 5 templates</td>
+    </tr>
+    <tr>
+      <td><code>packages/compliance/src/compliance/audit_log.py</code></td>
+      <td>+1 line (customer_layer 필드, backward compat)</td>
+    </tr>
+    <tr>
+      <td><code>packages/compliance/src/compliance/__init__.py</code></td>
+      <td>+ exports</td>
+    </tr>
+    <tr>
+      <td><code>scripts/demo_explainer_facade.py</code></td>
+      <td>23 entries enrich + 4 페어 시연 + fallback + backward compat 검증</td>
+    </tr>
+    <tr>
+      <td><code>data/compliance/audit_log_enriched.jsonl</code></td>
+      <td>23 entries × 2-tier 산출물</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>관련 보고서</h3>
+<ul>
+  <li><a href="desk_day_workflow.html">desk_day_workflow.html</a> — 7 stage compliance 모듈 통합 (Phase 1)</li>
+  <li><a href="lp_upgrade.html">lp_upgrade.html</a> — A-S LP 에 compliance 무수정 cross-cutting 적용</li>
+  <li><a href="../resume_one_pager.md">resume_one_pager.md</a> — 핵심 성과 9 (ETF LP) + 7 (desk_day) 에서 compliance 모듈 언급</li>
+</ul>
+
+<p class="meta" style="margin-top:40px;padding-top:14px;border-top:1px solid var(--border)">
+  본 보고서: <code>docs/2026-04-26/explainability_2tier.html</code> (CLAUDE.md 일일 보고서 규칙)
+</p>
+
+</body>
+</html>

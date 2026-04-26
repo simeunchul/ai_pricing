@@ -27,6 +27,7 @@
 | [2026-04-26/integration_4_layers.html](2026-04-26/integration_4_layers.html) | **🔗 4-Layer Integration — isolated → production 통합.** #1 B2→ELS daily NAV (한화 8286호 +2.18%), #2 B3→B4 hedger (shock 시 +15%p hedge buffer), #3 B2→B4 env σ (0.20→0.21), #4 B3→ETF LP (shock σ×3, spread 1.4×). 41/41 pytest, 4 demo 즉시 작동 | 2026-04-26 |
 | [2026-04-26/kis_paper_trading_setup.html](2026-04-26/kis_paper_trading_setup.html) | **🚀 KIS 모의투자 셋업 + 내일 운영 가이드.** app key/secret 발급 → verify_kis.py 4 검증 PASS (KODEX 200 시세 98,000) → run_kis_paper_trading.py production runner (장중 자동, basket fail tolerance, 4-tier risk, 일별 로그). 계좌번호 입력 → 내일 09:00 명령 1줄 실행 | 2026-04-26 |
 | [2026-04-26/tomorrow_morning_checklist.html](2026-04-26/tomorrow_morning_checklist.html) | **⏰ 내일 (4/27 월) 09:00 운영 체크리스트.** 검증된 것 vs 미검증 (잔고/basket/실주문 3가지는 장외라 미검증) 명확히. 08:50 사전 검증 → 09:15 실주문 endpoint 1회 시험 (test_real_order_oneshot.py) → 09:00 production runner. 5 시나리오 + 대응표 + 로그 분석 명령 | 2026-04-26 |
+| [2026-04-26/explainability_2tier.html](2026-04-26/explainability_2tier.html) | **🧩 2-tier Explainability plug-in.** compliance 모듈 4번째 가드: customer 자연어 + regulator 수치. 5 templates × 4 distinct (model, stage) 23 entries 사후 enrich + generic fallback + backward compat. 추후 추천 시스템 통합 path 깔아둠 (AI 기본법 회색지대 자발 baseline) | 2026-04-26 |
 
 ## 열어보는 방법
 
