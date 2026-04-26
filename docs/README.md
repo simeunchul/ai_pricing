@@ -24,6 +24,7 @@
 | [2026-04-26/jump_stress_test.html](2026-04-26/jump_stress_test.html) | **B4 Buehler — Merton jump 옵션 추가 + 철학 보존 검증.** HedgingEnv 에 jump 4-필드 (default 0=호환), 41/41 pytest, 4 시나리오 stress test: GBM +21.28% / 일상 +4.41% / 어닝쇼크 +8.69% / 코로나급 −1.53%. 정책 입력에 jump 신호 0개 → "예측 안 함" 철학 보존 | 2026-04-26 |
 | [2026-04-26/jump_aware_training.html](2026-04-26/jump_aware_training.html) | **B4 Jump-Aware Retraining — specialization vs generalization 실증.** 정책 input 5-dim 그대로, 환경만 비정형화하며 retrain. 3 모델 × 4 시나리오 매트릭스: GBM 학습 (전문가) vs Jump-fixed (편식, Medium +30.47%/GBM −101.47%) vs Jump-random (제너럴리스트). NFL 실증 + regime 별 ensemble 권장 | 2026-04-26 |
 | [2026-04-26/B3_kr_naver_backtest.html](2026-04-26/B3_kr_naver_backtest.html) | **B3 한국 시장 Naver 풀 파이프 — Negative Result + 진단.** Naver 검색 API 9,291 헤드라인 → 825 분류 → 612 정렬, 3가지 가설 모두 FAIL (event 일 ratio 0.39×, baseline 2.96% 비정상). 4가지 개선 경로 제시 (event dedup + magnitude scoring 우선) | 2026-04-26 |
+| [2026-04-26/integration_4_layers.html](2026-04-26/integration_4_layers.html) | **🔗 4-Layer Integration — isolated → production 통합.** #1 B2→ELS daily NAV (한화 8286호 +2.18%), #2 B3→B4 hedger (shock 시 +15%p hedge buffer), #3 B2→B4 env σ (0.20→0.21), #4 B3→ETF LP (shock σ×3, spread 1.4×). 41/41 pytest, 4 demo 즉시 작동 | 2026-04-26 |
 
 ## 열어보는 방법
 

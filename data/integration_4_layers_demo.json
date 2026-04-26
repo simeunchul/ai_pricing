@@ -1,0 +1,30 @@
+{
+  "#1_b2_to_els": {
+    "market_date": "2026-04-25",
+    "sigma_used": 0.2123774897624212,
+    "fair_value": 10201.578278792951,
+    "deviation_pct": 2.0157827879295107
+  },
+  "#3_b2_to_b4_env": {
+    "sigma_baseline": 0.2,
+    "sigma_calibrated": 0.2123774897624212,
+    "sigma_shift": 0.012377489762421201,
+    "iv_rmse_vp": 2.1652112131197847
+  },
+  "#2_b3_to_b4_hedger": {
+    "neutral_event": "neutral",
+    "neutral_action": 0.5228621115361781,
+    "shock_event": "macro_shock",
+    "shock_action": 0.6728621115361781,
+    "miss_event": "earnings_miss",
+    "miss_action": 0.6328621115361781,
+    "shock_buffer_size": 0.15000000000000002
+  },
+  "#4_b3_to_etf_lp": {
+    "normal_sigma": 0.2,
+    "shock_sigma": 0.6000000000000001,
+    "normal_spread": 0.9000000000000057,
+    "shock_spread": 1.2199999999999989,
+    "spread_multiplier": 1.3555555555555456
+  }
+}
