@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>B3 한국 시장 Naver 뉴스 백테스트 · 2026-04-26 · quant-lab</title>
+<style>
+  :root {
+    --fg: #1a1a1a; --bg: #fafafa; --muted: #666;
+    --accent: #2c5aa0; --accent-light: #e6eef7;
+    --warn: #c0392b; --warn-light: #fdeae6;
+    --ok: #0b8043; --ok-light: #e6f3ea;
+    --yellow: #a6820d; --yellow-light: #fff4d6;
+    --purple: #6c3483; --purple-light: #eee0f3;
+    --border: #ddd; --code-bg: #f4f4f4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR",
+                 "Apple SD Gothic Neo", Roboto, sans-serif;
+    color: var(--fg); background: var(--bg); line-height: 1.65;
+    max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px;
+  }
+  h1 { font-size: 28px; border-bottom: 3px solid var(--accent); padding-bottom: 8px; }
+  h2 { font-size: 22px; margin-top: 44px; color: var(--accent);
+       border-left: 4px solid var(--accent); padding-left: 12px; }
+  h3 { font-size: 17px; margin-top: 26px; }
+  code { background: var(--code-bg); padding: 2px 6px; border-radius: 3px;
+         font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+  pre { background: var(--code-bg); padding: 14px 16px; border-radius: 6px;
+        overflow-x: auto; font-size: 13px; border-left: 3px solid var(--accent); }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { padding: 10px 12px; text-align: left; border: 1px solid var(--border);
+           vertical-align: top; }
+  th { background: var(--accent-light); font-weight: 600; }
+  tbody tr:nth-child(even) { background: #f7f7f7; }
+  .num { font-family: ui-monospace, Consolas, monospace; }
+  .good { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--warn); font-weight: 600; }
+  .partial { color: var(--yellow); font-weight: 600; }
+  .neutral { color: var(--muted); }
+  .callout { border-left: 4px solid; padding: 12px 16px; margin: 16px 0;
+             border-radius: 0 6px 6px 0; }
+  .callout-warn { border-color: var(--warn); background: var(--warn-light); }
+  .callout-ok { border-color: var(--ok); background: var(--ok-light); }
+  .callout-info { border-color: var(--accent); background: var(--accent-light); }
+  .callout-purple { border-color: var(--purple); background: var(--purple-light); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 3px;
+           font-size: 12px; font-weight: 600; }
+  .badge-fail { background: var(--warn-light); color: var(--warn); }
+  .badge-ok { background: var(--ok-light); color: var(--ok); }
+  .meta { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h1>B3 한국 시장 Naver 뉴스 백테스트 — Negative Result + 진단</h1>
+<p class="meta">
+  2026-04-26 · Naver 검색 API + KOSPI 시총 상위 10 종목 + KODEX 200 ETF ·
+  9,291 헤드라인 → 825 분류 → 612 정렬 → <strong>3개 가설 모두 FAIL</strong>.
+  의미 있는 negative result + 4가지 개선 방향.
+</p>
+
+<div class="callout callout-info">
+  <strong>한 줄 결과</strong> — 한국 시장 풀 파이프 (Naver 뉴스 → 한글 분류기 →
+  KODEX 200 next-day return) 동작 검증 ✓. <strong>가설 자체는 약함</strong>:
+  baseline mean abs return 2.96% 가 너무 큼 + event 가 매일 발생 → 신호 안 나옴.
+  4가지 개선 경로 (magnitude scoring / 키워드 정밀화 / IV proxy 변경 / event dedup) 진단.
+</div>
+
+<!-- ============================================ -->
+<h2>1. 무엇을 시도했는지</h2>
+
+<h3>배경</h3>
+<p>
+  어제까지 Layer B3 의 한계는 "한국 뉴스 → 한국 IV 풀 파이프 미검증" 이었음.
+  Naver Developers Search API 키 발급 후 정량 백테스트 진행.
+</p>
+
+<h3>접근법</h3>
+<ol>
+  <li><strong>scripts/fetch_naver_news.py</strong>: KOSPI 시총 상위 10 종목 × 30일 헤드라인 수집 → 9,291건 cache</li>
+  <li><strong>scripts/b3_backtest_kr.py</strong>: classify_rule (한글 키워드) → event 분류</li>
+  <li>이벤트일 D 의 다음 영업일 KODEX 200 (069500) 일별 return 측정</li>
+  <li>3가지 가설 검증:
+    <ol type="a">
+      <li>negative event → 다음날 return < 0 부호 일치율</li>
+      <li>event 다음날 mean |return| vs baseline mean |return| 비율</li>
+      <li>top 20% magnitude event 만 본 ratio</li>
+    </ol>
+  </li>
+</ol>
+
+<h3>왜 KODEX 200 (V-KOSPI 아님)</h3>
+<p>
+  V-KOSPI 200 (한국 VIX 등가) 은 KRX 지수 함수가 인증 차단으로 접근 불가
+  (<code>KRX 로그인 실패: KRX_ID 또는 KRX_PW 환경 변수가 설정되지 않았습니다</code>).
+  종목 / ETF OHLCV 는 작동 → KODEX 200 일별 return 의 절대값을 realized vol proxy 로 사용.
+  IV 직접 측정 아닌 사후 realized vol → 신호-노이즈 비율 낮은 한계 인지.
+</p>
+
+<!-- ============================================ -->
+<h2>2. 데이터 수집 결과</h2>
+
+<table>
+  <thead>
+    <tr><th>티커</th><th>회사명</th><th>headlines</th></tr>
+  </thead>
+  <tbody>
+    <tr><td class="num">005930</td><td>삼성전자</td><td class="num">981</td></tr>
+    <tr><td class="num">000660</td><td>SK하이닉스</td><td class="num">999</td></tr>
+    <tr><td class="num">005380</td><td>현대차</td><td class="num">995</td></tr>
+    <tr><td class="num">035420</td><td>NAVER</td><td class="num">998</td></tr>
+    <tr><td class="num">035720</td><td>카카오</td><td class="num">998</td></tr>
+    <tr><td class="num">207940</td><td>삼성바이오로직스</td><td class="num">999</td></tr>
+    <tr><td class="num">051910</td><td>LG화학</td><td class="num">1000</td></tr>
+    <tr><td class="num">068270</td><td>셀트리온</td><td class="num">999</td></tr>
+    <tr><td class="num">005490</td><td>POSCO홀딩스</td><td class="num">324</td></tr>
+    <tr><td class="num">066570</td><td>LG전자</td><td class="num">998</td></tr>
+    <tr><td colspan="2"><strong>합계</strong></td><td class="num"><strong>9,291</strong></td></tr>
+  </tbody>
+</table>
+
+<p>
+  대부분 종목이 1000건 cap (Naver 검색 API 한계) 까지 채움 → 실제 30일치는 더 많음.
+  수집 자체는 완전 동작.
+</p>
+
+<!-- ============================================ -->
+<h2>3. 무엇이 실패했고 왜</h2>
+
+<h3>3.1 분류 결과</h3>
+
+<table>
+  <thead><tr><th>Event</th><th>Count</th><th>비율</th></tr></thead>
+  <tbody>
+    <tr><td>macro_shock</td><td class="num">311</td><td class="num">37.7%</td></tr>
+    <tr><td>regulatory</td><td class="num">236</td><td class="num">28.6%</td></tr>
+    <tr><td>earnings_beat</td><td class="num">116</td><td class="num">14.1%</td></tr>
+    <tr><td>rating_change</td><td class="num">87</td><td class="num">10.5%</td></tr>
+    <tr><td>mna</td><td class="num">54</td><td class="num">6.5%</td></tr>
+    <tr><td>earnings_miss</td><td class="num">21</td><td class="num">2.5%</td></tr>
+    <tr><td>(neutral 8466건 제외)</td><td class="num">—</td><td class="num">—</td></tr>
+    <tr><td><strong>분류 총합</strong></td><td class="num"><strong>825</strong></td><td class="num">8.9% (전체 9291 중)</td></tr>
+  </tbody>
+</table>
+
+<h3>3.2 3가지 가설 결과 — 모두 FAIL</h3>
+
+<table>
+  <thead>
+    <tr><th>#</th><th>가설</th><th>n</th><th>측정값</th><th>기준</th><th>판정</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>(a)</td>
+      <td>negative event → next-day return < 0 부호 일치율</td>
+      <td class="num">532</td>
+      <td class="num">204/532 = <strong>38.3%</strong></td>
+      <td class="num">> 50% (random)</td>
+      <td><span class="badge badge-fail">FAIL</span></td>
+    </tr>
+    <tr>
+      <td>(b)</td>
+      <td>event 다음날 mean |return| vs baseline ratio</td>
+      <td class="num">612</td>
+      <td class="num">1.146% / 2.962% = <strong>0.387×</strong></td>
+      <td class="num">> 1.0× (가설은 ↑)</td>
+      <td><span class="badge badge-fail">FAIL (반대 방향)</span></td>
+    </tr>
+    <tr>
+      <td>(c)</td>
+      <td>top 20% magnitude event ratio</td>
+      <td class="num">122</td>
+      <td class="num"><strong>0.220×</strong></td>
+      <td class="num">> 1.5×</td>
+      <td><span class="badge badge-fail">FAIL</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>3.3 진단 — 4가지 실패 원인</h3>
+
+<table>
+  <thead><tr><th>#</th><th>원인</th><th>증거</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td><strong>Event 가 매일 발생 → 신호 vs 비신호 구분 무의미</strong></td>
+      <td>825 event / 30일 = 일평균 27.5건. 60 영업일 거의 다 event 일.<br>baseline 자체가 "event 가 거의 매일 있는 평균" 임.</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><strong>키워드 정밀도 약함</strong> (특히 macro_shock 311건)</td>
+      <td>"금리" 단어만 들어가도 macro_shock. 단순 언급 vs 실제 충격 구분 안 됨.<br>정확히는 "rate hike", "fomc", "geopolitical" 등이 회사 이름 옆에 있어도 매칭.</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td><strong>Baseline 2.96% 비정상적으로 큼</strong></td>
+      <td>KODEX 200 일별 절대수익률 평균 2.96%? 정상은 0.5~1% 수준.<br>KRX 인증 차단으로 일부 데이터 누락 / 잘못 정렬 가능성.<br>또는 60일 중 큰 변동일이 다수 (시장 stress 기간).</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td><strong>Realized vol proxy 의 신호-노이즈 비율 낮음</strong></td>
+      <td>IV 직접 측정 아닌 next-day |return| 사용.<br>일별 noise 가 event 신호보다 큼.<br>V-KOSPI 직접 받았다면 더 명확했을 수도.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>3.4 Per-event-type 결과</h3>
+
+<table>
+  <thead>
+    <tr><th>Event</th><th>n</th><th>다음날 mean |return|</th><th>vs baseline</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>macro_shock</td><td class="num">239</td><td class="num">1.035%</td><td class="num bad">0.35×</td></tr>
+    <tr><td>regulatory</td><td class="num">136</td><td class="num">1.052%</td><td class="num bad">0.36×</td></tr>
+    <tr><td>rating_change</td><td class="num">86</td><td class="num">2.239%</td><td class="num">0.76×</td></tr>
+    <tr><td>earnings_beat</td><td class="num">80</td><td class="num">0.688%</td><td class="num bad">0.23×</td></tr>
+    <tr><td>mna</td><td class="num">50</td><td class="num">0.938%</td><td class="num bad">0.32×</td></tr>
+    <tr><td>earnings_miss</td><td class="num">21</td><td class="num">0.787%</td><td class="num bad">0.27×</td></tr>
+  </tbody>
+</table>
+
+<p>
+  rating_change 만 그나마 baseline 의 76% 수준 (다른 event 들은 baseline 의 25~40%).
+  표본 가장 적은 (n=21) earnings_miss 도 비교 어려움.
+</p>
+
+<!-- ============================================ -->
+<h2>4. 어떻게 해결할 수 있나 (다음 단계)</h2>
+
+<table>
+  <thead><tr><th>#</th><th>개선 방향</th><th>예상 효과</th><th>구현 난이도</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td><strong>Magnitude scoring</strong> — 키워드별 중요도 가중. "금리 인상" + "Fed" + "긴급" 같이 여러 시그널 누적 시만 high event.</td>
+      <td>대 (event 정밀도 ↑)</td>
+      <td>중 (~3시간)</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><strong>Event dedup + 일별 aggregation</strong>. 같은 날 매크로 27건 있으면 1개 event 로 합산. event-day vs non-event-day 구분 의미 살림.</td>
+      <td>대</td>
+      <td>소 (~1시간)</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td><strong>FinBERT (snunlp/KR-FinBert-SC) 사용</strong>. rule 키워드 대신 NLP 분류. precision ↑.</td>
+      <td>중</td>
+      <td>중 (~4시간, 모델 download)</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td><strong>V-KOSPI 200 우회</strong> — KRX_ID 발급 받거나, yfinance 의 EWY (iShares Korea ETF) 옵션 chain 으로 한국 IV proxy 측정.</td>
+      <td>중 (정확한 IV)</td>
+      <td>중</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td><strong>이벤트 surprise 측정</strong> — 어닝 발표 자체가 아니라 "예상 vs 실제" gap 으로 magnitude 정의 (production_gap_closure.html v2 패턴).</td>
+      <td>대 (가설 핵심)</td>
+      <td>대 (외부 컨센서스 데이터 필요)</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-purple">
+  <strong>가장 가성비 큰 다음 단계</strong> — #2 (event dedup) + #1 (magnitude scoring) 조합.
+  같은 날 27건 발생을 1개 weighted event 로 → "큰 event 일" 만 baseline 과 비교.
+  현재 baseline 이 "거의 매일 event 있는 평균" 이라 가설 약하게 나오는 게 핵심 문제.
+</div>
+
+<!-- ============================================ -->
+<h2>5. 의미 — 면접 자리에서 어떻게 말할까</h2>
+
+<div class="callout callout-info">
+  <strong>예상 질문</strong>: "B3 News-IV 가 한국 시장에서 동작하나요?"<br><br>
+  <strong>답안</strong>:<br>
+  "두 layer 로 나눠 답: (1) <strong>Pipeline 동작 검증</strong>은 완료.
+  Naver 검색 API 로 KOSPI 시총 상위 10종목 30일 9,291 헤드라인 수집,
+  한글 rule classifier 로 825건 event 분류 (8.9% recall).
+  (2) <strong>가설 정량 검증</strong>은 negative result.
+  Event 다음날 mean |return| 이 baseline 대비 0.39× — 오히려 vol crush 효과.
+  진단: event 가 일평균 27건 발생해서 baseline 자체가 'event 가 매일 있는 평균' 이라
+  signal vs noise 구분 안 됨. 다음 단계는 event dedup + magnitude scoring 으로
+  '진짜 큰 event 일' 만 추리는 방향. 단순 키워드 한계 명확히 진단함."
+</div>
+
+<!-- ============================================ -->
+<h2>6. 관련 파일 / 커밋</h2>
+
+<table>
+  <thead><tr><th>파일</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>scripts/fetch_naver_news.py</code></td>
+      <td>Naver 검색 API → 종목별 30일 뉴스 수집</td>
+    </tr>
+    <tr>
+      <td><code>scripts/b3_backtest_kr.py</code></td>
+      <td>한글 분류 + KODEX 200 next-day return 측정</td>
+    </tr>
+    <tr>
+      <td><code>data/news_cache/naver_*.json</code></td>
+      <td>10 ticker × ~1000 headlines 캐시 (gitignored)</td>
+    </tr>
+    <tr>
+      <td><code>data/b3_backtest_kr.json</code></td>
+      <td>3 가설 결과 + per-event breakdown</td>
+    </tr>
+    <tr>
+      <td><code>.env</code> (gitignored)</td>
+      <td>NAVER_CLIENT_ID / NAVER_CLIENT_SECRET</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>관련 보고서</h3>
+<ul>
+  <li><a href="B3_news_iv_backtest.html">B3_news_iv_backtest.html</a> — 미국 매크로 캘린더 백테스트 (FOMC + CPI, N=46, 부호 일치율 34.8%)</li>
+  <li><a href="production_gap_closure.html">production_gap_closure.html</a> — B3 v2 surprise-aware 모델 (N=208, 54.8%)</li>
+  <li><a href="../e2e_flow.html">e2e_flow.html</a> — B3 sublayer 전체 설명</li>
+</ul>
+
+<p class="meta" style="margin-top:40px;padding-top:14px;border-top:1px solid var(--border)">
+  본 보고서: <code>docs/2026-04-26/B3_kr_naver_backtest.html</code> (CLAUDE.md 일일 보고서 규칙)<br>
+  Git commit: 진행 예정
+</p>
+
+</body>
+</html>

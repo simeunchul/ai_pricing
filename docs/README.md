@@ -17,6 +17,13 @@
 | [2026-04-25/B4_buehler_implementation.html](2026-04-25/B4_buehler_implementation.html) | **🏆 Layer B4 Buehler 2019 직접 구현으로 플랜 목표 달성.** PPO 5번 실패 후 PG-on-CVaR 직접 구현. CPU 2분 16초 학습으로 ratio 0.755 = **+24.5% 개선** (PASS ≥20%) | 2026-04-25 |
 | [2026-04-25/portfolio_update.html](2026-04-25/portfolio_update.html) | **포트폴리오 일괄 갱신 (B4 PASS 반영) 작업 보고서** — resume / blog / status / csv 4파일 narrative 동기화 + 끊김 시점 진단 + 재개 절차 | 2026-04-25 |
 | [2026-04-26/B3_news_iv_backtest.html](2026-04-26/B3_news_iv_backtest.html) | **Layer B3 News-IV 매크로 가설 실데이터 검증.** FOMC 18 + CPI 28 (N=46) × VIX 부호 일치율 **34.8% (FAIL)** → vol-crush 진단 → top-20% magnitude 60% PASS. 케이스 스터디 5건 첨부 | 2026-04-26 |
+| [2026-04-26/production_gap_closure.html](2026-04-26/production_gap_closure.html) | **실데이터·실무 격차 좁히기 5 항목 일괄.** 매크로 캘린더 46→208건, B3 v2 surprise-aware 54.8%, **B4 SPY historical +31.3% PASS**, ELS 표본 1→4건, fastmc N=10k 옵션 9.8초 | 2026-04-26 |
+| [2026-04-26/desk_day_workflow.html](2026-04-26/desk_day_workflow.html) | **Phase 1 — 한화 ELS 데스크의 하루.** desk_day.py orchestration 7 stage + 시각 3 메타박스 (PPO 5번 실패) + compliance 모듈 (audit log·편차 모니터·HITL) 신설 | 2026-04-26 |
+| [2026-04-26/lp_upgrade.html](2026-04-26/lp_upgrade.html) | **Phase 2 — ETF LP Avellaneda-Stoikov 업그레이드.** 단방향 iNAV → 양방향 LP + 재고 페널티. 6개월 KODEX 200 일봉 백테스트 + 3 config sweep. trending market 한계 진단 + Phase 1 compliance hook cross-cutting 통합 검증 | 2026-04-26 |
+| [2026-04-26/project_overview.html](2026-04-26/project_overview.html) | **🧭 프로젝트 종합 설명서 (start here).** "이 저장소가 뭘 하는지, 어떻게 쓰는지, 진짜로 동작하는지" 한 문서. pytest 37/37, desk_day 7-stage 풀파이프라인 검증, 5 Layer 점수판, 22개 용어 정리집 | 2026-04-26 |
+| [2026-04-26/jump_stress_test.html](2026-04-26/jump_stress_test.html) | **B4 Buehler — Merton jump 옵션 추가 + 철학 보존 검증.** HedgingEnv 에 jump 4-필드 (default 0=호환), 41/41 pytest, 4 시나리오 stress test: GBM +21.28% / 일상 +4.41% / 어닝쇼크 +8.69% / 코로나급 −1.53%. 정책 입력에 jump 신호 0개 → "예측 안 함" 철학 보존 | 2026-04-26 |
+| [2026-04-26/jump_aware_training.html](2026-04-26/jump_aware_training.html) | **B4 Jump-Aware Retraining — specialization vs generalization 실증.** 정책 input 5-dim 그대로, 환경만 비정형화하며 retrain. 3 모델 × 4 시나리오 매트릭스: GBM 학습 (전문가) vs Jump-fixed (편식, Medium +30.47%/GBM −101.47%) vs Jump-random (제너럴리스트). NFL 실증 + regime 별 ensemble 권장 | 2026-04-26 |
+| [2026-04-26/B3_kr_naver_backtest.html](2026-04-26/B3_kr_naver_backtest.html) | **B3 한국 시장 Naver 풀 파이프 — Negative Result + 진단.** Naver 검색 API 9,291 헤드라인 → 825 분류 → 612 정렬, 3가지 가설 모두 FAIL (event 일 ratio 0.39×, baseline 2.96% 비정상). 4가지 개선 경로 제시 (event dedup + magnitude scoring 우선) | 2026-04-26 |
 
 ## 열어보는 방법
 
