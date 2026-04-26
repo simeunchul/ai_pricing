@@ -98,6 +98,7 @@ def main():
     # ---------------------------------------------------------------
     # 4. 잔고 조회 (계좌번호 있을 때만)
     # ---------------------------------------------------------------
+    balance_ok = False
     if cacc:
         print(f"\n  [3] 잔고 조회 시도 (계좌 {cacc[:4]}...{cacc[-2:]})...")
         try:
@@ -108,10 +109,12 @@ def main():
                 cash = output2.get("dnca_tot_amt", "?")
                 eval_amt = output2.get("tot_evlu_amt", "?")
                 print(f"      ✓ 예수금: {cash}원, 총평가: {eval_amt}원")
+                balance_ok = True
             else:
                 print(f"      ⚠ rt_cd={rt_cd}, msg={bal.get('msg1', '')}")
         except Exception as e:
             print(f"      ✗ 실패: {type(e).__name__}: {str(e)[:200]}")
+            print(f"        (장외 시간엔 잔고 API 가 일시 unavailable 일 수 있음)")
     else:
         print(f"\n  [3] 잔고 조회 — KIS_ACCOUNT 미입력으로 skip")
 
@@ -136,14 +139,19 @@ def main():
     print("=" * 70)
     print(f"  ✓ 토큰 발급         : OK")
     print(f"  ✓ 시세 조회         : OK")
-    print(f"  {'✓' if cacc else '○'} 잔고 조회         : {'OK' if cacc else '계좌번호 입력 시 가능'}")
+    if cacc:
+        print(f"  {'✓' if balance_ok else '⚠'} 잔고 조회         : {'OK' if balance_ok else '실패 (장외 일시 unavailable 가능, 장중 재확인)'}")
+    else:
+        print(f"  ○ 잔고 조회         : 계좌번호 입력 시 가능")
     print(f"  ✓ DRY_RUN 주문 mock : OK")
     print()
-    if cacc:
+    if cacc and balance_ok:
         print(f"  → 내일 장중 자동매매 가능 (KIS_DRY_RUN=false 로 전환 후)")
+    elif cacc:
+        print(f"  → 토큰/시세/주문 OK. 잔고만 실패 — 장중 재시도 권장.")
+        print(f"     매매 자체는 잔고 조회 없이도 가능 (서버측 자동 검증).")
     else:
-        print(f"  → 계좌번호만 추가 입력하면 내일 자동매매 가능")
-        print(f"     KIS Developers 사이트 → 모의투자 → 계좌번호 8자리 확인 후 .env 입력")
+        print(f"  → 계좌번호 입력 후 재실행")
 
 
 if __name__ == "__main__":
