@@ -31,6 +31,8 @@ models/*.zip
 data/*.npz
 data/runner_log*.json
 data/dart_corp_codes.xml
+data/kis_trading_log_*.json
+.kis_token.json
 
 # C++ build
 packages/fastmc/build/

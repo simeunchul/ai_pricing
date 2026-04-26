@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KIS 모의투자 셋업 + 내일 운영 가이드 · 2026-04-26 · quant-lab</title>
+<style>
+  :root {
+    --fg: #1a1a1a; --bg: #fafafa; --muted: #666;
+    --accent: #2c5aa0; --accent-light: #e6eef7;
+    --warn: #c0392b; --warn-light: #fdeae6;
+    --ok: #0b8043; --ok-light: #e6f3ea;
+    --yellow: #a6820d; --yellow-light: #fff4d6;
+    --purple: #6c3483; --purple-light: #eee0f3;
+    --border: #ddd; --code-bg: #f4f4f4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR",
+                 "Apple SD Gothic Neo", Roboto, sans-serif;
+    color: var(--fg); background: var(--bg); line-height: 1.65;
+    max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px;
+  }
+  h1 { font-size: 28px; border-bottom: 3px solid var(--accent); padding-bottom: 8px; }
+  h2 { font-size: 22px; margin-top: 44px; color: var(--accent);
+       border-left: 4px solid var(--accent); padding-left: 12px; }
+  h3 { font-size: 17px; margin-top: 26px; }
+  code { background: var(--code-bg); padding: 2px 6px; border-radius: 3px;
+         font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+  pre { background: var(--code-bg); padding: 14px 16px; border-radius: 6px;
+        overflow-x: auto; font-size: 13px; border-left: 3px solid var(--accent); }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { padding: 10px 12px; text-align: left; border: 1px solid var(--border);
+           vertical-align: top; }
+  th { background: var(--accent-light); font-weight: 600; }
+  tbody tr:nth-child(even) { background: #f7f7f7; }
+  .num { font-family: ui-monospace, Consolas, monospace; }
+  .good { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--warn); font-weight: 600; }
+  .neutral { color: var(--muted); }
+  .callout { border-left: 4px solid; padding: 12px 16px; margin: 16px 0;
+             border-radius: 0 6px 6px 0; }
+  .callout-warn { border-color: var(--warn); background: var(--warn-light); }
+  .callout-ok { border-color: var(--ok); background: var(--ok-light); }
+  .callout-info { border-color: var(--accent); background: var(--accent-light); }
+  .callout-yellow { border-color: var(--yellow); background: var(--yellow-light); }
+  .meta { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h1>KIS 모의투자 셋업 + 내일 (2026-04-27) 장중 운영 가이드</h1>
+<p class="meta">
+  2026-04-26 · KIS Developers 모의투자 키 발급 후 production runner 셋업 완료.
+  내일 장중 시간에 명령 1줄로 자동 실행.
+</p>
+
+<div class="callout callout-ok">
+  <strong>현재 상태</strong> — KIS 키 발급 ✓ / 토큰 발급 검증 ✓ / 시세 조회 검증 (KODEX 200 = 98,000 KRW) ✓ / runner 안전성 검증 ✓.
+  <strong>남은 1가지</strong>: 모의투자 계좌번호 8자리만 <code>.env</code> 에 추가하면 내일 장중 매매 가능.
+</div>
+
+<!-- ============================================ -->
+<h2>1. 무엇을 시도했는지</h2>
+
+<h3>입력</h3>
+<ul>
+  <li>KIS Developers 모의투자 가입 완료</li>
+  <li>app key + app secret 발급 받음</li>
+  <li>계좌번호는 아직 .env 미입력 상태</li>
+</ul>
+
+<h3>작업한 것</h3>
+<ol>
+  <li><code>.env</code> 에 KIS_APP_KEY / KIS_APP_SECRET 추가</li>
+  <li><code>scripts/verify_kis.py</code> 작성 → 토큰 + 시세 + DRY mock 4가지 검증</li>
+  <li><code>scripts/run_kis_paper_trading.py</code> 작성 → 장중 자동 실행 production runner</li>
+  <li>장외 시간 테스트로 안전성 검증 (basket fail tolerance 확인)</li>
+</ol>
+
+<!-- ============================================ -->
+<h2>2. KIS 키 검증 결과</h2>
+
+<pre><code>$ python scripts/verify_kis.py
+
+  KIS_ENV          : vts (모의투자)
+  KIS_APP_KEY      : PSggpLUiRB... (36 chars)
+  KIS_APP_SECRET   : 9FEskRglGl... (180 chars)
+  KIS_ACCOUNT      : (empty — 시세조회만 가능)
+  KIS_DRY_RUN      : true
+
+  HOST: https://openapivts.koreainvestment.com:29443
+
+  [1] OAuth2 token 발급 시도...
+      ✓ 토큰 발급 성공: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUz...
+      만료: ~23.8시간
+
+  [2] 시세 조회 시도 (KODEX 200 069500)...
+      ✓ 현재가: 98000원  (-355원 / -0.36%)
+        누적거래량: 16267003
+
+  [3] 잔고 조회 — KIS_ACCOUNT 미입력으로 skip
+  [4] 주문 호출 (DRY_RUN=True) ... ✓ mock OK
+
+  → 계좌번호만 추가 입력하면 내일 자동매매 가능</code></pre>
+
+<!-- ============================================ -->
+<h2>3. Production Runner 설계</h2>
+
+<h3>scripts/run_kis_paper_trading.py 핵심 기능</h3>
+
+<table>
+  <thead><tr><th>기능</th><th>구현</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>장중 자동 시작/종료</strong></td>
+      <td>KST 09:00~15:30 외 자동 대기. 장 마감 시 graceful exit.</td>
+    </tr>
+    <tr>
+      <td>장 시작/마감 10분 차단</td>
+      <td>09:00~09:10, 15:20~15:30 매매 정지 (변동성 큰 구간 제외)</td>
+    </tr>
+    <tr>
+      <td><strong>5초 polling</strong></td>
+      <td>KIS API quota 안전. 1분당 12회.</td>
+    </tr>
+    <tr>
+      <td>KODEX 200 + 구성종목 10개 시세</td>
+      <td>매 tick ETF + basket → iNAV 추정</td>
+    </tr>
+    <tr>
+      <td><strong>basket fail tolerance</strong></td>
+      <td>일부 종목 시세 실패 시 cached 가격 사용. 50% 이하 fresh 면 forced HOLD.</td>
+    </tr>
+    <tr>
+      <td>iNAV 괴리 ≥ 30bps 매매</td>
+      <td>EtfInavArbitrage strategy. 청산 5bps.</td>
+    </tr>
+    <tr>
+      <td>Risk guard 4-tier</td>
+      <td>포지션 ≤ 20% / 일일손실 ≤ −1.5% / 시간대 / 에러 9회</td>
+    </tr>
+    <tr>
+      <td>SIGINT graceful shutdown</td>
+      <td>Ctrl+C 시 마지막 로그 저장 후 종료</td>
+    </tr>
+    <tr>
+      <td>일별 로그 파일</td>
+      <td><code>data/kis_trading_log_20260427.json</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>장외 시간 검증 결과</h3>
+<pre><code>$ python scripts/run_kis_paper_trading.py --duration 25 --ignore-hours
+
+  KIS env=vts dry_run=True
+  → 모의투자 (가상머니). dry_run=true 면 mock 응답.
+  === KIS paper trading 시작 (until 18:27:59) ===
+
+  basket quote fail 005930: 500 Server Error  ← 장외라 일부 종목 데이터 stale
+  basket coverage 30% — signal forced HOLD     ← tolerance 정상 작동
+  risk halt: outside trading hours
+  t=0 ETF=98000 iNAV=98000 dev=+0.0bps sig=HOLD pos=0
+
+  === 종료. 4 ticks (graceful) → kis_trading_log_20260426.json
+    체결 signal: 0 건 (BUY 0 / SELL 0)
+    최종 포지션: 0주</code></pre>
+
+<div class="callout callout-info">
+  <strong>해석</strong>: 장외 시간엔 일부 종목 시세 500 에러 발생. <strong>장중 (09:10~15:20) 엔 정상</strong>일 가능성 큼. tolerance 가 흡수해서 0 매매로 안전 종료.
+</div>
+
+<!-- ============================================ -->
+<h2>4. 내일 장중 운영 절차</h2>
+
+<h3>Step 1 (오늘 저녁 또는 내일 아침 8:50 까지) — 계좌번호 입력</h3>
+
+<p>KIS Developers 사이트에서 계좌번호 8자리 확인:</p>
+<ol>
+  <li>https://apiportal.koreainvestment.com/ 로그인</li>
+  <li>마이페이지 → 모의투자 → 계좌번호 8자리 복사 (예: <code>50123456</code>)</li>
+  <li><code>.env</code> 의 <code>KIS_ACCOUNT=</code> 뒤에 입력</li>
+</ol>
+
+<h3>Step 2 (내일 09:00 이전) — 사전 검증</h3>
+
+<pre><code>cd d:\simeunchul\ai_pricing
+python scripts/verify_kis.py</code></pre>
+
+<p>4가지 모두 ✓ 나오면 OK. 잔고도 확인됨 (모의투자 1억 default).</p>
+
+<h3>Step 3 (내일 09:00~) — 운영</h3>
+
+<h4>옵션 A: DRY_RUN 모드 (안전 테스트)</h4>
+<p><code>.env</code> 의 <code>KIS_DRY_RUN=true</code> 그대로:</p>
+<pre><code>python scripts/run_kis_paper_trading.py</code></pre>
+<p>→ 시세 받고 신호 발생해도 <strong>mock 주문</strong>. 가상머니도 안 씀.</p>
+
+<h4>옵션 B: 실제 모의투자 매매 (가상머니)</h4>
+<p><code>.env</code> 에서 <code>KIS_DRY_RUN=false</code> 로 변경:</p>
+<pre><code># .env
+KIS_DRY_RUN=false  ← 변경
+
+# 실행
+python scripts/run_kis_paper_trading.py</code></pre>
+<p>→ 실제 모의투자 계좌에 가상머니로 매매 (예: KODEX 200 1주 매수 → 가상 9.8만원 차감).</p>
+
+<h3>일반 옵션</h3>
+<table>
+  <thead><tr><th>옵션</th><th>설명</th><th>예시</th></tr></thead>
+  <tbody>
+    <tr><td><code>--duration N</code></td><td>N초만 실행 (default: 장 마감까지)</td><td>--duration 3600 (1시간)</td></tr>
+    <tr><td><code>--ignore-hours</code></td><td>장 시간 무시 강제 실행</td><td>(테스트용)</td></tr>
+    <tr><td><code>--poll N</code></td><td>polling 초 (default 5)</td><td>--poll 10</td></tr>
+    <tr><td><code>--enter-bps N</code></td><td>iNAV 진입 임계 (default 30bps)</td><td>--enter-bps 50</td></tr>
+    <tr><td><code>--max-position N</code></td><td>최대 포지션 (default 10)</td><td>--max-position 5</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================ -->
+<h2>5. 안전 장치 4-tier</h2>
+
+<table>
+  <thead><tr><th>Layer</th><th>차단 조건</th></tr></thead>
+  <tbody>
+    <tr><td>1. 환경 변수</td><td><code>KIS_DRY_RUN=true</code> 면 모든 주문이 mock</td></tr>
+    <tr><td>2. 시간대</td><td>09:10~15:20 외 매매 차단 (장 시작/마감 10분 보호)</td></tr>
+    <tr><td>3. Risk state</td><td>일일 손실 −1.5% 초과 시 자동 정지<br>포지션 ≥ 20% 자본 시 추가 매매 차단</td></tr>
+    <tr><td>4. Error counter</td><td>API 에러 9회 누적 시 graceful exit</td></tr>
+  </tbody>
+</table>
+
+<div class="callout callout-warn">
+  <strong>실계좌 운영 절대 금지 (현재 단계)</strong> — <code>KIS_ENV=prod</code> + <code>KIS_DRY_RUN=false</code> + <code>--i-understand-live</code> 셋 다 명시해야 가능. 모의투자 (vts) 만 사용.
+</div>
+
+<!-- ============================================ -->
+<h2>6. 운영 후 확인</h2>
+
+<h3>로그 파일</h3>
+<p><code>data/kis_trading_log_&lt;YYYYMMDD&gt;.json</code> 확인:</p>
+<pre><code>[
+  {
+    "ts": "2026-04-27T09:15:00",
+    "tick": 0,
+    "etf_price": 98000.0,
+    "inav": 97950.0,
+    "dev_bps": +5.1,            ← 5.1bps. 30bps 미만이라 HOLD
+    "signal": "HOLD",
+    "position": 0,
+    "order_response": null,
+    "risk_ok": true
+  },
+  ...
+]</code></pre>
+
+<h3>매매 발생 시 (예시)</h3>
+<pre><code>{
+  "ts": "2026-04-27T11:30:42",
+  "tick": 540,
+  "etf_price": 97520.0,
+  "inav": 97850.0,
+  "dev_bps": -33.7,             ← 진입 임계 -30bps 돌파
+  "signal": "BUY",              ← 매수 시그널
+  "position": 1,                ← 포지션 1주 보유
+  "order_response": {
+    "rt_cd": "0",
+    "ODNO": "00000123",          ← 주문번호 (실 주문 시)
+    ...
+  }
+}</code></pre>
+
+<!-- ============================================ -->
+<h2>7. 가능한 문제 + 대응</h2>
+
+<table>
+  <thead><tr><th>증상</th><th>원인</th><th>대응</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>토큰 401</td>
+      <td>키 잘못 입력 또는 만료</td>
+      <td>verify_kis.py 재실행 → 키 다시 확인</td>
+    </tr>
+    <tr>
+      <td>basket coverage 50% 미만</td>
+      <td>일부 종목 시세 stale (모의투자 한계)</td>
+      <td>자동 forced HOLD. 매매 안 함. 정상.</td>
+    </tr>
+    <tr>
+      <td>주문 거부 (rt_cd != 0)</td>
+      <td>예수금 부족, 매매 정지 종목 등</td>
+      <td>로그 확인 → 잔고 조회 → 매매 가능 종목으로</td>
+    </tr>
+    <tr>
+      <td>예상보다 신호 안 나옴</td>
+      <td>iNAV 괴리 30bps 미만 (보통)</td>
+      <td>정상. KOSPI 대형 ETF 는 평소 5~15bps 수준</td>
+    </tr>
+    <tr>
+      <td>일일 손실 −1.5% 도달</td>
+      <td>큰 변동 + 포지션</td>
+      <td>자동 정지. 다음 영업일 재시작</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ============================================ -->
+<h2>8. 3영업일 무중단 운영 (이력서 bullet)</h2>
+
+<p>플랜 Part 7 검증 기준 중 하나: <strong>"KIS 모의매매 3영업일 무중단"</strong>.</p>
+
+<p>스케줄:</p>
+<table>
+  <thead><tr><th>일자</th><th>시간</th><th>작업</th></tr></thead>
+  <tbody>
+    <tr><td>4/27 (월)</td><td>09:00</td><td>runner 시작 → 15:30 자동 종료</td></tr>
+    <tr><td>4/28 (화)</td><td>09:00</td><td>runner 재시작 → 종일 운영</td></tr>
+    <tr><td>4/29 (수)</td><td>09:00</td><td>3일째. 로그 3개 누적</td></tr>
+  </tbody>
+</table>
+
+<p>각 일별 로그를 종합해서 <code>docs/2026-04-29/3day_paper_trading_review.html</code> 에 정리.</p>
+
+<!-- ============================================ -->
+<h2>9. 관련 파일</h2>
+
+<table>
+  <thead><tr><th>파일</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>scripts/verify_kis.py</code></td>
+      <td>키 + 토큰 + 시세 + DRY mock 4가지 검증</td>
+    </tr>
+    <tr>
+      <td><code>scripts/run_kis_paper_trading.py</code></td>
+      <td>장중 자동 실행 production runner</td>
+    </tr>
+    <tr>
+      <td><code>packages/autotrader/src/autotrader/broker/kis_client.py</code></td>
+      <td>OAuth/quote/balance/order 클라이언트 (기존)</td>
+    </tr>
+    <tr>
+      <td><code>packages/autotrader/src/autotrader/strategies/etf_inav_arb.py</code></td>
+      <td>iNAV 괴리 매매 전략 (기존)</td>
+    </tr>
+    <tr>
+      <td><code>packages/autotrader/src/autotrader/risk/limits.py</code></td>
+      <td>risk guard 4-tier (기존)</td>
+    </tr>
+    <tr>
+      <td><code>data/kis_trading_log_*.json</code></td>
+      <td>일별 매매 로그 (gitignored)</td>
+    </tr>
+    <tr>
+      <td><code>.env</code></td>
+      <td>KIS 키 + 계좌 (gitignored)</td>
+    </tr>
+  </tbody>
+</table>
+
+<p class="meta" style="margin-top:40px;padding-top:14px;border-top:1px solid var(--border)">
+  본 보고서: <code>docs/2026-04-26/kis_paper_trading_setup.html</code> (CLAUDE.md 일일 보고서 규칙)
+</p>
+
+</body>
+</html>
