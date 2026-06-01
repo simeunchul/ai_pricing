@@ -1,6 +1,0 @@
-=== PPO v3 (steps=1,000,000 bc=1000x80ep lr=5e-05 ent=0.003 n_envs=8) ===
-
---- TC=0.003 ---
-[BSM]  mean=-0.7462 std=0.4489 CVaR5%=1.8820 Sharpe=-26.3889 maxDD=-27.5516
-[PPO]  mean=-1.0770 std=1.7314 CVaR5%=5.1813 Sharpe=-9.8744 maxDD=-88.6734
-[ratio] PPO_CVaR / BSM_CVaR = 2.753  target<0.8  -> FAIL  (improvement=-175.3%)  wall=553s

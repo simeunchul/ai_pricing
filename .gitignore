@@ -21,34 +21,14 @@ htmlcov/
 .ipynb_checkpoints/
 
 *.parquet
-data/market_snapshots/*.csv
-data/news_cache/*.json
-data/hedging_paths/*.npz
-data/els_samples/*.pdf
 models/*.pt
 models/*.pth
 models/*.zip
-data/*.npz
-data/runner_log*.json
-data/dart_corp_codes.xml
-data/kis_trading_log_*.json
 .kis_token.json
 
-# 백테스트·시뮬레이션 출력 (재현 가능, repo 에 미포함)
-# (parquet 은 위쪽 전역 *.parquet 으로 이미 커버됨)
-data/backtest_*.json
-data/sell_rule_*.json
-data/walk_forward_*.json
-data/sweep_*.json
-data/validate_*.json
-data/fair_model*.json
-data/crypto_*.json
-data/bench_*
-data/stress_test_*.json
-data/krx_cache/
-data/desk_day/
-data/macro_events/
-data/lp/
+# data/ 전체 제외 — 모든 runtime/backtest/sample/snapshot 산출물.
+# repo 에 데이터는 일절 포함하지 않음 (재현 가능한 산출물 + 외부 fetch).
+data/
 
 # 로그 (런타임 산출물, 회전 포함)
 *.log
