@@ -20,7 +20,7 @@ htmlcov/
 
 .ipynb_checkpoints/
 
-data/market_snapshots/*.parquet
+*.parquet
 data/market_snapshots/*.csv
 data/news_cache/*.json
 data/hedging_paths/*.npz
@@ -35,7 +35,7 @@ data/kis_trading_log_*.json
 .kis_token.json
 
 # 백테스트·시뮬레이션 출력 (재현 가능, repo 에 미포함)
-data/*.parquet
+# (parquet 은 위쪽 전역 *.parquet 으로 이미 커버됨)
 data/backtest_*.json
 data/sell_rule_*.json
 data/walk_forward_*.json
