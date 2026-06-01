@@ -34,6 +34,22 @@ data/dart_corp_codes.xml
 data/kis_trading_log_*.json
 .kis_token.json
 
+# 백테스트·시뮬레이션 출력 (재현 가능, repo 에 미포함)
+data/*.parquet
+data/backtest_*.json
+data/sell_rule_*.json
+data/walk_forward_*.json
+data/sweep_*.json
+data/validate_*.json
+data/fair_model*.json
+data/crypto_*.json
+data/bench_*
+data/stress_test_*.json
+data/krx_cache/
+data/desk_day/
+data/macro_events/
+data/lp/
+
 # C++ build
 packages/fastmc/build/
 packages/fastmc/_skbuild/
