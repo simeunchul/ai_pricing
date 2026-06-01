@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>외인·기관 + 모멘텀 Confluence 백테스트 — 2026-05-29</title>
+<style>
+  :root{
+    --ink:#1d2330; --muted:#5b6472; --line:#e2e6ee; --bg:#f7f9fc;
+    --blue:#2f6fed; --green:#1f9d6b; --red:#e0533d; --gold:#c79a2b; --gray:#9aa3b2;
+  }
+  *{box-sizing:border-box}
+  body{font-family:"Segoe UI","Malgun Gothic",sans-serif;color:var(--ink);
+       line-height:1.7;max-width:920px;margin:0 auto;padding:32px 22px;background:#fff}
+  h1{font-size:26px;line-height:1.35;border-bottom:3px solid var(--ink);padding-bottom:12px}
+  h2{font-size:20px;margin-top:42px;border-left:5px solid var(--blue);padding-left:12px}
+  h3{font-size:16px;margin-top:26px;color:#33405c}
+  p,li{font-size:15px}
+  code{background:#eef1f7;padding:1px 6px;border-radius:4px;font-size:13.5px}
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:right}
+  th{background:#eef2fa;text-align:center}
+  td:first-child,th:first-child{text-align:left}
+  .num-pos{color:var(--green);font-weight:600}
+  .num-neg{color:var(--red);font-weight:600}
+  .best{background:#eafbf2}
+  .fail{background:#fdeeeb}
+  .base{background:#f1f3f7}
+  .callout{border-radius:10px;padding:16px 18px;margin:18px 0;font-size:15px}
+  .callout.key{background:#eaf2ff;border-left:6px solid var(--blue)}
+  .callout.warn{background:#fff5e6;border-left:6px solid var(--gold)}
+  .callout.good{background:#eafbf2;border-left:6px solid var(--green)}
+  .callout b{color:var(--ink)}
+  .fig{margin:22px 0;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+  .fig .cap{font-size:13px;color:var(--muted);margin-top:8px}
+  .tldr{background:#1d2330;color:#eef2fa;border-radius:12px;padding:22px}
+  .tldr h2{color:#fff;border-left-color:var(--gold)}
+  .tldr code{background:#33405c;color:#fff}
+  .meta{color:var(--muted);font-size:13px}
+  ul{padding-left:22px}
+  .glossary td{text-align:left;vertical-align:top}
+</style>
+</head>
+<body>
+
+<h1>외인·기관 Flow에 "추세(모멘텀)"를 더하니<br>위험 1단위당 수익이 0.49 → 0.77로 올라갔다</h1>
+<p class="meta">2026-05-29 · 한국 대형주 40종 · 약 1,202 거래일(≈4.8년) 일별 백테스트</p>
+
+<div class="callout key">
+<b>한 줄 결과.</b> "외국인·기관이 동시에 사들이는 종목"만 따라가던 기존 전략에,
+"가격이 최근 몇 달간 상승 추세인가(60일 수익률 &gt; 0)"라는 조건을 <b>하나 더</b> 걸었더니
+— 수익률은 올라가고(+148% → +215%), 최악의 낙폭은 줄고(-46% → -40%), 거래 횟수까지 줄었다.
+세 가지가 동시에 좋아지는 것은 단순히 위험을 키운 게 아니라 <b>진입 신호의 질 자체가 올라갔다</b>는 신호다.
+</div>
+
+<!-- ============ 2. 배경 ============ -->
+<h2>1. 무엇을 시도했나 — 배경과 접근</h2>
+<p>
+원래 전략은 <b>외국인·기관 동시매수 추종</b>이다. 둘이 같은 방향으로 강하게 매매할 때
+신호가 가장 믿을 만하다는 가설(<code>foreign_inst_flow.py</code>)이다. 승률은 괜찮았지만 두 가지 한계가 있었다.
+</p>
+<ul>
+  <li><b>가시성 한계</b>: 장중 실시간 외인/기관 데이터는 "순위 상위 30종목"만 제공된다. 보유 종목이 30위 밖으로 밀리면 청산 신호가 안 보인다.</li>
+  <li><b>청산 약점</b>: 매도 조건이 오직 flow에만 의존해서, 급락 시 신호가 늦게 도착한다.</li>
+</ul>
+<p>
+그래서 두 갈래를 백테스트로 검증했다. (A) <b>가격 기반 안전망</b>(손절·트레일링·시간청산)으로 청산을 보강하기,
+(B) flow와 <b>직교(서로 독립)하는 신호</b>를 하나 더 걸어 진입 품질을 높이기.
+모든 시나리오는 같은 데이터·같은 비용(왕복 0.25%)·같은 자본(1,000만원)으로 공정 비교했다.
+</p>
+
+<h3>지표 읽는 법 (3개만 알면 됨)</h3>
+<table>
+<tr><th>지표</th><th>한 줄 뜻</th><th>이 보고서에서의 역할</th></tr>
+<tr><td>수익률</td><td>기간 전체 총 수익 %</td><td style="text-align:left">많이 벌었나</td></tr>
+<tr><td>MDD<br>(최대낙폭)</td><td>고점 대비 최악으로 빠진 폭 (0에 가까울수록 안전)</td><td style="text-align:left">얼마나 안 무서웠나</td></tr>
+<tr><td>Calmar</td><td>연환산수익 ÷ |MDD| = "위험 1단위당 번 돈"</td><td style="text-align:left"><b>가장 중요한 종합 점수</b></td></tr>
+</table>
+
+<!-- ============ 3. 실패 ============ -->
+<h2>2. Phase 1 — 가격 기반 안전망: 거의 다 실패</h2>
+<p>직관적으로는 "손절을 걸면 안전해진다"지만, 데이터는 정반대로 말했다.</p>
+
+<table>
+<tr><th>시나리오</th><th>수익률</th><th>MDD</th><th>Calmar</th><th>판정</th></tr>
+<tr class="base"><td>V0 현 운영룰 (기준선)</td><td>+148%</td><td>-46%</td><td>0.49</td><td style="text-align:left">기준</td></tr>
+<tr class="fail"><td>손절 -10%</td><td>+151%</td><td class="num-neg">-58%</td><td>0.39</td><td style="text-align:left">낙폭 악화</td></tr>
+<tr class="fail"><td>손절 -15% / -20%</td><td>+93~95%</td><td class="num-neg">-58%</td><td>0.27~0.28</td><td style="text-align:left">수익+낙폭 둘 다 악화</td></tr>
+<tr class="fail"><td>트레일링 10~15%</td><td class="num-neg">+57~66%</td><td>-44%</td><td>0.23~0.27</td><td style="text-align:left">수익 반토막</td></tr>
+<tr><td>시간청산 30일</td><td>+142%</td><td>-45%</td><td>0.48</td><td style="text-align:left">V0와 동급(겨우 본전)</td></tr>
+</table>
+
+<div class="callout warn">
+<b>왜 손절이 오히려 낙폭을 키웠나?</b><br>
+종목이 매일 바뀌는 동적 포트폴리오에서는, 손절로 빠져나온 돈이 곧바로 <b>다른 종목에 재투입</b>된다.
+하락장에서는 이 재진입이 또 물린다. 손실을 한 번 확정하고 다시 물리니 낙폭이 <b>누적</b>되어
+-46% → -58%로 더 나빠진다. 손절은 "한 종목짜리" 사고방식이고, 포트폴리오 전체에는 이미 MDD cap(-25%)이 있었다.
+</div>
+
+<p>
+트레일링(고점 대비 -X% 하락 시 매도)의 매도 기록을 뜯어보면 더 분명하다.
+트레일링으로 판 거래의 <b>평균 수익은 +8~16%로 좋았다</b> — 그런데 그게 함정이다.
+그건 <b>더 크게 갈 승자를 미리 잘라버린</b> 것이라, 전체 수익을 떠받치던 "큰 승자의 꼬리"가 사라진다.
+</p>
+
+<table>
+<tr><th>시나리오</th><th>주 청산 사유</th><th>건수 · 평균손익</th></tr>
+<tr><td>트레일링 15%</td><td style="text-align:left">trailing</td><td>12건 · <span class="num-pos">+16.3%</span> (좋아 보이지만 승자 조기절단)</td></tr>
+<tr><td>손절 -10%</td><td style="text-align:left">stop_loss</td><td>71건 · <span class="num-neg">-1.4%</span> (손실만 확정)</td></tr>
+<tr><td>시간청산 30일</td><td style="text-align:left">time_exit</td><td>152건 · <span class="num-pos">+6.6%</span></td></tr>
+</table>
+
+<h3>"좋은 두 개를 합치면?" — 합쳐도 안 된다</h3>
+<p>
+가장 좋았던 두 룰(민감한 flow매도 E2 + 시간청산 C3)을 합쳐봤다. 결과는 <b>둘 다보다 훨씬 나빴다</b>.
+</p>
+<table>
+<tr><th>조합</th><th>수익률</th><th>MDD</th><th>Calmar</th><th>bear장</th></tr>
+<tr class="best"><td>E2 단독</td><td>+182%</td><td>-44%</td><td>0.59</td><td class="num-pos">+31%</td></tr>
+<tr><td>C3(시간청산) 단독</td><td>+142%</td><td>-45%</td><td>0.48</td><td class="num-neg">-18%</td></tr>
+<tr class="fail"><td>E2 + C3 (합본)</td><td class="num-neg">+39%</td><td>-48%</td><td>0.16</td><td class="num-neg">-37%</td></tr>
+</table>
+<div class="callout warn">
+<b>교훈: 백테스트 성능은 더하기가 안 된다.</b> E2의 강점은 "오래 들고 가다 진짜 반전에만 판다"인데,
+시간청산이 30일에 강제로 끊어 그 강점을 무력화한다. 두 룰이 포트폴리오 구성을 바꿔 서로의 발목을 잡는다.
+조합은 반드시 직접 돌려봐야 한다.
+</div>
+
+<!-- ============ 4. 해결 ============ -->
+<h2>3. Phase 2 — 해결책: 추세(모멘텀) Confluence</h2>
+<p>
+방향을 바꿔, 청산을 보강하는 대신 <b>진입을 까다롭게</b> 만들었다.
+"외국인·기관이 산다"에 더해 "<b>가격도 최근 60거래일 동안 올랐는가</b>"를 동시에 요구한다.
+이것을 <b>confluence(합의)</b>라 한다 — 독립적인 두 신호가 같은 방향일 때만 행동한다.
+</p>
+
+<div class="fig">
+<svg width="100%" viewBox="0 0 880 210" role="img" aria-label="confluence 로직 도표">
+  <!-- old rule -->
+  <text x="20" y="30" font-size="13" fill="#5b6472">기존 룰</text>
+  <rect x="20" y="42" width="150" height="40" rx="8" fill="#fff" stroke="#9aa3b2"/>
+  <text x="95" y="67" font-size="13" text-anchor="middle">외국인 순매수 &gt; +5%</text>
+  <text x="185" y="67" font-size="18" text-anchor="middle" fill="#5b6472">＋</text>
+  <rect x="205" y="42" width="150" height="40" rx="8" fill="#fff" stroke="#9aa3b2"/>
+  <text x="280" y="67" font-size="13" text-anchor="middle">기관 순매수 &gt; +5%</text>
+  <text x="378" y="67" font-size="20" text-anchor="middle" fill="#5b6472">→</text>
+  <rect x="400" y="42" width="120" height="40" rx="8" fill="#f1f3f7" stroke="#5b6472"/>
+  <text x="460" y="67" font-size="13" text-anchor="middle">매수</text>
+  <text x="600" y="67" font-size="12.5" fill="#e0533d">추세 하락 중에도 매수 → 떨어지는 칼</text>
+
+  <!-- new rule -->
+  <text x="20" y="125" font-size="13" fill="#1f9d6b" font-weight="600">개선 룰 (confluence)</text>
+  <rect x="20" y="138" width="150" height="40" rx="8" fill="#fff" stroke="#9aa3b2"/>
+  <text x="95" y="163" font-size="13" text-anchor="middle">외국인 &gt; +5%</text>
+  <text x="185" y="163" font-size="18" text-anchor="middle" fill="#5b6472">＋</text>
+  <rect x="205" y="138" width="120" height="40" rx="8" fill="#fff" stroke="#9aa3b2"/>
+  <text x="265" y="163" font-size="13" text-anchor="middle">기관 &gt; +5%</text>
+  <text x="333" y="163" font-size="18" text-anchor="middle" fill="#5b6472">＋</text>
+  <rect x="350" y="138" width="160" height="40" rx="8" fill="#eafbf2" stroke="#1f9d6b" stroke-width="2"/>
+  <text x="430" y="163" font-size="13" text-anchor="middle" fill="#1f9d6b" font-weight="600">60일 수익률 &gt; 0</text>
+  <text x="525" y="163" font-size="20" text-anchor="middle" fill="#1f9d6b">→</text>
+  <rect x="548" y="138" width="110" height="40" rx="8" fill="#eafbf2" stroke="#1f9d6b"/>
+  <text x="603" y="163" font-size="13" text-anchor="middle" fill="#1f9d6b">매수</text>
+  <text x="680" y="163" font-size="12.5" fill="#1f9d6b">추세까지 같을 때만 → 가짜신호 컷</text>
+</svg>
+<div class="cap">도표 1. 기존 룰 vs confluence 룰. 조건 하나(60일 추세)가 "외인·기관은 사는데 추세는 하락"인 함정 진입을 걸러낸다.</div>
+</div>
+
+<table>
+<tr><th>진입 룰</th><th>수익률</th><th>MDD</th><th>Calmar</th><th>bear장</th><th>거래</th></tr>
+<tr class="base"><td>Buy &amp; Hold (상한 벤치마크)</td><td>+141%</td><td>-25%</td><td>0.87</td><td class="num-neg">-17%</td><td>—</td></tr>
+<tr class="base"><td>V0 현 운영룰</td><td>+148%</td><td>-46%</td><td>0.49</td><td>—</td><td>499</td></tr>
+<tr><td>E2 (flow매도 -7%)</td><td>+182%</td><td>-44%</td><td>0.59</td><td class="num-pos">+31%</td><td>358</td></tr>
+<tr><td>E2 + 20일 모멘텀</td><td>+107%</td><td>-46%</td><td>0.38</td><td class="num-neg">-7%</td><td>324</td></tr>
+<tr class="best"><td><b>E2 + 60일 모멘텀</b></td><td><b>+215%</b></td><td>-40%</td><td><b>0.72</b></td><td class="num-pos">+25%</td><td>318</td></tr>
+<tr><td>E2 + 120일 모멘텀</td><td>+104%</td><td class="num-pos">-35%</td><td>0.50</td><td>-0%</td><td>295</td></tr>
+<tr class="best"><td><b>대칭매도(-5%) + 60일 모멘텀</b></td><td>+196%</td><td class="num-pos"><b>-36%</b></td><td><b>0.77</b></td><td class="num-pos">+13%</td><td>431</td></tr>
+</table>
+
+<div class="fig">
+<svg width="100%" viewBox="0 0 640 270" role="img" aria-label="Calmar 비교 막대">
+  <!-- axis -->
+  <line x1="210" y1="40" x2="210" y2="244" stroke="#c5ccd8"/>
+  <g font-size="11" fill="#9aa3b2" text-anchor="middle">
+    <line x1="210" y1="244" x2="610" y2="244" stroke="#c5ccd8"/>
+    <text x="210" y="258">0</text><text x="290" y="258">0.2</text><text x="370" y="258">0.4</text>
+    <text x="450" y="258">0.6</text><text x="530" y="258">0.8</text><text x="610" y="258">1.0</text>
+  </g>
+  <text x="410" y="20" font-size="12" fill="#5b6472" text-anchor="middle">Calmar (위험 1단위당 수익 — 높을수록 좋음)</text>
+  <!-- baseline V0 0.49 -->
+  <line x1="406" y1="40" x2="406" y2="244" stroke="#9aa3b2" stroke-dasharray="4 3"/>
+  <text x="406" y="38" font-size="10.5" fill="#9aa3b2" text-anchor="middle">현 운영룰 0.49</text>
+  <!-- ceiling B&H 0.87 -->
+  <line x1="558" y1="40" x2="558" y2="244" stroke="#c79a2b" stroke-dasharray="4 3"/>
+  <text x="558" y="38" font-size="10.5" fill="#c79a2b" text-anchor="middle">B&amp;H 상한 0.87</text>
+  <!-- bars -->
+  <g font-size="12.5">
+    <text x="200" y="65" text-anchor="end">손절 -10%</text>
+    <rect x="210" y="50" width="156" height="22" fill="#e0533d" opacity="0.8"/><text x="372" y="65">0.39</text>
+    <text x="200" y="99" text-anchor="end">V0 현 운영룰</text>
+    <rect x="210" y="84" width="196" height="22" fill="#9aa3b2"/><text x="412" y="99">0.49</text>
+    <text x="200" y="133" text-anchor="end">E2 (flow매도 -7%)</text>
+    <rect x="210" y="118" width="236" height="22" fill="#2f6fed"/><text x="452" y="133">0.59</text>
+    <text x="200" y="167" text-anchor="end">E2 + 모멘텀60</text>
+    <rect x="210" y="152" width="288" height="22" fill="#1f9d6b"/><text x="504" y="167">0.72</text>
+    <text x="200" y="201" text-anchor="end">대칭(-5%) + 모멘텀60</text>
+    <rect x="210" y="186" width="308" height="22" fill="#1f9d6b"/><text x="524" y="201">0.77</text>
+    <text x="200" y="235" text-anchor="end">Buy &amp; Hold</text>
+    <rect x="210" y="220" width="348" height="22" fill="#c79a2b" opacity="0.85"/><text x="564" y="235">0.87</text>
+  </g>
+</svg>
+<div class="cap">차트 1. Calmar 비교. 모멘텀 confluence가 현 운영룰(0.49)을 0.72~0.77까지 끌어올려, Buy&amp;Hold 상한(0.87)과의 격차를 대부분 메운다.</div>
+</div>
+
+<div class="callout good">
+<b>왜 먹히나.</b> 외국인·기관이 사들여도 가격 추세가 꺾여 있으면 "떨어지는 칼"일 확률이 높다.
+추세(60일 수익률)까지 양(+)일 때만 진입하니 가짜 신호가 걸러진다.
+그 결과 <b>수익↑ · 낙폭↓ · 거래수↓가 동시에</b> 일어난다 — 셋이 같이 좋아지는 것은
+위험을 키워 수익을 산 게 아니라 <b>진입 신호의 질 자체가 올라갔다</b>는, 진짜 엣지의 지문이다.
+게다가 약세장(bear)에서도 +13~25%로 플러스를 유지한다(Buy&amp;Hold는 -17%).
+</div>
+
+<h3>룩백(추세 기간)은 60일이 스윗스팟</h3>
+<div class="fig">
+<svg width="100%" viewBox="0 0 600 240" role="img" aria-label="룩백 민감도">
+  <!-- axes -->
+  <line x1="70" y1="40" x2="70" y2="200" stroke="#c5ccd8"/>
+  <line x1="70" y1="200" x2="580" y2="200" stroke="#c5ccd8"/>
+  <g font-size="11" fill="#9aa3b2">
+    <text x="64" y="204" text-anchor="end">0</text>
+    <text x="64" y="160" text-anchor="end">0.2</text>
+    <text x="64" y="120" text-anchor="end">0.4</text>
+    <text x="64" y="84"  text-anchor="end">0.6</text>
+    <text x="64" y="44"  text-anchor="end">0.8</text>
+    <text x="70" y="216" text-anchor="middle">없음</text>
+    <text x="153" y="216" text-anchor="middle">20일</text>
+    <text x="320" y="216" text-anchor="middle">60일</text>
+    <text x="570" y="216" text-anchor="middle">120일</text>
+    <text x="325" y="234" text-anchor="middle" fill="#5b6472">모멘텀 룩백 기간</text>
+  </g>
+  <text x="20" y="30" font-size="11.5" fill="#5b6472">Calmar</text>
+  <!-- baseline (E2 no momentum 0.59) -->
+  <line x1="70" y1="82" x2="580" y2="82" stroke="#2f6fed" stroke-dasharray="4 3"/>
+  <text x="578" y="78" font-size="10.5" fill="#2f6fed" text-anchor="end">모멘텀 없음 기준 0.59</text>
+  <!-- line through points: none(70,82) 20(153,124) 60(320,56) 120(570,100) -->
+  <polyline points="70,82 153,124 320,56 570,100" fill="none" stroke="#1f9d6b" stroke-width="2.5"/>
+  <g fill="#1f9d6b">
+    <circle cx="70" cy="82" r="5"/><text x="78" y="76" font-size="11">0.59</text>
+    <circle cx="153" cy="124" r="5" fill="#e0533d"/><text x="161" y="120" font-size="11" fill="#e0533d">0.38</text>
+    <circle cx="320" cy="56" r="6"/><text x="328" y="50" font-size="12" font-weight="600">0.72 ★</text>
+    <circle cx="570" cy="100" r="5"/><text x="560" y="94" font-size="11" text-anchor="end">0.50</text>
+  </g>
+</svg>
+<div class="cap">차트 2. 룩백 민감도. 20일은 노이즈라 기준선 아래로 떨어지고(0.38), 60일이 정점(0.72), 120일은 너무 느려 수익이 깎인다(0.50). "수개월 추세"가 핵심이며 정확히 60일일 필요는 없다.</div>
+</div>
+
+<h3>약세장 방어력 — 모멘텀이 지켜준다</h3>
+<div class="fig">
+<svg width="100%" viewBox="0 0 520 240" role="img" aria-label="약세장 누적수익">
+  <!-- zero line -->
+  <line x1="30" y1="148" x2="500" y2="148" stroke="#5b6472"/>
+  <text x="505" y="152" font-size="10" fill="#5b6472">0%</text>
+  <text x="20" y="44" font-size="11.5" fill="#5b6472">약세장(bear) 누적수익</text>
+  <!-- grid labels -->
+  <g font-size="10" fill="#9aa3b2" text-anchor="end">
+    <text x="26" y="55">+30%</text><text x="26" y="101">+15%</text><text x="26" y="194">-15%</text>
+  </g>
+  <g font-size="11.5" text-anchor="middle">
+    <!-- B&H -17.5 -->
+    <rect x="40" y="148" width="60" height="54" fill="#c79a2b" opacity="0.7"/>
+    <text x="70" y="216">B&amp;H</text><text x="70" y="170" fill="#fff" font-size="11">-17%</text>
+    <!-- V0 +14.7 -->
+    <rect x="140" y="103" width="60" height="45" fill="#9aa3b2"/>
+    <text x="170" y="216">V0</text><text x="170" y="98" fill="#1f9d6b">+15%</text>
+    <!-- E2 +31.4 -->
+    <rect x="240" y="51" width="60" height="97" fill="#2f6fed"/>
+    <text x="270" y="216">E2</text><text x="270" y="46" fill="#1f9d6b">+31%</text>
+    <!-- E2+mom60 +25.2 -->
+    <rect x="340" y="70" width="60" height="78" fill="#1f9d6b"/>
+    <text x="370" y="216">E2+모멘텀60</text><text x="370" y="65" fill="#1f9d6b">+25%</text>
+    <!-- E2+mom20 -7.1 -->
+    <rect x="440" y="148" width="60" height="22" fill="#e0533d" opacity="0.8"/>
+    <text x="470" y="216">E2+모멘텀20</text><text x="470" y="184" fill="#e0533d">-7%</text>
+  </g>
+</svg>
+<div class="cap">차트 3. 약세장(시장이 고점 대비 5% 이상 빠진 날들)만 모은 누적수익. Buy&amp;Hold는 하락장을 그대로 맞지만(-17%), E2·E2+모멘텀60은 약세장에서도 플러스를 지킨다. 단, 룩백이 너무 짧으면(20일) 방어력이 무너진다(-7%).</div>
+</div>
+
+<!-- ============ 5. 솔직한 한계 ============ -->
+<h2>4. 솔직한 한계 (숫자를 곧이곧대로 믿지 말 것)</h2>
+<ul>
+  <li><b>일별 EOD 백테스트 ≠ 라이브.</b> 이 결과는 "종가 관측 → 다음날 시가 체결" 기준이다. 실제 라이브는 장중 1분 단위라 체결가가 다르다. 따라서 절대 수치(+215%)는 <b>"출발 구간"</b>일 뿐, 그대로 재현되지 않는다.</li>
+  <li><b>단, 모멘텀 신호는 라이브로 깨끗이 이식된다.</b> 모멘텀은 종가(가격)로만 계산하므로, "순위 30위 밖이라 안 보인다"는 외인/기관 가시성 문제와 무관하게 <b>모든 종목에서 항상 계산된다</b>. flow와 달리 사각지대가 없다.</li>
+  <li><b>표본이 하락 편향.</b> 1,202일 중 885일이 약세장이다. 약세장 방어력이 좋게 나온 것은 표본 성격 덕도 있다. 강세장 비중이 큰 다른 기간에서 재검증 필요.</li>
+  <li><b>Buy &amp; Hold가 여전히 Calmar 최고(0.87).</b> 이 표본에서 단순 보유를 위험조정 수익으로 이기진 못했다. 모멘텀 confluence의 성과는 "그 격차를 대부분 메우면서 <b>약세장에서 플러스를 유지</b>"한 것 — 같은 수익을 더 부드러운 곡선으로 얻는 데 가치가 있다.</li>
+  <li><b>과최적화 경계.</b> 60일·-7% 같은 값은 소수점까지 맞추면 안 된다. "수개월 추세 + 추세 양수면 진입" 정도의 거친 규칙으로만 받아들인다.</li>
+</ul>
+
+<!-- ============ 6. TL;DR ============ -->
+<div class="tldr">
+<h2>5. 비전공자용 요약 (TL;DR)</h2>
+<ul>
+  <li>"외국인·기관이 산다"만 보던 전략에 "<b>가격도 최근 몇 달 오름세인가</b>"를 추가했다.</li>
+  <li>그랬더니 <b>더 벌고(+148%→+215%), 덜 무섭고(-46%→-40% 낙폭), 덜 거래(499→318회)</b>했다.</li>
+  <li>위험 1단위당 수익(Calmar)이 <code>0.49 → 0.72~0.77</code>로 올랐다.</li>
+  <li>손절·트레일링 같은 "안전장치"는 오히려 손해였다 — 동적 포트폴리오에선 손절이 낙폭을 키웠다.</li>
+  <li>이 모멘텀 신호는 가격만으로 계산돼서, 외인/기관 데이터가 안 보이는 종목에도 그대로 쓸 수 있다.</li>
+  <li><b>권장 진입 규칙</b>: 외국인·기관 동시매수 <b>AND</b> 60거래일 수익률 &gt; 0.</li>
+</ul>
+</div>
+
+<!-- ============ 7. 관련 파일 ============ -->
+<h2>6. 관련 파일 / 코드</h2>
+<ul>
+  <li>모멘텀 게이트 추가 위치: <code>packages/autotrader/src/autotrader/backtest/foreign_flow.py</code> — <code>run_dual_dynamic_backtest_v2()</code> 에 <code>momentum_lookback</code>, <code>momentum_min</code> 파라미터(기본 off, 기존 동작 불변)</li>
+  <li>청산룰 sweep 스크립트: <code>scripts/backtest_dual_sell_rule.py</code></li>
+  <li>라이브 전략(구현 대상): <code>packages/autotrader/src/autotrader/strategies/foreign_inst_flow.py</code></li>
+  <li>일별 외인/기관 데이터 소스: <code>packages/autotrader/src/autotrader/data/krx_investor.py</code> (Naver Finance 스크래퍼)</li>
+</ul>
+
+<!-- ============ 8. 용어 ============ -->
+<h2>7. 용어 정리집</h2>
+<table class="glossary">
+<tr><th>용어</th><th>한 줄 설명</th><th>본문에서의 역할</th></tr>
+<tr><td>Flow (외인·기관 순매수)</td><td>특정 투자주체가 그날 사들인 양에서 판 양을 뺀 값</td><td>전략의 1차 신호. 양수가 클수록 강한 매수세</td></tr>
+<tr><td>모멘텀 (Momentum)</td><td>최근 N일간의 가격 수익률 = "추세의 방향과 세기"</td><td>이번에 추가한 2차 신호(60일)</td></tr>
+<tr><td>Confluence (합의)</td><td>독립적인 두 신호가 같은 방향일 때만 행동하는 기법</td><td>flow + 모멘텀이 함께 양수일 때만 진입</td></tr>
+<tr><td>MDD (최대낙폭)</td><td>고점 대비 최악으로 빠진 비율. 0에 가까울수록 안전</td><td>"얼마나 안 무서웠나"의 척도</td></tr>
+<tr><td>Calmar</td><td>연환산 수익률 ÷ |MDD|. 위험 1단위당 수익</td><td>전략을 한 숫자로 비교하는 종합 점수</td></tr>
+<tr><td>Buy &amp; Hold</td><td>첫날 사서 끝까지 들고만 있는 전략</td><td>"아무것도 안 했을 때"의 상한 벤치마크</td></tr>
+<tr><td>트레일링 스탑</td><td>고점 대비 -X% 떨어지면 파는 청산 규칙</td><td>Phase 1 안전망 후보(실패)</td></tr>
+<tr><td>시간청산 (time-exit)</td><td>진입 후 N일 지나면 무조건 파는 규칙</td><td>flow 안 보이는 종목 백스톱 후보</td></tr>
+<tr><td>bull / bear 장</td><td>시장 지수가 고점 대비 5% 미만/이상 빠진 날의 구분</td><td>수익이 어느 장에서 나왔는지 분해</td></tr>
+<tr><td>EOD (End of Day)</td><td>장 마감 종가 기준 데이터</td><td>이 백테스트의 시간 해상도(장중 아님)</td></tr>
+<tr><td>bp (basis point)</td><td>0.01%. 25bp = 0.25%</td><td>왕복 거래비용 가정</td></tr>
+</table>
+
+<p class="meta" style="margin-top:36px">생성: Claude Code · 2026-05-29 · 본 보고서는 단일 HTML 파일로 자급자족(외부 이미지/스크립트 의존 없음)</p>
+
+</body>
+</html>

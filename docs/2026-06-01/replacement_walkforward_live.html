@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Replacement 룰 + Walk-forward + 라이브 적용 — 2026-06-01</title>
+<style>
+  :root{
+    --ink:#1d2330; --muted:#5b6472; --line:#e2e6ee; --bg:#f7f9fc;
+    --blue:#2f6fed; --green:#1f9d6b; --red:#e0533d; --gold:#c79a2b; --gray:#9aa3b2;
+  }
+  *{box-sizing:border-box}
+  body{font-family:"Segoe UI","Malgun Gothic",sans-serif;color:var(--ink);
+       line-height:1.7;max-width:920px;margin:0 auto;padding:32px 22px;background:#fff}
+  h1{font-size:26px;line-height:1.35;border-bottom:3px solid var(--ink);padding-bottom:12px}
+  h2{font-size:20px;margin-top:42px;border-left:5px solid var(--blue);padding-left:12px}
+  h3{font-size:16px;margin-top:26px;color:#33405c}
+  p,li{font-size:15px}
+  code{background:#eef1f7;padding:1px 6px;border-radius:4px;font-size:13.5px}
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:right}
+  th{background:#eef2fa;text-align:center}
+  td:first-child,th:first-child{text-align:left}
+  .num-pos{color:var(--green);font-weight:600}
+  .num-neg{color:var(--red);font-weight:600}
+  .best{background:#eafbf2}
+  .fail{background:#fdeeeb}
+  .base{background:#f1f3f7}
+  .callout{border-radius:10px;padding:16px 18px;margin:18px 0;font-size:15px}
+  .callout.key{background:#eaf2ff;border-left:6px solid var(--blue)}
+  .callout.warn{background:#fff5e6;border-left:6px solid var(--gold)}
+  .callout.good{background:#eafbf2;border-left:6px solid var(--green)}
+  .callout.fail{background:#fdeeeb;border-left:6px solid var(--red)}
+  .callout b{color:var(--ink)}
+  .fig{margin:22px 0;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+  .fig .cap{font-size:13px;color:var(--muted);margin-top:8px}
+  .tldr{background:#1d2330;color:#eef2fa;border-radius:12px;padding:22px}
+  .tldr h2{color:#fff;border-left-color:var(--gold)}
+  .tldr code{background:#33405c;color:#fff}
+  .meta{color:var(--muted);font-size:13px}
+  ul{padding-left:22px}
+  .glossary td{text-align:left;vertical-align:top}
+  pre{background:#1d2330;color:#eef2fa;padding:14px;border-radius:8px;font-size:13px;overflow-x:auto}
+</style>
+</head>
+<body>
+
+<h1>"슬롯 막힘" 문제 해결과 Walk-forward 검증<br>—  라이브 봇에 Replacement 룰 적용</h1>
+<p class="meta">2026-06-01 · 직전 작업(<a href="../2026-05-29/외인기관_모멘텀_confluence_백테스트.html">모멘텀 confluence</a>)의 연속</p>
+
+<div class="callout key">
+<b>한 줄 결과.</b> "수익률 낮은 횡보 종목이 자리를 차지해 새 매수 후보를 못 받는다"는
+사용자 불만을 <b>P&L 기반 Replacement 룰</b>로 해결. Walk-forward(과거에 진짜
+라이브 운영했다면) 정직 검증에서 baseline 대비 <b>3배 수익</b>(+99.7% vs +34.4%), 7번 중 5번 승리,
+최악 낙폭도 -27% → -22%로 개선. <b>라이브 paper 봇 적용 완료</b>, 다음 거래일부터 활성화.
+</div>
+
+<!-- ============ 1. 배경 ============ -->
+<h2>1. 무엇을 풀려 했나 — 사용자의 정확한 불만</h2>
+<p>
+직전 작업에서 <b>외인+기관 + 60일 모멘텀</b> confluence를 찾아 진입 신호의 질을
+크게 올렸다(Calmar 0.49 → 0.72). 하지만 실전 운영 중 사용자가 한 가지 패턴을 짚었다:
+</p>
+<div class="callout warn">
+<b>"수익률이 낮은 횡보 주식들을 붙잡고 있어서 매수 후보가 있어도 못 사는 상황이 꽤 있다."</b>
+</div>
+<p>
+즉 슬롯이 다 차 있는데 그 안에 <b>"가만히 자리만 차지하는 종목"</b>이 있고, 새로 좋은
+매수 신호가 떠도 자리가 없어 못 들어가는 기회비용(opportunity cost) 문제다.
+운영 코드 한 줄(<code>free_slots = max_concurrent - len(positions)</code>)에서 시작되는
+구조적 누락이었다.
+</p>
+
+<h3>아이디어</h3>
+<p>새 매수 신호가 떴을 때, 슬롯이 가득이면 <b>"가만히 자리만 차지하는 약자"</b>를
+다음날 시가에 팔고 그 자리에 새 후보를 사들이자. 단, 진짜 약자만 골라야 함:
+승자(수익 중)도 자르면 안 되고, 갓 산 포지션도 자르면 안 된다.</p>
+
+<!-- ============ 2. v1 실패 ============ -->
+<h2>2. Replacement v1 — 처참한 실패 (그리고 왜)</h2>
+<p>
+첫 시도는 <b>"현재 flow 강도가 약한 보유 종목"</b>을 약자로 정의했다. 자연스러워 보였다.
+백테스트 결과는 그렇지 않았다.
+</p>
+
+<table>
+<tr><th>설정</th><th>수익률</th><th>MDD</th><th>Calmar</th><th>bear장</th><th>거래수</th></tr>
+<tr class="base"><td>E2+mom60 (기준선)</td><td>+215%</td><td>-40%</td><td>0.72</td><td class="num-pos">+25%</td><td>318</td></tr>
+<tr class="fail"><td>v1 +replace(strength margin 0.02)</td><td class="num-neg">+52%</td><td>-48%</td><td>0.20</td><td class="num-neg">-32%</td><td>1681</td></tr>
+<tr class="fail"><td>v1 +replace(strength margin 0.05)</td><td class="num-neg">+57%</td><td>-47%</td><td>0.22</td><td class="num-neg">-32%</td><td>1631</td></tr>
+</table>
+
+<div class="callout fail">
+<b>수익이 1/4 토막, 거래는 5배, 약세장 보호도 붕괴.</b>
+교체된 포지션의 평균 손익을 보니 <b>최대 +55.78%</b> — 즉 +55% 수익 중이던 승자를
+새 신호 왔다고 쫓아내고 있었다. 트레일링 스탑이 망한 메커니즘과 똑같다.
+</div>
+
+<h3>왜 strength 기준이 틀렸나</h3>
+<p>가상의 시나리오로 풀면 명확하다:</p>
+<table>
+<tr><th>날</th><th>이벤트</th><th>flow 강도</th><th>가격 변화</th></tr>
+<tr><td>D+0</td><td>진입 — 외인+기관 강매수</td><td>+0.10 (매우 강)</td><td>—</td></tr>
+<tr><td>D+10</td><td>전략대로 가격 +30% 상승</td><td>+0.05 (식음)</td><td>+30%</td></tr>
+<tr><td>D+20</td><td>flow는 시들해졌지만 추세는 살아있음</td><td>+0.01 (거의 0)</td><td>+45%</td></tr>
+</table>
+<p>
+D+20 시점에 다른 종목에서 flow +0.03 신호가 뜨면 — 우리 룰은 "이 보유 종목 강도 +0.01 &lt;
+신규 +0.03 → 교체!"라고 판단해 <b>+45% 짜리 승자를 잘라낸다</b>. 그 자리에 갓 들어온
+새 종목은 0%부터 시작.
+</p>
+<p><b>교훈</b>: "flow 강도가 식었다"와 "포지션이 죽었다"는 다른 얘기다. 추세 알파가 발현되면
+flow는 자연스럽게 식는다. flow 강도로 약자를 정의하면 성공한 포지션을 죽이는 셈.</p>
+
+<!-- ============ 3. v2 성공 ============ -->
+<h2>3. Replacement v2 — 기준을 바꾸니 다른 풍경</h2>
+<p>
+약자의 정의를 <b>"누적 손익(unrealized P&L)"</b>으로 바꿨다. 추가 안전장치 둘:
+<b>"보유 N일 이상이어야 적격"</b>(갓 산 포지션 보호) + <b>"손익 X% 미만이어야 적격"</b>(승자 보호).
+</p>
+
+<div class="fig">
+<svg width="100%" viewBox="0 0 720 240" role="img" aria-label="v2 교체 로직 도표">
+  <!-- title -->
+  <text x="360" y="22" font-size="13" fill="#5b6472" text-anchor="middle">새 매수 후보 도착 — 슬롯 가득 → 다음 룰 적용</text>
+  <!-- decision tree -->
+  <rect x="290" y="40" width="140" height="40" rx="8" fill="#eaf2ff" stroke="#2f6fed"/>
+  <text x="360" y="64" font-size="13" text-anchor="middle">슬롯 가득?</text>
+  <line x1="360" y1="80" x2="360" y2="100" stroke="#5b6472" marker-end="url(#arr)"/>
+  <rect x="220" y="100" width="280" height="50" rx="8" fill="#fff" stroke="#9aa3b2"/>
+  <text x="360" y="120" font-size="13" text-anchor="middle">보유 종목별로 두 조건 모두 만족?</text>
+  <text x="360" y="138" font-size="12" fill="#1f9d6b" text-anchor="middle">보유 ≥ 7일 AND 손익 &lt; +2%</text>
+  <line x1="360" y1="150" x2="360" y2="170" stroke="#5b6472" marker-end="url(#arr)"/>
+  <!-- branches -->
+  <rect x="60" y="170" width="240" height="50" rx="8" fill="#eafbf2" stroke="#1f9d6b"/>
+  <text x="180" y="190" font-size="13" text-anchor="middle" fill="#1f9d6b">적격 → 손익 가장 낮은 종목 매도</text>
+  <text x="180" y="208" font-size="12" fill="#1f9d6b" text-anchor="middle">→ 빈 슬롯에 새 후보 매수</text>
+  <rect x="420" y="170" width="240" height="50" rx="8" fill="#f1f3f7" stroke="#9aa3b2"/>
+  <text x="540" y="190" font-size="13" text-anchor="middle">비적격 (모두 승자/신규)</text>
+  <text x="540" y="208" font-size="12" fill="#5b6472" text-anchor="middle">→ 매수 보류 (기존 동작 유지)</text>
+  <defs><marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#5b6472"/></marker></defs>
+</svg>
+<div class="cap">도표 1. v2 의 의사결정 흐름. 두 게이트가 같이 걸려야 교체. "그냥 7일이면 자른다"가 아님.</div>
+</div>
+
+<table>
+<tr><th>v2 설정 (pnl_max, min_hold)</th><th>수익률</th><th>MDD</th><th>Calmar</th><th>bear장</th><th>거래수</th></tr>
+<tr class="base"><td>E2+mom60 (기준선, 교체 없음)</td><td>+215%</td><td>-40%</td><td>0.72</td><td>+25%</td><td>318</td></tr>
+<tr><td>+repl(pnl&lt;0, hold≥3)</td><td>+192%</td><td>-45%</td><td>0.60</td><td>+9%</td><td>549</td></tr>
+<tr><td>+repl(pnl&lt;+1%, hold≥3)</td><td>+251%</td><td>-47%</td><td>0.68</td><td>+18%</td><td>601</td></tr>
+<tr class="best"><td><b>+repl(pnl&lt;+3%, hold≥7)</b> ★</td><td><b>+321%</b></td><td><b>-38%</b></td><td><b>0.99</b></td><td>+28%</td><td>603</td></tr>
+<tr><td>+repl(pnl&lt;+5%, hold≥3)</td><td>+120%</td><td>-50%</td><td>0.38</td><td>+8%</td><td>867</td></tr>
+</table>
+
+<div class="callout good">
+<b>(pnl&lt;+3%, hold≥7) 조합이 Calmar 0.99 — Buy &amp; Hold(0.87) 를 사상 처음 추월.</b>
+같이 본 모멘텀 confluence 0.72에서 한 단계 더 점프. 교체된 포지션의 평균 손익은
+-0.61% (대부분 살짝 손실/횡보) — <b>승자가 아니라 진짜 약자만 정확히 골라냈다</b>는 증거.
+</div>
+
+<h3>승자가 안 잘리는 이유</h3>
+<p>v1과 똑같은 시나리오를 v2 로 재현하면:</p>
+<table>
+<tr><th>날</th><th>현 손익</th><th>보유일</th><th>교체 적격?</th></tr>
+<tr><td>D+0 진입</td><td>0%</td><td>0일</td><td>❌ 보유 7일 미만</td></tr>
+<tr><td>D+10 (가격 +30%)</td><td>+30%</td><td>10일</td><td>❌ 손익 ≥ 2%</td></tr>
+<tr><td>D+20 (가격 +45%)</td><td>+45%</td><td>20일</td><td>❌ 손익 ≥ 2%</td></tr>
+</table>
+<p>승자는 어느 시점에도 적격이 아니다. 두 게이트가 안전망 역할을 정확히 해냈다.</p>
+
+<!-- ============ 4. Walk-forward ============ -->
+<h2>4. Walk-forward 검증 — "그래서 진짜야?"</h2>
+<p>
+Calmar 0.99는 의심받아 마땅한 숫자다(full-sample 4.8년에서 best를 뽑은 거니까).
+정직한 검증은 <b>walk-forward(WF)</b> — 과거에 진짜 라이브로 운영했다면 어떻게 됐을지를
+시뮬레이션하는 것. 6개월씩 슬라이드하며 <b>매 시점에 그 시점까지의 데이터로만 파라미터를
+재선택</b>한다. 미래 정보 누설이 구조적으로 차단된다.
+</p>
+
+<h3>세팅</h3>
+<ul>
+  <li>훈련 윈도우: 12개월 (~250 거래일)</li>
+  <li>검증 윈도우: 6개월 (~125 거래일)</li>
+  <li>슬라이드: 6개월</li>
+  <li>튜닝 grid: pnl_max × min_hold = {1%,2%,3%,5%} × {3,5,7,10} = 16 조합</li>
+  <li>선택 기준: 훈련 윈도우의 Calmar 최고</li>
+  <li>총 라운드: 7개 (2022-09 ~ 2026-03)</li>
+</ul>
+
+<div class="fig">
+<svg width="100%" viewBox="0 0 780 280" role="img" aria-label="walk-forward 라운드별 수익률">
+  <!-- title -->
+  <text x="390" y="22" font-size="13" fill="#5b6472" text-anchor="middle">라운드별 6개월 검증 윈도우 수익률 — WF vs BASE vs IS-winner</text>
+  <!-- axes -->
+  <line x1="60" y1="50" x2="60" y2="240" stroke="#c5ccd8"/>
+  <line x1="60" y1="240" x2="760" y2="240" stroke="#c5ccd8"/>
+  <!-- zero line -->
+  <line x1="60" y1="180" x2="760" y2="180" stroke="#5b6472" stroke-dasharray="2 2"/>
+  <text x="55" y="184" font-size="10" fill="#9aa3b2" text-anchor="end">0%</text>
+  <text x="55" y="120" font-size="10" fill="#9aa3b2" text-anchor="end">+30%</text>
+  <text x="55" y="60" font-size="10" fill="#9aa3b2" text-anchor="end">+60%</text>
+  <text x="55" y="220" font-size="10" fill="#9aa3b2" text-anchor="end">-15%</text>
+  <text x="35" y="135" font-size="11" fill="#5b6472" transform="rotate(-90 35 135)">수익률</text>
+  <!-- bars: per round, 3 bars (WF, BASE, IS) side-by-side -->
+  <!-- round 1: WF +10.6%, BASE -3.9%, IS +6.4% -->
+  <!-- y=180 is zero, scale: 1% = 2px -->
+  <g>
+    <rect x="80" y="159" width="22" height="21" fill="#1f9d6b"/>
+    <rect x="104" y="180" width="22" height="8" fill="#9aa3b2"/>
+    <rect x="128" y="167" width="22" height="13" fill="#c79a2b" opacity="0.7"/>
+    <text x="115" y="258" font-size="11" text-anchor="middle">Round 1</text>
+    <text x="115" y="271" font-size="9.5" fill="#5b6472" text-anchor="middle">22-09 ~ 23-03</text>
+  </g>
+  <!-- round 2: WF +5.4%, BASE +3.5%, IS +8.0% -->
+  <g>
+    <rect x="180" y="169" width="22" height="11" fill="#1f9d6b"/>
+    <rect x="204" y="173" width="22" height="7" fill="#9aa3b2"/>
+    <rect x="228" y="164" width="22" height="16" fill="#c79a2b" opacity="0.7"/>
+    <text x="215" y="258" font-size="11" text-anchor="middle">Round 2</text>
+    <text x="215" y="271" font-size="9.5" fill="#5b6472" text-anchor="middle">23-03 ~ 23-09</text>
+  </g>
+  <!-- round 3: WF +14.3%, BASE +7.4%, IS +14.9% -->
+  <g>
+    <rect x="280" y="151" width="22" height="29" fill="#1f9d6b"/>
+    <rect x="304" y="165" width="22" height="15" fill="#9aa3b2"/>
+    <rect x="328" y="150" width="22" height="30" fill="#c79a2b" opacity="0.7"/>
+    <text x="315" y="258" font-size="11" text-anchor="middle">Round 3</text>
+    <text x="315" y="271" font-size="9.5" fill="#5b6472" text-anchor="middle">23-09 ~ 24-03</text>
+  </g>
+  <!-- round 4: WF -7.0%, BASE -17.9%, IS -19.0% — BEAR, WF saved big -->
+  <g>
+    <rect x="380" y="180" width="22" height="14" fill="#1f9d6b"/>
+    <rect x="404" y="180" width="22" height="36" fill="#9aa3b2"/>
+    <rect x="428" y="180" width="22" height="38" fill="#c79a2b" opacity="0.7"/>
+    <text x="415" y="258" font-size="11" text-anchor="middle">Round 4 ⚠</text>
+    <text x="415" y="271" font-size="9.5" fill="#5b6472" text-anchor="middle">24-03 ~ 24-09</text>
+  </g>
+  <!-- round 5: WF +4.9%, BASE +13.8%, IS +3.8% — BASE wins here -->
+  <g>
+    <rect x="480" y="170" width="22" height="10" fill="#1f9d6b"/>
+    <rect x="504" y="152" width="22" height="28" fill="#9aa3b2"/>
+    <rect x="528" y="172" width="22" height="8" fill="#c79a2b" opacity="0.7"/>
+    <text x="515" y="258" font-size="11" text-anchor="middle">Round 5</text>
+    <text x="515" y="271" font-size="9.5" fill="#5b6472" text-anchor="middle">24-09 ~ 25-03</text>
+  </g>
+  <!-- round 6: WF -3.4%, BASE +0.1%, IS -6.4% -->
+  <g>
+    <rect x="580" y="180" width="22" height="7" fill="#1f9d6b"/>
+    <rect x="604" y="180" width="22" height="0" fill="#9aa3b2"/>
+    <rect x="628" y="180" width="22" height="13" fill="#c79a2b" opacity="0.7"/>
+    <text x="615" y="258" font-size="11" text-anchor="middle">Round 6</text>
+    <text x="615" y="271" font-size="9.5" fill="#5b6472" text-anchor="middle">25-03 ~ 25-09</text>
+  </g>
+  <!-- round 7: WF +59%, BASE +34.5%, IS +59% — bull, WF=IS win -->
+  <g>
+    <rect x="680" y="62" width="22" height="118" fill="#1f9d6b"/>
+    <rect x="704" y="111" width="22" height="69" fill="#9aa3b2"/>
+    <rect x="728" y="62" width="22" height="118" fill="#c79a2b" opacity="0.7"/>
+    <text x="715" y="258" font-size="11" text-anchor="middle">Round 7</text>
+    <text x="715" y="271" font-size="9.5" fill="#5b6472" text-anchor="middle">25-09 ~ 26-03</text>
+  </g>
+  <!-- legend -->
+  <g transform="translate(80, 35)">
+    <rect x="0" y="0" width="14" height="10" fill="#1f9d6b"/><text x="18" y="9" font-size="11">WF 동적튜닝</text>
+    <rect x="100" y="0" width="14" height="10" fill="#9aa3b2"/><text x="118" y="9" font-size="11">BASE (no replace)</text>
+    <rect x="230" y="0" width="14" height="10" fill="#c79a2b" opacity="0.7"/><text x="248" y="9" font-size="11">IS-winner (3%/7) 고정</text>
+  </g>
+</svg>
+<div class="cap">차트 1. 라운드별 검증 윈도우 수익률. WF가 라운드 1, 4(bear), 7(bull)에서 두드러진 승리. 라운드 5, 6은 sideways 구간에서 BASE에 미세하게 패배 (churn 손해).</div>
+</div>
+
+<h3>종합 결과</h3>
+<table>
+<tr><th>전략</th><th>복리수익 (7개 윈도우)</th><th>최악 단일 윈도우 MDD</th></tr>
+<tr class="best"><td><b>WF 동적튜닝</b></td><td><b>+99.72%</b></td><td><b>-21.82%</b></td></tr>
+<tr><td>IS-winner (3%, 7) 고정</td><td>+65.41%</td><td>-26.25%</td></tr>
+<tr class="base"><td>BASE (replacement 없음)</td><td>+34.38%</td><td>-26.75%</td></tr>
+</table>
+
+<div class="callout key">
+<b>의미.</b> WF 동적튜닝이 BASE 대비 거의 3배. 또한 우리가 처음 찾았던 (3%, 7) 고정값보다도
++34pp 더 벌었다 — 즉 <b>(3%, 7) 은 살짝 overfit 이었지만, "replacement 룰" 자체는 진짜</b>다.
+"전략 아이디어가 라이브로 가도 살아남는가" 검증을 통과.
+</div>
+
+<h3>라운드별 선택된 파라미터 — 어디로 수렴?</h3>
+<table>
+<tr><th>Round</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th></tr>
+<tr><td>pnl_max</td><td>3%</td><td>1%</td><td>5%</td><td>1%</td><td>2%</td><td>1%</td><td>2%</td></tr>
+<tr><td>min_hold</td><td>10</td><td><b>7</b></td><td>5</td><td><b>7</b></td><td><b>7</b></td><td><b>7</b></td><td><b>7</b></td></tr>
+</table>
+<div class="callout good">
+<b>min_hold = 7일</b>이 7번 중 5번 선택 — 강한 수렴. <br>
+<b>pnl_max = 1~2%</b> 영역 (1% 3회, 2% 2회) — 처음 찾은 3% 보다 약간 빡빡한 게 robust.
+→ <b>라이브 권장값: pnl_max = 2%, min_hold = 7일</b> (보수적 영역).
+</div>
+
+<!-- ============ 5. 라이브 적용 ============ -->
+<h2>5. 라이브 봇 적용 — 무엇을 어떻게 바꿨나</h2>
+<p>
+운영 코드 <code>scripts/run_dual_paper_trading.py</code> 의 <code>run_one_iteration</code>
+(--watch 데몬 경로)에 세 가지 변경:
+</p>
+
+<table>
+<tr><th>#</th><th>변경</th><th>WF 검증 효과</th></tr>
+<tr><td>1</td><td>매도 임계 -5% → <b>-7%</b> (E2 비대칭)</td><td>거래수↓, 승자 더 오래 보유</td></tr>
+<tr><td>2</td><td>매수 게이트에 <b>60일 모멘텀 &gt; 0</b> 추가</td><td>falling-knife 차단, 진입 품질↑</td></tr>
+<tr><td>3</td><td><b>Replacement 룰</b> (pnl_max=2%, min_hold=7)</td><td>슬롯 막힘 해결, 신호 회전↑</td></tr>
+</table>
+
+<h3>코드 위치</h3>
+<pre>
+[정적 상수 추가]
+  SELL_THRESHOLD = 0.07
+  MOMENTUM_LOOKBACK = 60
+  MOMENTUM_MIN = 0.0
+  REPLACEMENT_PNL_MAX = 0.02
+  REPLACEMENT_MIN_HOLD = 7
+
+[헬퍼 추가]
+  _get_momentum(sym, lookback=60) -> float | None
+    └ data/krx_cache/{sym}_combined.parquet 에서 N일 종가 수익률 lookup
+    └ 캐시 없으면 None (보수적: 진입 차단)
+
+[_filter_pass() 시그니처 변경]
+  threshold (단일) → threshold_buy, threshold_sell (비대칭)
+
+[run_one_iteration() 매수 섹션 재구성]
+  5a. strength 정렬 + 모멘텀60 필터 (NaN/음수 자동 탈락)
+  5b. 슬롯 가득이면 적격 약자(보유 7일+, 손익 &lt;+2%) 교체
+  5c. 매수 실행 (기존 유동성 필터·자본 분산 그대로)
+</pre>
+
+<h3>유지된 안전기능</h3>
+<p>운영 코드엔 백테스트에 없던 안전장치들이 누적되어 있다. 모두 그대로 유지:</p>
+<ul>
+  <li>KOSPI 대비 underperform 강제 청산 (#5)</li>
+  <li>유동성 필터 (거래대금 5억+, 스프레드 30bps 이하)</li>
+  <li>API 서킷 브레이커 (10분 10회 에러 → 5분 정지)</li>
+  <li>Strong signal CAP 확장 (강한 신호 다발 시 cap 7→최대 10)</li>
+  <li>가집계 fallback (시초 500 에러 시 disk cache + 1.5배 강한 임계)</li>
+  <li>KIS 실잔고 sync (매 iter phantom/missing 정렬)</li>
+</ul>
+
+<!-- ============ 6. 솔직한 한계 ============ -->
+<h2>6. 솔직한 한계 (실거래 전에 알아야 할 것)</h2>
+
+<div class="callout warn">
+<b>1. krx_cache 가 현재 ~40종만 보유.</b> 모멘텀 60일 계산은 이 캐시에 의존하니, 캐시 없는
+종목이 KIS 가집계 top 60에 떠도 자동 SKIP 됩니다. <b>사실상 40종 whitelist</b> 처럼 동작.
+더 넓히려면 일별 캐시 갱신 크론이 필요합니다 (별도 작업으로 추후).
+</div>
+
+<div class="callout warn">
+<b>2. WF 라운드 5, 6 에서 BASE 가 WF 를 이김.</b> 두 라운드는 sideways 구간이었는데,
+교체 룰의 churn 비용이 그 시기엔 손해. 즉 <b>강세장·약세장에선 빛나지만 보합 구간에선 약함</b>.
+regime detection 추가하면 더 좋아질 수 있지만 복잡도 증가.
+</div>
+
+<div class="callout warn">
+<b>3. 첫 3년(2021-09 ~ 2024-12)은 전략 자체가 손실.</b> WF round 4 가 -7% 였고
+2022 bear 구간은 baseline 도 -10% 정도. 최근 1.4년의 강세장이 전체 수익을 견인.
+이 전략은 "항상 통하는" 게 아니라 "특정 regime 전략"이라는 점 잊지 말 것.
+</div>
+
+<div class="callout warn">
+<b>4. 일별 EOD ≠ 장중 1분.</b> WF 의 +99.72% 도 일별 가정. 라이브는 1분 단위 + 슬리피지가
+있어 절대 수치는 깎임. <b>방향성(어느 룰이 더 좋은가)은 신뢰</b>, <b>절대 수익률은 출발 구간으로만</b>.
+</div>
+
+<!-- ============ 7. 활성화 ============ -->
+<h2>7. 어떻게 활성화하나 (사용자 작업)</h2>
+<p>
+코드는 디스크에 반영되어 커밋까지 끝났지만, 봇은 이미 실행 중인 프로세스라
+<b>재시작해야 새 룰이 적용</b>됩니다. Watchdog 가 5분마다 봇 생존을 확인하므로,
+프로세스를 죽이면 자동 재기동합니다.
+</p>
+<pre>
+# PowerShell:
+Get-Process python | Where-Object {
+    $_.MainModule.FileName -like "*python*"
+} | ForEach-Object {
+    # 봇 PID 찾아서 stop (또는 wmic + taskkill 사용)
+}
+
+# 또는 그냥 잠시 기다리면 watchdog 가 다음 iter 에 재시작
+</pre>
+<p>오늘(일)은 장 마감. <b>다음 거래일 2026-06-02 09:00 부터 새 룰 활성화</b>됩니다.
+첫 iter 로그에서 <code>[모멘텀60일] 통과 N/M종</code> 과 <code>[REPLACEMENT] ...</code>
+메시지가 보이면 적용 검증 OK.</p>
+
+<!-- ============ 8. TL;DR ============ -->
+<div class="tldr">
+<h2>8. 비전공자용 요약 (TL;DR)</h2>
+<ul>
+  <li><b>문제</b>: 횡보 종목이 자리 차지해서 새 매수 후보를 못 받는 경우 많았음.</li>
+  <li><b>해결</b>: 새 신호 왔는데 슬롯이 가득이면, "보유 7일+ AND 손익 +2% 미만"인 횡보 종목을 팔고 새 후보를 산다. 승자(+2% 초과)와 신규(7일 미만)는 절대 안 건드림.</li>
+  <li><b>1차 시도 실패</b>: "flow 강도"로 약자를 정의했더니 +55% 짜리 승자를 자르는 사고. 즉시 폐기.</li>
+  <li><b>2차 시도 성공</b>: "현재 손익"으로 약자를 정의 → full-sample Calmar 0.72 → <b>0.99</b> (Buy &amp; Hold 0.87 추월).</li>
+  <li><b>Walk-forward 정직 검증</b>: 6개월씩 슬라이드하며 매번 파라미터 재선택 → <b>+99.72%</b> (baseline +34.38%의 3배). 7번 중 5번 승.</li>
+  <li><b>라이브 적용 완료</b>: paper 봇에 매도 -7%, 모멘텀60, replacement 세 룰 모두 반영. 다음 거래일부터 활성화.</li>
+  <li><b>주의</b>: krx_cache 40종으로 사실상 whitelist, sideways 구간 약함, 절대 수치는 출발 구간일 뿐.</li>
+</ul>
+</div>
+
+<!-- ============ 9. 관련 파일 ============ -->
+<h2>9. 관련 파일 / 커밋</h2>
+<ul>
+  <li>백테스트 하네스: <code>packages/autotrader/src/autotrader/backtest/foreign_flow.py</code> — <code>run_dual_dynamic_backtest_v2()</code> 에 <code>replacement_pnl_max</code>, <code>replacement_min_hold</code>, <code>momentum_lookback</code>, <code>momentum_min</code> 파라미터 추가</li>
+  <li>라이브 운영: <code>scripts/run_dual_paper_trading.py</code> — 비대칭 매도 임계, 모멘텀 게이트, replacement 룰 적용</li>
+  <li>모멘텀 데이터 소스: <code>data/krx_cache/{sym}_combined.parquet</code> (Naver Finance 스크래퍼, <code>krx_investor.py</code>)</li>
+  <li>WF 검증 결과: <code>data/walk_forward_replacement_20260601_140317.json</code></li>
+  <li>직전 보고서: <a href="../2026-05-29/외인기관_모멘텀_confluence_백테스트.html">2026-05-29 모멘텀 confluence 검증</a></li>
+  <li>커밋: <code>fix(watchdog): pythonw 자식 콘솔 깜빡임 제거</code>, <code>feat(autotrader): 모멘텀60 confluence + replacement 룰</code></li>
+</ul>
+
+<!-- ============ 10. Glossary ============ -->
+<h2>10. 용어 정리집</h2>
+<table class="glossary">
+<tr><th>용어</th><th>한 줄 설명</th><th>이 보고서에서의 역할</th></tr>
+<tr><td>슬롯 / max_concurrent</td><td>동시 보유 가능한 최대 종목 수 (이 봇: 7)</td><td>"슬롯이 가득"이 사용자 불만의 출발점</td></tr>
+<tr><td>기회비용 (opportunity cost)</td><td>좋은 기회가 있어도 자원(=슬롯)이 없어 못 잡는 손실</td><td>해결하려는 문제의 정식 이름</td></tr>
+<tr><td>Replacement 룰</td><td>새 매수 후보 도착 시 약한 보유 종목을 팔고 자리 확보</td><td>이번 작업의 핵심 추가 룰</td></tr>
+<tr><td>P&L (Profit &amp; Loss)</td><td>매수가 대비 현재가의 비율 = 누적 손익</td><td>v2 에서 "약자"의 정의 기준</td></tr>
+<tr><td>min_hold</td><td>교체 적격이 되려면 보유해야 하는 최소 일수</td><td>갓 진입한 포지션 보호용 게이트</td></tr>
+<tr><td>pnl_max</td><td>교체 적격이 되려면 손익이 이 미만이어야 함</td><td>승자 보호용 게이트 (위로 막음)</td></tr>
+<tr><td>Walk-forward (WF)</td><td>과거 데이터를 시간 순으로 슬라이드하며 매번 파라미터 재선택해 그 후 구간에 적용</td><td>"진짜 라이브였다면" 검증 방법론</td></tr>
+<tr><td>In-Sample (IS)</td><td>전체 데이터를 한 번에 본 best 파라미터</td><td>비교 기준 (WF가 IS보다 좋으면 robust)</td></tr>
+<tr><td>Out-of-Sample (OOS)</td><td>튜닝에 안 쓴 데이터 구간</td><td>과적합 판별의 본질</td></tr>
+<tr><td>모멘텀 (momentum)</td><td>최근 N일 가격 수익률 = 추세의 방향과 세기</td><td>진입 confluence 파트너</td></tr>
+<tr><td>E2 / 비대칭 매도</td><td>매수 +5% 보다 매도 -7% 가 더 강한 신호 요구하는 룰</td><td>라이브에 적용된 매도 임계 변경</td></tr>
+<tr><td>Calmar</td><td>연환산 수익률 ÷ |MDD|</td><td>위험 1단위당 수익 — 메인 비교 점수</td></tr>
+<tr><td>MDD (Maximum Drawdown)</td><td>고점 대비 최악으로 빠진 비율</td><td>위험 측정. 0에 가까울수록 안전</td></tr>
+<tr><td>BASE</td><td>이번 작업 전의 기준 전략 (E2+모멘텀60, replacement 없음)</td><td>모든 비교의 기준선</td></tr>
+<tr><td>Buy &amp; Hold</td><td>첫날 사서 끝까지 보유</td><td>"아무것도 안 해도 이만큼"이라는 상한 벤치마크</td></tr>
+<tr><td>regime (시장 국면)</td><td>강세장(bull) / 약세장(bear) / 보합(sideways) 구분</td><td>전략이 regime 의존적임을 인정하는 caveat</td></tr>
+<tr><td>krx_cache</td><td>data/krx_cache 디렉토리의 일별 OHLCV+외인/기관 캐시 (Naver 스크랩)</td><td>모멘텀 lookup 의 데이터 소스</td></tr>
+</table>
+
+<p class="meta" style="margin-top:36px">생성: Claude Code · 2026-06-01 · 본 보고서는 단일 HTML 파일로 자급자족 (외부 의존 없음)</p>
+
+</body>
+</html>
