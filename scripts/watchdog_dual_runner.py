@@ -11,6 +11,15 @@ import sys
 import time
 from pathlib import Path
 
+# Windows cp949 stdout 환경에서 ⚠ / → 같은 유니코드 문자 로깅 시 UnicodeEncodeError
+# 발생 (2026-06-01 봇 restart 경로 진입 시 처음으로 관찰됨). 다른 스크립트들과
+# 동일한 reconfigure 패턴 적용.
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 ROOT = Path(__file__).resolve().parent.parent
 HEARTBEAT = ROOT / "data" / "dual_heartbeat.txt"
 LOG = ROOT / "data" / "watchdog.log"
