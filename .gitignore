@@ -50,6 +50,10 @@ data/desk_day/
 data/macro_events/
 data/lp/
 
+# 로그 (런타임 산출물, 회전 포함)
+*.log
+*.log.*
+
 # C++ build
 packages/fastmc/build/
 packages/fastmc/_skbuild/
