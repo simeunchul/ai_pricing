@@ -43,6 +43,12 @@ DEFAULT_BASKET = {
 }
 DEFAULT_CASH_WEIGHT = 1.0 - sum(DEFAULT_BASKET.values())
 
+# Inverse ETF mapping for synthetic short (개인 직접 공매도가 막힌 환경의 우회).
+# BUY signal on this symbol = synthetic short on the underlying ETF.
+INVERSE_MAP = {
+    "069500": "252670",  # KODEX 200 → KODEX 200 인버스
+}
+
 
 def mock_prices(seed: int, tick: int) -> tuple[float, dict[str, float]]:
     """For --dry mode without API access. Adds gaussian noise to deterministic prices."""
@@ -73,6 +79,7 @@ def run(
     cash_weight = cash_weight if cash_weight is not None else DEFAULT_CASH_WEIGHT
     inav_est = InavEstimator(constituents=basket, cash_weight=cash_weight * 1.0)
     strategy = EtfInavArbitrage()
+    inverse_symbol = INVERSE_MAP.get(symbol)
     limits = RiskLimits()
     state = RiskState(equity_open=10_000_000, equity_now=10_000_000, position_value=0)
 
@@ -109,16 +116,28 @@ def run(
             # 2. Risk check
             ok, reason = check(state, limits, now)
             signal = Signal.HOLD
+            qty = 0
+            use_inverse = False
             action_taken = None
+            target_symbol = None
             if ok:
-                signal = strategy.decide(dev)
-                if signal != Signal.HOLD:
-                    action_taken = signal.value
-                    if client is not None:
-                        resp = client.order(symbol, qty=1, side=signal.value.lower())
-                        logger.info(f"order response: {resp}")
-                    strategy.apply(signal)
-                    state.error_count = 0
+                signal, qty, use_inverse = strategy.decide_aggressive(dev)
+                if signal != Signal.HOLD and qty > 0:
+                    target_symbol = inverse_symbol if use_inverse else symbol
+                    if use_inverse and target_symbol is None:
+                        logger.warning(
+                            f"no inverse mapping for {symbol}; skip synthetic short"
+                        )
+                    else:
+                        leg = "INV" if use_inverse else "ETF"
+                        action_taken = f"{signal.value} {qty} ({leg})"
+                        if client is not None:
+                            resp = client.order(
+                                target_symbol, qty=qty, side=signal.value.lower()
+                            )
+                            logger.info(f"order response: {resp}")
+                        strategy.apply_aggressive(signal, qty, use_inverse)
+                        state.error_count = 0
             else:
                 logger.warning(f"risk halt: {reason}")
 
@@ -128,14 +147,22 @@ def run(
                 "inav": inav,
                 "dev_bps": dev * 10_000,
                 "signal": signal.value,
+                "qty": qty,
+                "use_inverse": use_inverse,
+                "target_symbol": target_symbol,
                 "action": action_taken,
-                "position": strategy.position,
+                "etf_position": strategy.position,
+                "inverse_position": strategy.inverse_position,
                 "risk_ok": ok,
                 "risk_reason": reason,
             }
             log.append(record)
-            logger.info(f"t={tick} ETF={etf_price:.1f} iNAV={inav:.1f} "
-                        f"dev={dev*1e4:+.1f}bps sig={signal.value} pos={strategy.position}")
+            logger.info(
+                f"t={tick} ETF={etf_price:.1f} iNAV={inav:.1f} "
+                f"dev={dev*1e4:+.1f}bps sig={signal.value} qty={qty} "
+                f"inv={use_inverse} pos_etf={strategy.position} "
+                f"pos_inv={strategy.inverse_position}"
+            )
         except Exception as e:
             state.error_count += 1
             logger.error(f"tick error: {e}")

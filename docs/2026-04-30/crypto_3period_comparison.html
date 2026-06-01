@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Crypto Strategy 3-Period Comparison — 2026-04-30</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;
+       max-width:1200px;margin:36px auto;padding:0 20px;line-height:1.65;color:#1a1a1a;}
+  h1{border-bottom:3px solid #c0392b;padding-bottom:8px;}
+  h2{margin-top:36px;color:#c0392b;border-left:4px solid #c0392b;padding-left:10px;}
+  h3{color:#444;margin-top:24px;}
+  code,pre{font-family:Consolas,Menlo,monospace;background:#f4f4f4;padding:2px 5px;border-radius:3px;}
+  pre{padding:12px;overflow:auto;border-left:3px solid #c0392b;}
+  table{border-collapse:collapse;width:100%;margin:14px 0;}
+  th,td{border:1px solid #ccc;padding:6px 9px;text-align:left;font-size:13px;}
+  th{background:#fdecea;}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;}
+  td.win{color:#0b8043;font-weight:600;}
+  td.fail{color:#c0392b;font-weight:600;}
+  td.neutral{color:#888;}
+  .callout{padding:14px 18px;border-radius:6px;margin:18px 0;border-left:4px solid;}
+  .callout.win{background:#e7f6ed;border-color:#0b8043;}
+  .callout.warn{background:#fff5e6;border-color:#e08600;}
+  .callout.fail{background:#fdecea;border-color:#c0392b;}
+  .callout.info{background:#eaf2fb;border-color:#2c5aa0;}
+  .small{font-size:13px;color:#666;}
+  figure{margin:18px 0;text-align:center;}
+  figcaption{font-size:13px;color:#555;margin-top:6px;}
+  .ascii{background:#f4f4f4;padding:14px;border-radius:5px;font-family:Consolas,monospace;font-size:13px;white-space:pre;line-height:1.4;}
+  .rank-1{background:#e7f6ed;}
+  .rank-last{background:#fdecea;}
+</style>
+</head>
+<body>
+
+<h1>Crypto Strategy 3-Period 비교 — Sample Size 가 결론을 뒤집는다</h1>
+<p class="small">2026-04-30 · ai_pricing 프로젝트 · Layer-E (Auto-Trading) — Crypto 확장 v2</p>
+
+<div class="callout warn">
+  <strong>한 줄 결과.</strong> 같은 strategy, 같은 종목, 다른 backtest 기간 (21일 / 60일 / 365일).
+  <strong>결과가 정반대로 바뀜</strong>. Buy-and-hold 는 21일 1위 → 365일 6위.
+  Trend+funding filter 는 21일 4위 → 365일 1위 (+42% return).
+  학계의 "data length matters" 가설 + "smart filter 가 long-term alpha 만든다" 가설
+  모두 검증됨. <strong>Sample size 부족 = backtest 결과 거의 random</strong>.
+</div>
+
+<h2>1. 동기 — 21일 backtest 가 충분한가?</h2>
+
+<p>
+첫 backtest (21일 1h) 결과로 "Buy-and-hold 압도적 1위, multi-factor 기각" 결론 도출했지만,
+사용자가 "이게 한 달 데이터?" 라고 의심했음. 그 의심이 정확.
+21일 = 약 2-3 trend cycle 만 포함 → sample 너무 작음.
+</p>
+
+<p>
+이 보고서: 같은 strategy, 같은 종목으로 <strong>3가지 기간 backtest</strong> 비교 →
+어떤 결론이 robust 한지 확인.
+</p>
+
+<h2>2. 3-Period 결과 비교 (평균 across 5종목)</h2>
+
+<table>
+<thead><tr>
+<th>Strategy</th>
+<th>21일 1h <small>(~1 month)</small></th>
+<th>60일 1h <small>(~2 months)</small></th>
+<th>365일 1d <small>(~1 year)</small></th>
+<th>해석</th>
+</tr></thead>
+<tbody>
+<tr class="">
+  <td><strong>A_buyhold</strong></td>
+  <td class="num win">+4.93% / Sh +2.39 (1위)</td>
+  <td class="num win">+7.05% / Sh +1.07 (2위)</td>
+  <td class="num fail">−19.86% / Sh −0.10 (6위)</td>
+  <td>단기 winner / 장기 위험. <strong>MaxDD -62%</strong> (1년 폭락 직격)</td>
+</tr>
+<tr>
+  <td><strong>B_trend</strong> (long-short)</td>
+  <td class="num fail">-5.92% / Sh -2.58 (5위)</td>
+  <td class="num win">+7.52% / Sh +1.06 (3위)</td>
+  <td class="num win">+22.39% / Sh +0.31 (2위)</td>
+  <td>장기 일관 양수. trend cycle 수가 많을수록 alpha 누적</td>
+</tr>
+<tr>
+  <td><strong>C_trend_long_only</strong></td>
+  <td class="num neutral">-0.44% / Sh -0.13 (3위)</td>
+  <td class="num win">+8.40% / Sh +1.44 (1위)</td>
+  <td class="num">+3.56% / Sh +0.14 (3위)</td>
+  <td>중기 (60일) 가장 강함. 위험 control 도 좋음</td>
+</tr>
+<tr class="rank-1">
+  <td><strong>D_trend+funding</strong> ★</td>
+  <td class="num fail">-4.92% / Sh -2.24 (4위)</td>
+  <td class="num">+5.86% / Sh +0.89 (4위)</td>
+  <td class="num win"><strong>+42.14% / Sh +0.63 (1위)</strong></td>
+  <td><strong>장기 winner</strong>. funding filter 가 365일 sample 에서 진짜 alpha</td>
+</tr>
+<tr>
+  <td>G_bollinger_mr</td>
+  <td class="num win">+2.88% / Sh +1.61 (2위)</td>
+  <td class="num fail">-14.75% / Sh -2.44 (5위)</td>
+  <td class="num neutral">-6.66% / Sh +0.10 (4위)</td>
+  <td>21일 결과는 우연. 60-365일에선 음수</td>
+</tr>
+<tr>
+  <td>H_funding_contra</td>
+  <td class="num neutral">nan (signal 미발생)</td>
+  <td class="num neutral">nan</td>
+  <td class="num neutral">+1.71% / Sh +0.07 (5위)</td>
+  <td>365일에선 일부 종목 (SOL +1.08 Sharpe) 작동</td>
+</tr>
+</tbody>
+</table>
+
+<h2>3. 종목별 365일 best — surprise 결과</h2>
+
+<table>
+<thead><tr><th>종목</th><th>1위</th><th>Return</th><th>Sharpe</th><th>비고</th></tr></thead>
+<tbody>
+<tr><td>AVAX</td><td><strong>D_trend+funding</strong></td><td class="num win">+159.58%</td><td class="num win">+1.60</td><td>Funding filter 가 폭발적</td></tr>
+<tr><td>BNB</td><td><strong>D_trend+funding</strong></td><td class="num win">+105.64%</td><td class="num win">+1.67</td><td>동일 — multi-factor 의 진짜 효과</td></tr>
+<tr><td>BTC</td><td>G_bollinger_mr</td><td class="num win">+24.07%</td><td class="num win">+0.84</td><td>일봉 mean reversion 통함</td></tr>
+<tr><td>ETH</td><td>A_buyhold</td><td class="num win">+22.20%</td><td class="num">+0.63</td><td>장기 우상향, MaxDD -62% 위험</td></tr>
+<tr><td>SOL</td><td><strong>H_funding_contra</strong></td><td class="num win">+14.09%</td><td class="num win">+1.08</td><td>Funding contrarian 단독으로 alpha</td></tr>
+</tbody>
+</table>
+
+<h2>4. 21일 vs 60일 vs 365일 — 결론이 정반대로 뒤집힌 이유</h2>
+
+<h3>4.1 Sample size 의 위력</h3>
+
+<table>
+<thead><tr><th>Period</th><th>Bars</th><th>Trade cycles</th><th>Market regimes</th><th>결과 신뢰도</th></tr></thead>
+<tbody>
+<tr><td>21일 1h</td><td>477</td><td>~2-3</td><td>1 (단일 상승)</td><td class="fail">매우 낮음</td></tr>
+<tr><td>60일 1h</td><td>1,440</td><td>~7-10</td><td>1-2 (대부분 상승)</td><td>중간</td></tr>
+<tr><td>365일 1d</td><td>365</td><td>~30-40</td><td>3-4 (상승+조정+회복)</td><td class="win">높음</td></tr>
+</tbody>
+</table>
+
+<h3>4.2 365일이 보여준 진실</h3>
+
+<div class="callout info">
+  <p>지난 1년 crypto 시장 (2025-04 ~ 2026-04) 의 큰 사건:</p>
+  <ul>
+    <li>2025 중반: BTC 폭락 (~-50%) 후 회복</li>
+    <li>2025 후반: AltSeason 부분적 회복</li>
+    <li>2026 초: 추가 상승</li>
+  </ul>
+  <p>→ 다양한 regime 노출. <strong>Buy-and-hold 가 직격탄</strong> (DD -62%).
+  Trend following 은 폭락 시점에 SHORT 또는 FLAT 으로 회피 → drawdown 감소.</p>
+  <p>21일 backtest 는 위 폭락 시점 missing → buy-hold 의 위험을 완전히 놓침.</p>
+</div>
+
+<h3>4.3 D_trend+funding 가 365일 1위인 이유</h3>
+
+<p>학계 (Soska et al. 2024, Carter 2023) 의 결론과 일치:</p>
+
+<ul>
+<li>Trend signal: 진정한 trend 시 진입 → 큰 움직임 잡음</li>
+<li>Funding filter: 시장 과열 (모두 LONG) 시 매매 회피 → 과밀 trade 의 비효율 회피</li>
+<li>21일 backtest 에선 funding 신호 자체가 임계 도달 X (평균 -0.0015%) → 효과 측정 못함</li>
+<li>365일 sample 에선 funding 큰 변동 (±0.1%+) 발생 → filter 진짜 작동</li>
+</ul>
+
+<h2>5. 데이터 한계 분리</h2>
+
+<h3>5.1 1h 봉의 21일 한계 — Binance API 제약</h3>
+<pre>
+Binance Futures API:
+  futures_top_longshort_account_ratio(period="1h", limit=500)
+                                                    ─────────
+                                       max 500 bars × 1h = 21 days
+</pre>
+
+<h3>5.2 1d 봉으로 우회 — sample size ↑</h3>
+<pre>
+일봉 사용 시:
+  futures_klines(interval="1d", limit=1000) → ~3 years
+  futures_funding_rate(limit=1000) → ~1 year (8h 단위 → 1d aggregate)
+  L/S ratio: 1d 라도 500 bars max → ~1.4 years (가능, 다만 이번엔 제외)
+
+→ daily 단위로 1년 backtest 완전 가능
+→ trade 빈도 ↓ but regime diversity ↑
+</pre>
+
+<h3>5.3 더 robust 해지려면</h3>
+<table>
+<thead><tr><th>방법</th><th>장점</th><th>단점</th></tr></thead>
+<tbody>
+<tr><td>2-3년 daily backtest</td><td>여러 cycle 포함</td><td>최근 시장 변화 반영 약함</td></tr>
+<tr><td>Walk-forward 분석</td><td>각 sub-period 의 best 추적</td><td>구현 복잡</td></tr>
+<tr><td>Multiple market regime 분리</td><td>Bull/Bear/Sideways 별 결과</td><td>regime 정의 주관적</td></tr>
+<tr><td>Out-of-sample 테스트</td><td>overfitting 검증</td><td>최소 1년+ 데이터 필요</td></tr>
+</tbody>
+</table>
+
+<h2>6. 의미 있는 학습 — 정직한 narrative</h2>
+
+<ol>
+<li><strong>21일 backtest 결론은 거의 random</strong>. Sample 너무 작음. AVAX Bollinger +17% 같은 결과는 우연 (60일 -14%로 반전).</li>
+<li><strong>365일 데이터에서 multi-factor 가 진짜 작동</strong>. D_trend+funding +42% 평균, BNB/AVAX 에서 +100%+. 학계 결론 검증.</li>
+<li><strong>Buy-and-hold 의 함정</strong>: 단기 우월 보이지만 1년 평균 -19%, MaxDD -62%. 폭락 직격.</li>
+<li><strong>전략 ≠ 단일 답</strong>. 종목별 best 다름:
+  <ul>
+    <li>AVAX/BNB: trend + funding</li>
+    <li>BTC: Bollinger MR</li>
+    <li>ETH: buy-hold</li>
+    <li>SOL: funding contra</li>
+  </ul>
+</li>
+<li><strong>Sample size 가 보고서 결론을 뒤집을 수 있음</strong>. 신뢰도 낮은 backtest 로 "이게 정답!" 단정 위험.</li>
+<li><strong>기존 21일 보고서의 결론 ("buy-hold 가 모든 active 이김") 은 사실상 기각</strong>. 60-365일 에선 active 가 우월.</li>
+</ol>
+
+<h2>7. 우리 운영 중인 dry-run 의 의미</h2>
+
+<p>
+현재 (오늘 14:02 시작) 운영 중인 long-short multi-asset 24h dry-run = B_trend (long-short) 룰.
+3-period 결과:
+</p>
+
+<ul>
+<li>21일: B_trend Sharpe -2.58 (worst case)</li>
+<li>60일: B_trend Sharpe +1.06</li>
+<li>365일: B_trend Sharpe +0.31 (양수)</li>
+</ul>
+
+<p>
+→ 24h 단편 결과는 noise 가 큼. 결과가 -2% 든 +2% 든 통계적 의미 거의 없음.
+다만 학습 narrative 로는 가치 있음 ("backtest 결과 vs 실거래 단기 결과").
+</p>
+
+<h2>8. 다음 단계 추천</h2>
+
+<table>
+<thead><tr><th>우선순위</th><th>방향</th><th>이유</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><strong>D_trend+funding 으로 dry-run 재시도</strong></td><td>365일 1위 strategy. 24h 단편으론 검증 어렵지만 의미 있는 시도</td></tr>
+<tr><td>2</td><td>종목별 다른 strategy 운영</td><td>AVAX/BNB → trend+funding, BTC → Bollinger 등</td></tr>
+<tr><td>3</td><td>Walk-forward backtest 구축</td><td>각 시점에서 best strategy 추적, robust</td></tr>
+<tr><td>4</td><td>2년+ daily backtest</td><td>regime diversity 확장</td></tr>
+<tr><td>5</td><td>Multi-strategy ensemble</td><td>여러 전략 자본 분산 → 위험 분산</td></tr>
+</tbody>
+</table>
+
+<h2>9. 비전공자용 요약 (TL;DR)</h2>
+
+<div class="callout info">
+  <p><strong>같은 자동매매 룰을 1달 / 2달 / 1년 데이터로 각각 backtest 했다. 결과가 완전히 다름.</strong></p>
+  <ul>
+    <li>1달: 가만히 들고 있기 (buy-hold) 가 1위, 똑똑한 룰들 다 음수</li>
+    <li>2달: 트렌드 따라가기가 1위, buy-hold 2위</li>
+    <li>1년: 트렌드 + 시장 과열 필터 결합이 1위 (+42%), buy-hold 는 -20% (위험)</li>
+  </ul>
+  <p>→ <strong>1달 데이터로 "이게 진짜 답!" 단정하면 매우 위험.</strong> 더 긴 데이터에서 정반대 결과 나올 수 있음.</p>
+
+  <p><strong>비유</strong>: 친구 A 가 어제 1번 카지노 가서 돈 땄다고 "카지노 = 돈 버는 곳" 결론 내리면 위험.
+  100번 가야 평균이 보임. 1년 데이터 = 100번 카지노 같은 sample size.</p>
+
+  <p><strong>실용 결론</strong>: 우리 자동매매 봇은 **trend + funding filter 결합** 으로 가는 게 학계와 365일 backtest 모두 지지.
+  단기 backtest 의 "buy-hold 우월" 은 우연이었음.</p>
+</div>
+
+<h2>10. 관련 파일</h2>
+<ul>
+<li><code>data/backtest_crypto_sweep_1h_60d_nols_*.parquet</code> — 60일 결과</li>
+<li><code>data/backtest_crypto_sweep_1d_365d_nols_*.parquet</code> — 365일 결과</li>
+<li><code>data/backtest_crypto_sweep_*_summary.json</code> — JSON 요약</li>
+<li><code>scripts/backtest_crypto_sweep.py</code> — parameterized sweep CLI</li>
+<li><code>docs/2026-04-30/crypto_strategy_comparison.html</code> — 21일 보고서 (이 보고서 의 선행)</li>
+</ul>
+
+<h2>11. 용어 정리집</h2>
+<table>
+<thead><tr><th>용어</th><th>한 줄 설명</th></tr></thead>
+<tbody>
+<tr><td><strong>Sample size 의 위력</strong></td><td>backtest 결과 신뢰도는 데이터 길이에 비례. 21일 = 신뢰도 매우 낮음, 365일 = 중간 정도</td></tr>
+<tr><td><strong>Trend cycle</strong></td><td>가격이 한 방향으로 움직이는 구간. 보통 7-14일. backtest 안에 cycle 이 충분해야 의미 있는 측정</td></tr>
+<tr><td><strong>Market regime</strong></td><td>Bull (강세), Bear (약세), Sideways (횡보) 등 시장 상황. 같은 룰도 regime 별 결과 다름</td></tr>
+<tr><td><strong>D_trend+funding</strong></td><td>Trend MA crossover + funding rate filter. 시장 과열 시 매매 회피하는 multi-factor</td></tr>
+<tr><td><strong>Funding rate filter</strong></td><td>perp funding 이 +0.05% 이상이면 LONG 진입 회피 (시장 과열 회피)</td></tr>
+<tr><td><strong>MaxDD (Max Drawdown)</strong></td><td>최고점 대비 최대 하락폭. 위험 측정. buy-hold 365일 -62% = 1년 동안 자본 60% 까지 잃을 수 있었음</td></tr>
+<tr><td><strong>Walk-forward analysis</strong></td><td>backtest 를 sliding window 로 반복 → 각 시점의 best strategy 추적</td></tr>
+<tr><td><strong>Out-of-sample test</strong></td><td>모델 학습/튜닝 안 한 별도 데이터로 최종 검증. overfitting 회피</td></tr>
+<tr><td><strong>Overfitting</strong></td><td>모델이 backtest 데이터에 과도하게 맞춰져 실거래에선 작동 안 하는 현상</td></tr>
+<tr><td><strong>Multi-factor strategy</strong></td><td>2개 이상 신호 결합. 단일 신호 노이즈 줄임 (다만 가설 적합도 검증 필수)</td></tr>
+<tr><td><strong>Survivor bias</strong></td><td>backtest 종목이 살아남은 종목들 → 결과 낙관적 편향</td></tr>
+<tr><td><strong>EMH</strong></td><td>Efficient Market Hypothesis. 시장이 효율적이면 anomaly 없음. crypto 1년 데이터에선 EMH 부분 기각 (alpha 존재)</td></tr>
+<tr><td><strong>Adaptive Market Hypothesis</strong></td><td>Lo (2004). 시장은 진화하므로 일부 anomaly 가 일시적으로 존재. crypto 처럼 신생 시장에 더 적합</td></tr>
+<tr><td><strong>Statistical significance</strong></td><td>관측된 효과가 noise 가 아닌 진짜 신호일 확률. 보통 p<0.05. 우리 21일 backtest 는 이 기준 미달</td></tr>
+</tbody>
+</table>
+
+<p class="small" style="margin-top:36px;border-top:1px solid #ccc;padding-top:14px;">
+  보고서 작성: 2026-04-30 16:30 KST · ai_pricing 5-Layer 모노레포 Layer-E + Layer-B3 ·
+  <strong>핵심 narrative</strong>: 21일 backtest 의 "buy-hold 우월" 결론이 60-365일 에선 정반대로 뒤집힘.
+  Multi-factor (trend + funding) 가 1년 데이터에서 진짜 alpha 만들음. Sample size 가 결론 결정.
+  honest reporting of sample size limitation.
+</p>
+
+</body>
+</html>

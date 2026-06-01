@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>포지션 cap 동적 확장 — 강한 신호 다발 시 cap 7→10 일시 우회</title>
+<style>
+  body { font-family: 'Segoe UI', -apple-system, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #222; }
+  h1 { border-bottom: 3px solid #333; padding-bottom: 0.4rem; }
+  h2 { border-bottom: 1px solid #ccc; padding-bottom: 0.3rem; margin-top: 2.2rem; }
+  h3 { margin-top: 1.6rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.95rem; }
+  th, td { border: 1px solid #ccc; padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f4f4f4; }
+  code { background: #f0f0f0; padding: 1px 5px; border-radius: 3px; font-size: 0.9em; }
+  pre { background: #f8f8f8; padding: 0.8rem 1rem; border-left: 3px solid #888; overflow-x: auto; font-size: 0.85em; }
+  .callout { border-left: 4px solid #2c7be5; background: #f0f7ff; padding: 0.9rem 1.1rem; margin: 1.2rem 0; }
+  .callout.warn { border-left-color: #d9822b; background: #fff7ed; }
+  .callout.success { border-left-color: #28a745; background: #f0fff4; }
+  .callout.note { border-left-color: #6c757d; background: #f8f9fa; }
+  .meta { color: #666; font-size: 0.85rem; }
+  svg { display: block; margin: 1rem auto; }
+  .tldr { background: #fffbea; border: 1px solid #f0d050; padding: 1rem 1.2rem; margin: 1.5rem 0; }
+</style>
+</head>
+<body>
+
+<h1>포지션 cap 동적 확장 — 강한 신호가 몰릴 때 cap 7→10 일시 우회</h1>
+<p class="meta">작성: 2026-05-26 · 작업: <code>scripts/run_dual_paper_trading.py</code></p>
+
+<div class="callout success">
+<strong>한 줄 결과:</strong> 외국인+기관 동시매수 강도가 임계의 1.5배(7.5%) 이상인 후보가 free slot 보다 많을 때, 그 초과분만큼 포지션 cap 을 일시 확장 (최대 +3). 9개 단위 테스트 통과, 134개 회귀 테스트 통과. fallback 사용 중에는 cap 확장 금지로 stale 데이터의 over-trade 방지.
+</div>
+
+<h2>1. 무엇을 시도했고 왜 시도했나</h2>
+
+<h3>1.1 배경: 오늘 cap 도달로 알파 캡처 실패</h3>
+
+<p>오늘(2026-05-26) 11:07 부터 외국인+기관 dual confirmation 매수 후보가 2종 떴지만, 이미 보유 7종으로 <strong>포지션 cap (7) 도달</strong> 상태였다. 즉 새 강한 신호 종목들이 코스피 +3% 랠리의 알파를 가지고 있었음에도 신규 진입이 차단됐다.</p>
+
+<svg viewBox="0 0 720 200" width="100%">
+  <text x="360" y="22" text-anchor="middle" font-size="14" font-weight="bold">오늘 cap 차단으로 놓친 매수 기회</text>
+
+  <rect x="60" y="50" width="160" height="120" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="140" y="70" text-anchor="middle" font-size="12" font-weight="bold">보유 7종 (cap 도달)</text>
+  <text x="140" y="90" text-anchor="middle" font-size="10">005930 삼성전자</text>
+  <text x="140" y="105" text-anchor="middle" font-size="10">003550 LG</text>
+  <text x="140" y="120" text-anchor="middle" font-size="10">000720 현대건설</text>
+  <text x="140" y="135" text-anchor="middle" font-size="10">011780 금호석유</text>
+  <text x="140" y="150" text-anchor="middle" font-size="10">+ 3종</text>
+
+  <line x1="220" y1="110" x2="280" y2="110" stroke="#c0392b" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="250" y="100" text-anchor="middle" font-size="10" fill="#c0392b">차단</text>
+
+  <rect x="280" y="50" width="200" height="120" fill="#ffebee" stroke="#c0392b" stroke-width="1.5"/>
+  <text x="380" y="70" text-anchor="middle" font-size="12" font-weight="bold">매수 후보 2종</text>
+  <text x="380" y="90" text-anchor="middle" font-size="10">strong 신호로 등장</text>
+  <text x="380" y="110" text-anchor="middle" font-size="10">flow ≥ 7.5% AND inst ≥ 7.5%</text>
+  <text x="380" y="135" text-anchor="middle" font-size="11" fill="#c0392b" font-weight="bold">진입 불가 → 알파 손실</text>
+
+  <rect x="510" y="50" width="160" height="120" fill="#f5f5f5" stroke="#888" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="590" y="70" text-anchor="middle" font-size="12" font-weight="bold">대안: cap 확장</text>
+  <text x="590" y="95" text-anchor="middle" font-size="10">cap 7 → 9 (이번 iter)</text>
+  <text x="590" y="115" text-anchor="middle" font-size="10">2종 진입 가능</text>
+  <text x="590" y="140" text-anchor="middle" font-size="11" fill="#28a745" font-weight="bold">알파 캡처 ✓</text>
+
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#c0392b"/>
+    </marker>
+  </defs>
+</svg>
+
+<h3>1.2 핵심 가설</h3>
+
+<div class="callout">
+"외국인+기관이 둘 다 평소 임계(5%)의 1.5배 이상 강하게 매수하는 종목"은 단순 통과 후보보다 알파가 강하다. 그 종목이 free slot 부족으로 차단되는 건 명백한 기회비용. cap 을 단기적으로 우회해도 통과 임계가 이미 높아서 false signal 위험은 제한적이다.
+</div>
+
+<h2>2. 무엇이 문제였고 어떻게 풀었나</h2>
+
+<h3>2.1 기존 동작</h3>
+
+<pre>
+free_slots = MAX_CONCURRENT(7) - len(state.positions)
+if free_slots ≤ 0:
+    log("포지션 cap 도달")
+    # 추가 매수 안 함 ← 강한 신호여도 차단
+</pre>
+
+<h3>2.2 새 동작</h3>
+
+<pre>
+cap_effective, strong_count, extension = compute_effective_cap(
+    buy_cands, state.positions, MAX_CONCURRENT, fallback_info,
+)
+
+free_slots = cap_effective - len(state.positions)
+</pre>
+
+<h3>2.3 cap_effective 계산 룰</h3>
+
+<table>
+<tr><th>조건</th><th>cap_effective</th><th>이유</th></tr>
+<tr><td>fallback 데이터 사용 중</td><td>cfg_max_concurrent (확장 X)</td><td>stale 데이터의 over-trade 위험 회피</td></tr>
+<tr><td>buy_cands 비어 있음</td><td>cfg_max_concurrent (확장 X)</td><td>확장할 필요 없음</td></tr>
+<tr><td>신규 strong 후보 ≤ free_slots_normal</td><td>cfg_max_concurrent (확장 X)</td><td>정상 cap 안에서 처리 가능</td></tr>
+<tr><td>신규 strong 후보 > free_slots_normal</td><td>cfg_max_concurrent + min(초과분, 3)</td><td>알파 캡처 + 폭주 방지</td></tr>
+</table>
+
+<h3>2.4 강도(strength) 계산</h3>
+
+<pre>
+strength = min(flow_ratio, inst_ratio)   # 약한 쪽 기준 (보수적)
+strong  ⇔ strength ≥ STRONG_THRESHOLD (= ENTER_THRESHOLD × 1.5 = 0.075)
+</pre>
+
+<p>"외국인 매수 비율이 높아도 기관이 약하게 동조하면" strong 아님. 양쪽 모두 7.5% 이상이어야 strong. 이중 확인의 정신을 유지하면서 강도만 한 단계 더 강하게 본다.</p>
+
+<h2>3. 핵심 코드</h2>
+
+<pre>
+STRONG_SIGNAL_MULT = 1.5
+STRONG_THRESHOLD = ENTER_THRESHOLD * STRONG_SIGNAL_MULT   # 0.075
+MAX_CAP_EXTENSION = 3
+
+def compute_effective_cap(buy_cands, positions, cfg_max_concurrent, fallback_info):
+    if fallback_info is not None or buy_cands.empty:
+        return cfg_max_concurrent, 0, 0
+
+    held = set(positions.keys())
+    not_held = buy_cands[~buy_cands["symbol"].isin(held)]
+    if not_held.empty:
+        return cfg_max_concurrent, 0, 0
+
+    strengths = not_held[["flow_ratio", "inst_ratio"]].min(axis=1)
+    strong_count = int((strengths >= STRONG_THRESHOLD).sum())
+
+    free_slots_normal = cfg_max_concurrent - len(positions)
+    if strong_count &lt;= max(0, free_slots_normal):
+        return cfg_max_concurrent, strong_count, 0
+
+    extension = min(strong_count - max(0, free_slots_normal), MAX_CAP_EXTENSION)
+    return cfg_max_concurrent + extension, strong_count, extension
+</pre>
+
+<h2>4. 시나리오 검증 — 9개 단위 테스트</h2>
+
+<table>
+<tr><th>케이스</th><th>buy_cands (strong/total)</th><th>보유</th><th>cap 결과</th><th>의도</th></tr>
+<tr><td>평범 신호</td><td>0/2 (모두 7.5% 미만)</td><td>0</td><td>7 (변동 X)</td><td>strong 없으면 확장 X</td></tr>
+<tr><td>strong 5종 + cap 도달</td><td>5/5</td><td>7</td><td>10 (+3, 상한)</td><td>초과 5종, 상한 3 적용</td></tr>
+<tr><td>strong 2종 + cap 도달</td><td>2/2</td><td>7</td><td>9 (+2)</td><td>초과 2종만 확장</td></tr>
+<tr><td>strong 5종 + free 5개</td><td>5/5</td><td>2</td><td>7 (변동 X)</td><td>free 충분하면 확장 X</td></tr>
+<tr><td>fallback 사용 중</td><td>5/5 strong</td><td>7</td><td>7 (변동 X)</td><td>stale 데이터 over-trade 방지</td></tr>
+<tr><td>보유 종목이 후보에 포함</td><td>2종 (1종 보유, 1종 신규)</td><td>7</td><td>8 (+1)</td><td>보유 종목 제외</td></tr>
+<tr><td>strong 20종 폭주</td><td>20/20</td><td>7</td><td>10 (+3, 상한)</td><td>MAX_CAP_EXTENSION 으로 제한</td></tr>
+<tr><td>empty buy_cands</td><td>0</td><td>0</td><td>7</td><td>분기 안전성</td></tr>
+<tr><td>flow 강, inst 약</td><td>min 0.06 (한쪽만 strong)</td><td>7</td><td>7 (변동 X)</td><td>strength = min, AND 정신 유지</td></tr>
+</table>
+
+<h2>5. 안전장치 (#1 fallback 과의 상호작용)</h2>
+
+<div class="callout warn">
+<strong>중요:</strong> fallback 사용 중에는 cap 확장 금지. 이유:
+<ul>
+<li>fallback 데이터는 어제 EOD 직전 가집계 = 시간 차 (8~24시간) 있는 stale 데이터</li>
+<li>fallback 은 이미 임계값 1.5배 강화로 false signal 제한 중 → cap 확장까지 동시 발동하면 위험 증폭</li>
+<li>fallback 시점은 보통 시초(09:00~09:15) = 변동성 가장 큰 구간. 그 시점에 cap 확장은 부적절</li>
+</ul>
+규칙: fallback_info != None 이면 cap 확장 skip → 모든 단위 테스트로 검증.
+</div>
+
+<h3>5.1 #1 fallback 과 #3 cap 확장 결합 매트릭스</h3>
+
+<table>
+<tr><th>fallback?</th><th>strong 후보?</th><th>cap 동작</th><th>임계값</th></tr>
+<tr><td>X (정상 데이터)</td><td>X</td><td>7 그대로</td><td>5% (정상)</td></tr>
+<tr><td>X (정상 데이터)</td><td>O</td><td>최대 10까지 확장</td><td>5% (정상)</td></tr>
+<tr><td>O (stale)</td><td>X</td><td>7 그대로</td><td>7.5% (강화)</td></tr>
+<tr><td>O (stale)</td><td>O</td><td><strong>7 그대로 (확장 X)</strong></td><td>7.5% (강화)</td></tr>
+</table>
+
+<h2>6. 효과 예측 (오늘 사례 적용)</h2>
+
+<svg viewBox="0 0 720 240" width="100%">
+  <text x="360" y="22" text-anchor="middle" font-size="14" font-weight="bold">오늘 11:07~12:12 매수 기회 — cap 차단 vs cap 확장</text>
+
+  <line x1="80" y1="200" x2="700" y2="200" stroke="#333" stroke-width="1.5"/>
+  <line x1="80" y1="60" x2="80" y2="200" stroke="#333" stroke-width="1.5"/>
+
+  <text x="75" y="65" text-anchor="end" font-size="11">2종</text>
+  <text x="75" y="105" text-anchor="end" font-size="11">1종</text>
+  <text x="75" y="145" text-anchor="end" font-size="11">0종</text>
+
+  <rect x="160" y="145" width="100" height="55" fill="#c0392b"/>
+  <text x="210" y="215" text-anchor="middle" font-size="11">기존 (cap 7)</text>
+  <text x="210" y="140" text-anchor="middle" font-size="10" fill="#c0392b">진입 0종</text>
+
+  <rect x="320" y="65" width="100" height="135" fill="#28a745"/>
+  <text x="370" y="215" text-anchor="middle" font-size="11">신규 (cap 9)</text>
+  <text x="370" y="60" text-anchor="middle" font-size="10" fill="#28a745">진입 2종</text>
+
+  <rect x="480" y="200" width="100" height="0" fill="#888"/>
+  <text x="530" y="215" text-anchor="middle" font-size="11">+ fallback</text>
+  <text x="530" y="180" text-anchor="middle" font-size="10" fill="#888">확장 X (안전)</text>
+</svg>
+
+<div class="callout note">
+오늘 11:07 부터 "매수 후보 2종" 이 표시됐는데, 그 후보들의 강도가 strong 임계(7.5%) 이상이었다면 cap 7→9 로 확장돼 둘 다 진입했을 것. 강도가 5~7.5% 사이의 normal 신호였다면 cap 변동 없음 (현 동작과 동일). 즉 이 fix는 "강한 신호" 에만 트리거되며 평소 cap 보수성은 유지.
+</div>
+
+<h2>7. 비전공자용 TL;DR</h2>
+
+<div class="tldr">
+지금까지는 보유 종목이 7개 차면 외국인+기관 강매수 신호가 떠도 무조건 차단했다. 그런데 가끔 "남달리 강한 신호" 가 떠도 같은 룰로 막혀서 알파를 놓치는 경우가 있었다. 이번 fix는 그런 강한 신호(평소 기준의 1.5배 강도)가 있을 때만, 그 갯수만큼 한도를 임시로 풀어준다. 단 최대 3종까지(7→10). 그리고 어제 데이터 fallback 사용 중에는 이 확장 안 한다 — 신선하지 않은 데이터로 한도까지 푸는 건 위험하니까. 시나리오 9가지 단위 테스트 통과, 134개 회귀 테스트 통과.
+</div>
+
+<h2>8. 관련 파일</h2>
+
+<ul>
+<li><a href="../../scripts/run_dual_paper_trading.py"><code>run_dual_paper_trading.py</code></a> — <code>compute_effective_cap</code>, 상수 추가, 두 호출 지점 (daemon + one-shot) 통합</li>
+<li><a href="../../packages/autotrader/tests/test_foreign_inst_realtime.py"><code>test_foreign_inst_realtime.py</code></a> — 9개 신규 테스트 (cap 확장 룰)</li>
+<li><a href="시초데이터공백_fallback.html">#1 fallback fix 보고서</a> — 본 fix 와 상호작용하는 fallback 동작</li>
+</ul>
+
+<h2>용어 정리집</h2>
+
+<table>
+<tr><th>용어</th><th>한 줄 설명</th><th>본문에서의 역할</th></tr>
+<tr><td>포지션 cap (concurrent limit)</td><td>동시 보유 가능 종목 수 상한. 본 시스템은 기본 7.</td><td>리스크 분산을 위한 보수 규칙. 너무 많은 종목 동시 보유 = 관리 불가 + 변동성 폭주.</td></tr>
+<tr><td>free slot</td><td>cap - 현재 보유 = 신규 진입 가능한 빈 자리.</td><td>매수 결정 시 이 값이 0 이면 차단. cap 확장은 free slot 을 일시적으로 만들어주는 효과.</td></tr>
+<tr><td>strength (신호 강도)</td><td>min(flow_ratio, inst_ratio). 약한 쪽 기준 = 보수적 신호 강도.</td><td>strong 판정의 기준. 둘 다 강해야 strong.</td></tr>
+<tr><td>STRONG_THRESHOLD</td><td>strength 가 이 값 이상이면 "강한 신호". 본 시스템 0.075 (= 5% × 1.5).</td><td>cap 확장 트리거. 평소 진입 임계의 1.5배.</td></tr>
+<tr><td>MAX_CAP_EXTENSION</td><td>cap 확장 상한. 본 시스템 3. 즉 cap 7 → 최대 10.</td><td>폭주 방지 — 한꺼번에 너무 많은 종목 진입 막음.</td></tr>
+<tr><td>cap_effective</td><td>이번 iter 만 적용되는 동적 cap. 다음 iter 자동 복귀.</td><td>state 에 저장 안 함 → daemon 재시작에도 안전.</td></tr>
+<tr><td>over-trade</td><td>과도한 매매 — false signal 로 진입했다가 손실, 다시 진입 반복.</td><td>fallback 시 cap 확장 금지의 이유.</td></tr>
+<tr><td>fallback (대체 동작)</td><td>주 데이터 소스 실패 시 백업 데이터 사용 (본 시스템에서는 어제 마지막 정상 payload).</td><td>cap 확장과 동시 발동 시 위험 증폭 → 결합 금지.</td></tr>
+<tr><td>dual confirmation</td><td>외국인 매수 비율 AND 기관 매수 비율 둘 다 임계 통과해야 진입.</td><td>strength 가 min 인 이유 — AND 정신 유지.</td></tr>
+<tr><td>not_held</td><td>매수 후보 중 현재 미보유 종목만 추린 부분집합.</td><td>strong 카운트 시 이미 보유 중인 종목은 제외 (재진입 방지).</td></tr>
+<tr><td>helper function</td><td>여러 호출 지점에서 공통으로 쓰는 함수.</td><td>daemon/one-shot 두 모드에 동일 로직을 적용해 일관성 유지.</td></tr>
+</table>
+
+<p class="meta">생성: Claude Code · 작업 시간 약 20분 · 테스트 9개 추가 · 회귀 0건 (134/134)</p>
+
+</body>
+</html>

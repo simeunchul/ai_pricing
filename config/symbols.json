@@ -1,0 +1,29 @@
+{
+  "_comment": "사용자 설정 — 자동매매 종목 정책. 빈 whitelist = 동적 universe (top 60 그대로)",
+  "stock": {
+    "market_code": "0001",
+    "_market_help": "0001 KOSPI / 1001 KOSDAQ",
+    "whitelist": [],
+    "_whitelist_help": "이 코드들만 매수 (빈 배열 = 모두 허용). 예: ['005930','000660','005380']",
+    "blacklist": [],
+    "_blacklist_help": "절대 매수 안 함. 예: ['000720','015760']",
+    "max_concurrent": 10,
+    "_max_help": "동시 보유 최대 종목 수",
+    "min_market_cap_b_krw": 0,
+    "_cap_help": "최소 시가총액 (10억 단위, 0=무제한). 예: 5000 = 5조 이상만"
+  },
+  "etf": {
+    "enabled": false,
+    "_enabled_help": "ETF arb 봇 사용 여부 (지금은 dual 만 운영)"
+  },
+  "crypto": {
+    "symbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT",
+      "AVAXUSDT",
+      "BNBUSDT"
+    ],
+    "_symbols_help": "Binance Futures 거래 종목"
+  }
+}

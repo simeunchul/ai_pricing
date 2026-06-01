@@ -12,7 +12,7 @@ GitHub: `https://github.com/<USERNAME>/quant-lab` (예정)
 
 ---
 
-## 핵심 성과 7개 (수치 위주)
+## 핵심 성과 9개 (수치 위주)
 
 ### 1. **실데이터 한화 ELS 재가격 +2.17% (±3% 목표 달성)**
 - DART 전자공시 Open API 로 **한화스마트ELS 제8286호** XML 본문 직접 파싱
@@ -54,7 +54,22 @@ GitHub: `https://github.com/<USERNAME>/quant-lab` (예정)
 - 케이스 스터디 5건 (Yen carry +64.9%, FOMC hawkish +74%, FOMC dovish 예상 −3.9%) 도 같은 패턴 확인
 - 다음 단계: `IV_SHIFT_RULES` 단방향 → 룰×FinBERT confidence 가중으로 v2 설계
 
-### 7. **KIS Developers 자동매매 시스템 — DRY_RUN 4-tier safety + 다중 risk guard**
+### 7. **한화 ELS 데스크의 하루 — 5-Layer 시간순 chain + AI 기본법 대응**
+- `scripts/desk_day.py` 가 09:00 calibration → 09:15 MTM → 10:00 5-method spread → 11:00 news → 13:00 hedge → 15:00 risk → 16:30 PnL 7 stage 시간 순 호출
+- Focal product: 한화스마트ELS 제8286호 (실 DART 공시 + per-leg σ 파라미터화로 morning calibration 후 즉시 re-price)
+- **AI 기본법 (2026-01-22 시행) 회색지대 자발 대응**: `compliance` 모듈 신설 — 의사결정 audit log (JSON Lines) + 편차 모니터링 (BSM 대비 ±5%) + HITL gate
+- 1회 실행 → 3 decisions logged, 2 deviation breaches (ELS −21%, NN +7.21%), 2 HITL escalated
+- 시각 3 메타박스 (PPO 5번 실패 디버깅 일지) 13:00 hedge 섹션에 통합 — narrative depth 동시 충족
+
+### 8. **ETF LP 업그레이드 — Avellaneda-Stoikov 양방향 호가 + 재고 페널티 + compliance hook**
+- `packages/autotrader/.../strategies/avellaneda_stoikov.py` — 원논문 (Avellaneda-Stoikov 2008) closed-form 직접 구현
+- 핵심 수식: reservation = mid − q·γσ²(T−t), spread = γσ²(T−t) + (2/γ)·ln(1+γ/k)
+- 6개월 KODEX 200 (069500) 일봉 백테스트 + γ ∈ {0.1, 0.5, 1.5} 3 config sweep
+- 결과: trending market (KODEX +82% 6mo) + 일봉 환경에서 A-S 음수 PnL — **알고리즘은 정상 작동, 가정 위반의 정직한 진단**
+- Phase 1 compliance 모듈 cross-cutting 통합 검증: A-S inventory 80% 초과 시 audit log + HITL escalate 자동 작동 (16 breaches)
+- 다음 단계: KIS 분봉 인증 후 high-frequency 환경 재검증
+
+### 9. **KIS Developers 자동매매 시스템 — DRY_RUN 4-tier safety + 다중 risk guard**
 - ETF iNAV 괴리 평균회귀 전략 (KODEX 200 069500 대상)
 - 환경변수 4단계 가드: 완전시뮬 → vts mock → vts 실주문 → prod 실주문 (`--i-understand-live` 필수)
 - 자동 정지 조건: 포지션 20% 초과, 일일 손실 −1.5%, 장 시작/마감 10분, API 오류 3회
@@ -92,7 +107,7 @@ GitHub: `https://github.com/<USERNAME>/quant-lab` (예정)
 |---|---|
 | **자산운용 모델 개발** | Layer A (BSM/Heston/MC) + Layer B2 (실시장 calibration) |
 | **ELS 헤지** | Layer A `price_els` (한화 8286호 +2.17%) + Layer B4 (Deep Hedging) |
-| **ETF LP 업무** | Layer D (`autotrader/strategies/etf_inav_arb.py` + risk guard) |
+| **ETF LP 업무** | Layer D (`autotrader/strategies/etf_inav_arb.py` 단방향 + `avellaneda_stoikov.py` 양방향 LP + 재고 페널티) |
 | **Trading 전산 시스템** | Layer D KIS REST + WebSocket + DRY_RUN 4-tier + Layer E C++ |
 | **AI 응용** | Layer B1/B2/B3/B4 (4종 논문 재현, B3 는 매크로 백테스트 vol-crush 진단까지 포함) |
 | **Python + C++ 가속** | Layer E pybind11 (numpy 14.8× 가속) |
@@ -106,6 +121,7 @@ GitHub: `https://github.com/<USERNAME>/quant-lab` (예정)
 - **Deep Hedging**: 합성 GBM 환경에서 +24.5% 달성 (Buehler PG-on-CVaR). 다음 단계는 GBM tick → KOSPI200 historical 일별 수익률로 환경 교체하여 jump/vol-clustering 실시장 재검증.
 - **News-IV**: 단순 룰 가설 N=46 부호 일치 34.8% FAIL → vol-crush 진단 + magnitude top-20% 60% PASS 까지 정직하게 보고. v2 는 룰×FinBERT confidence 가중 으로 설계 예정.
 - **KIS 모의투자 운영**: 계좌 개설 후 3영업일 무중단 운영 예정.
+- **AI 기본법 대응 (자발적)**: 본 프로젝트는 2026-01-22 시행 인공지능 기본법의 명시적 고영향 8개 분야(신용평가/의료/채용 등)에 직접 해당하지 않으나, 시가평가가 환매가에 반영되는 회색지대 — `packages/compliance` 모듈로 의사결정 audit log + BSM 대비 ±5% 편차 자동 모니터링 + HITL gate 3종 자발 baseline 적용. 시행령 후속 가이드라인에 따라 확장 가능한 구조.
 
 ---
 

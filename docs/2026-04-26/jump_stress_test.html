@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Buehler Jump Stress Test — 비정형 옵션 추가 + 철학 보존 검증</title>
+<style>
+  :root {
+    --fg:#1a1a1a; --bg:#fafafa; --muted:#666;
+    --accent:#2c5aa0; --accent-light:#e6eef7;
+    --warn:#c0392b; --warn-light:#fdeae6;
+    --ok:#0b8043; --ok-light:#e6f3ea;
+    --yellow:#a6820d; --yellow-light:#fff4d6;
+    --purple:#6c3483; --purple-light:#eee0f3;
+    --border:#ddd; --code-bg:#f4f4f4;
+  }
+  *{box-sizing:border-box}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",
+                "Apple SD Gothic Neo",Roboto,sans-serif;
+    color:var(--fg); background:var(--bg); line-height:1.7;
+    max-width:1100px; margin:0 auto; padding:32px 24px 80px;
+  }
+  h1{font-size:28px; border-bottom:3px solid var(--accent); padding-bottom:8px}
+  h2{font-size:22px; margin-top:44px; color:var(--accent);
+     border-left:4px solid var(--accent); padding-left:12px}
+  h3{font-size:17px; margin-top:26px}
+  code{background:var(--code-bg); padding:2px 6px; border-radius:3px;
+       font-family:ui-monospace,Consolas,monospace; font-size:13px}
+  pre{background:#1e1e1e; color:#d4d4d4; padding:14px 16px; border-radius:6px;
+      overflow-x:auto; font-size:13px; line-height:1.5}
+  pre code{background:transparent; color:inherit; padding:0}
+  table{border-collapse:collapse; width:100%; margin:14px 0; font-size:14px}
+  th,td{padding:10px 12px; text-align:left; border:1px solid var(--border); vertical-align:top}
+  th{background:var(--accent-light); font-weight:600}
+  tbody tr:nth-child(even){background:#f7f7f7}
+  .num{font-family:ui-monospace,Consolas,monospace}
+  .good{color:var(--ok); font-weight:600}
+  .bad{color:var(--warn); font-weight:600}
+  .partial{color:var(--yellow); font-weight:600}
+  .callout{border-left:4px solid; padding:14px 18px; margin:18px 0; border-radius:0 6px 6px 0}
+  .callout-warn{border-color:var(--warn); background:var(--warn-light)}
+  .callout-ok{border-color:var(--ok); background:var(--ok-light)}
+  .callout-info{border-color:var(--accent); background:var(--accent-light)}
+  .callout-yellow{border-color:var(--yellow); background:var(--yellow-light)}
+  .callout-purple{border-color:var(--purple); background:var(--purple-light)}
+  .badge{display:inline-block; padding:2px 8px; border-radius:3px; font-size:12px; font-weight:600}
+  .badge-ok{background:var(--ok-light); color:var(--ok)}
+  .badge-partial{background:var(--yellow-light); color:var(--yellow)}
+  .badge-bad{background:var(--warn-light); color:var(--warn)}
+  .meta{color:var(--muted); font-size:13px}
+  figure{margin:20px 0; text-align:center}
+  figcaption{font-size:12.5px; color:var(--muted); margin-top:6px}
+</style>
+</head>
+<body>
+
+<h1>Buehler Deep Hedging — Jump Stress Test</h1>
+<p class="meta">
+  작성 2026-04-26 · 변경: <code>packages/ai_hedging/</code> · 검증: 41 pytest pass · 8,000 path × 4 시나리오
+</p>
+
+<div class="callout callout-ok">
+  <strong>한 줄 결과</strong> — 기존 Buehler 정책은 <strong>코드 한 줄도 재학습 안 한 채로</strong> jump 환경에서 다음과 같이 buffered:
+  GBM-only +21.28% → 일상잡음 +4.41% → 어닝쇼크 +8.69% → 코로나급 −1.53%.
+  <strong>"예측 안 함" 철학 100% 보존 (정책 입력에 jump 신호 0개)</strong>, <strong>기존 37 pytest + 신규 4 = 41 통과</strong>,
+  <strong>학습된 buehler_tc03_v2.pt 그대로 재사용</strong>.
+</div>
+
+<!-- ============================================================ -->
+<h2>1. 무엇을 시도했나 — 배경과 접근</h2>
+
+<h3>배경 — 사용자 질문 두 가지</h3>
+<ol>
+  <li>"지금 모델은 비정형 변동 (점프, fat-tail) 을 잡을 수 있는가?" → <strong>못 잡는다 (정직)</strong></li>
+  <li>"비정형성을 추가하면 B4 의 '예측 안 함' 철학이 깨지는가?" → <strong>방식에 따라 다르다</strong></li>
+</ol>
+
+<h3>두 가지 추가 방식 — 어떤 것을 골랐나</h3>
+<table>
+  <thead><tr><th style="width:30%">방식</th><th>설명</th><th style="width:14%">철학</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>A. 환경만 비정형화</strong> ★채택</td>
+      <td>학습/평가 시뮬에 jump 를 섞음. 정책 입력은 그대로 (5-dim, jump 신호 없음). 정책은 "관측 → 헤지수량" 만 함.</td>
+      <td><span class="badge badge-ok">보존 ✓</span></td>
+    </tr>
+    <tr>
+      <td>B. 정책 입력에 jump 예측 신호 추가</td>
+      <td>"다음 스텝에 jump 올 확률" 같은 feature 를 정책 input 에 끼움.</td>
+      <td><span class="badge badge-bad">깨짐 ✗</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-info">
+  <strong>핵심 구분</strong> — Buehler 의 "예측 안 함" 은 <em>정책</em> 의 성질이지 <em>환경</em> 의 성질이 아니다.
+  환경이 험해져도 정책이 환경의 미래를 예측하지 않는 한 철학은 그대로다.
+  방식 A 만 하면 "내 정책은 더 험한 환경에서 학습/평가됐을 뿐, 여전히 미래를 예측하지 않는다" 는 강한 narrative 가 된다.
+</div>
+
+<h3>구현 원칙 — 100% 호환</h3>
+<ul>
+  <li>새 jump 옵션 4개 모두 <strong>default 0.0</strong> → 기존 코드/체크포인트 그대로 동작</li>
+  <li><code>if jump_intensity > 0</code> 분기로 jump 코드 자체를 우회 → λ=0 시 RNG 호출 순서까지 동일 (bit-exact)</li>
+  <li>기존 학습된 <code>buehler_tc03_v2.pt</code> 를 <strong>재학습 없이</strong> stress test 평가에만 사용</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2>2. 무엇을 추가했나 — 코드 변경</h2>
+
+<h3>2.1 환경 config — 4 개 필드 추가 (모두 default 0)</h3>
+
+<pre><code class="language-python"># packages/ai_hedging/src/ai_hedging/env.py · HedgingEnvConfig
+# packages/ai_hedging/src/ai_hedging/agents/buehler_pg.py · BuehlerConfig
+jump_intensity: float = 0.0     # λ — 1년에 jump 가 평균 몇 번 오는가 (Poisson rate)
+jump_mean: float = 0.0          # μJ — log-normal jump 의 평균 (음수면 평균적으로 떨어짐)
+jump_std: float = 0.0           # σJ — log-normal jump 의 표준편차 (jump 의 흩어짐)
+jump_compensator: bool = True   # risk-neutral drift 보정 (이론적으로 옳은 가격 유지)</code></pre>
+
+<h3>2.2 시뮬 step — Merton 1976 jump-diffusion</h3>
+
+<p>
+  기존 GBM 한 줄 (정규분포 충격) 을 다음으로 확장:
+  "정규분포 충격 + (이번 step 안에 jump 가 N번 왔다고 가정한 추가 충격)".
+  N 은 매 step 마다 평균 <code>λ·dt</code> 짜리 Poisson 분포에서 뽑고,
+  jump 가 왔으면 그 크기는 다시 log-normal(μJ, σJ²) 에서 뽑는다.
+</p>
+
+<pre><code class="language-python"># λ=0 분기 가드로 기존과 100% 호환
+if self.cfg.jump_intensity > 0.0:
+    # risk-neutral 보정 (Merton 1976 표준)
+    if self.cfg.jump_compensator:
+        kappa = math.exp(muJ + 0.5 * sigJ**2) - 1.0
+        log_drift -= lam * kappa * dt
+    # 이번 step 의 jump 횟수 ~ Poisson(λdt)
+    n_jumps = int(self.rng.poisson(lam * dt))
+    if n_jumps > 0:
+        log_jump = float(np.sum(muJ + sigJ * self.rng.standard_normal(n_jumps)))
+S_next = self.S * math.exp(log_drift + log_diff + log_jump)</code></pre>
+
+<h3>2.3 호환성 테스트 (4건 신규, 모두 PASS)</h3>
+
+<table>
+  <thead><tr><th>테스트</th><th>검증 내용</th><th>결과</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>test_simulate_batch_jump_off_equals_legacy</code></td>
+      <td>λ=0 시 PyTorch batch sim 의 path 가 기존과 <strong>bit-exact</strong> 동일</td>
+      <td><span class="badge badge-ok">PASS</span></td>
+    </tr>
+    <tr>
+      <td><code>test_simulate_batch_jump_on_creates_fat_tail</code></td>
+      <td>λ=20 시 CVaR@5% 가 GBM-only 보다 커야 함 (꼬리 두꺼워짐)</td>
+      <td><span class="badge badge-ok">PASS</span></td>
+    </tr>
+    <tr>
+      <td><code>test_gym_env_jump_off_equals_legacy</code></td>
+      <td>λ=0 시 gym env 가 step-by-step 동일 path 생성</td>
+      <td><span class="badge badge-ok">PASS</span></td>
+    </tr>
+    <tr>
+      <td><code>test_gym_env_jump_on_changes_path</code></td>
+      <td>λ=30 시 terminal PnL std 가 GBM-only 보다 커야 함</td>
+      <td><span class="badge badge-ok">PASS</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<pre><code>$ python -m pytest packages/ --ignore=packages/fastmc -q
+.........................................                                [100%]
+41 passed in 4.16s   ← 기존 37 + 신규 4, 회귀 0건</code></pre>
+
+<!-- ============================================================ -->
+<h2>3. 무엇을 측정했나 — 4 시나리오 stress test</h2>
+
+<p>
+  학습된 Buehler 정책 (<code>models/buehler_tc03_v2.pt</code>, GBM-only 환경에서 학습) 을 그대로 가져와서,
+  jump 강도가 점진적으로 커지는 4 환경에서 평가:
+</p>
+
+<table>
+  <thead>
+    <tr><th>시나리오</th><th>λ (jumps/yr)</th><th>μJ</th><th>σJ</th><th>해석</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>GBM-only (baseline)</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td>학습 분포 — Buehler 가 PASS 한 환경</td></tr>
+    <tr><td>Small jump</td><td class="num">5</td><td class="num">−0.02</td><td class="num">0.05</td><td>일상 잡음 — 분기당 ~1회 작은 gap</td></tr>
+    <tr><td>Medium jump</td><td class="num">10</td><td class="num">−0.05</td><td class="num">0.10</td><td>분기 어닝쇼크 — 한 달에 ~1회 −5% gap</td></tr>
+    <tr><td>Large jump</td><td class="num">20</td><td class="num">−0.08</td><td class="num">0.15</td><td>코로나급 — 1주에 ~1회 −8% gap</td></tr>
+  </tbody>
+</table>
+
+<p class="meta">
+  비교 baseline: BSM Δ-hedger (BSM 공식이 환경 변화를 모르고 그저 σ=0.20 가정으로 헤지).
+  지표: <strong>CVaR@5%</strong> = 최악의 5% 손실들의 평균 (낮을수록 좋음).
+  <strong>ratio = Buehler / BSM Δ</strong> 가 1보다 작으면 Buehler 승.
+</p>
+
+<!-- ============================================================ -->
+<h2>4. 결과 — 정책이 어디까지 살아남나</h2>
+
+<h3>4.1 핵심 표</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>시나리오</th>
+      <th>BSM Δ CVaR</th>
+      <th>Buehler CVaR</th>
+      <th>ratio</th>
+      <th>개선률</th>
+      <th>판정</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>GBM-only</td>
+      <td class="num">1.8334</td><td class="num">1.4432</td>
+      <td class="num good">0.787</td>
+      <td class="num good"><strong>+21.28%</strong></td>
+      <td><span class="badge badge-ok">PASS</span></td>
+    </tr>
+    <tr>
+      <td>Small jump</td>
+      <td class="num">4.5807</td><td class="num">4.3785</td>
+      <td class="num good">0.956</td>
+      <td class="num good"><strong>+4.41%</strong></td>
+      <td><span class="badge badge-ok">PASS (약간)</span></td>
+    </tr>
+    <tr>
+      <td>Medium jump</td>
+      <td class="num">13.9214</td><td class="num">12.7121</td>
+      <td class="num good">0.913</td>
+      <td class="num good"><strong>+8.69%</strong></td>
+      <td><span class="badge badge-ok">PASS</span></td>
+    </tr>
+    <tr>
+      <td>Large jump</td>
+      <td class="num">26.4835</td><td class="num">26.8886</td>
+      <td class="num bad">1.015</td>
+      <td class="num bad"><strong>−1.53%</strong></td>
+      <td><span class="badge badge-bad">FAIL (깨짐)</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>4.2 시각화 — Buehler/BSM CVaR ratio (1.0 = 동률)</h3>
+
+<figure>
+<svg viewBox="0 0 900 380" xmlns="http://www.w3.org/2000/svg" width="100%" height="auto"
+     style="background:#fff;border:1px solid var(--border);border-radius:6px">
+
+  <text x="450" y="22" text-anchor="middle" font-size="13" font-weight="600">
+    Buehler / BSM Δ CVaR ratio — 1.0 미만 = Buehler 승
+  </text>
+
+  <!-- y axis: ratio 0.7 ~ 1.05 -->
+  <!-- baseline at ratio=1.0 (가로선) -->
+  <line x1="120" y1="80" x2="860" y2="80" stroke="#333" stroke-width="1"/>
+  <line x1="120" y1="80" x2="120" y2="320" stroke="#333" stroke-width="1"/>
+  <line x1="120" y1="320" x2="860" y2="320" stroke="#333" stroke-width="1"/>
+
+  <!-- horizontal lines at key ratios -->
+  <!-- ratio 0.7 → y = 80 + (1.05-0.7)/0.35 * 240 / (1.05-0.7) ... 단순화: 0.7→y=320, 1.05→y=80 -->
+  <!-- y(r) = 320 - (r - 0.7) / 0.35 * 240 -->
+
+  <!-- ratio = 1.0 (BSM 동률) → y = 320 - (1.0-0.7)/0.35*240 = 320 - 205.7 = 114.3 -->
+  <line x1="120" y1="114" x2="860" y2="114" stroke="#0b8043" stroke-width="1.5" stroke-dasharray="5,4"/>
+  <text x="864" y="118" font-size="11" fill="#0b8043">1.000 (BSM 동률 — 이 선보다 아래여야 Buehler 승)</text>
+
+  <!-- y-axis labels -->
+  <text x="115" y="84" text-anchor="end" font-size="10" fill="#666">1.05</text>
+  <text x="115" y="118" text-anchor="end" font-size="10" fill="#666">1.00</text>
+  <text x="115" y="186" text-anchor="end" font-size="10" fill="#666">0.90</text>
+  <text x="115" y="254" text-anchor="end" font-size="10" fill="#666">0.80</text>
+  <text x="115" y="324" text-anchor="end" font-size="10" fill="#666">0.70</text>
+
+  <!-- 4 bars -->
+  <!-- Bar 1: GBM-only ratio=0.787 → y = 320 - (0.787-0.7)/0.35*240 = 320 - 59.7 = 260.3 -->
+  <rect x="180" y="260" width="100" height="60" fill="#0b8043"/>
+  <text x="230" y="252" text-anchor="middle" font-size="12" font-weight="600" fill="#0b8043">0.787</text>
+  <text x="230" y="340" text-anchor="middle" font-size="11">GBM-only</text>
+  <text x="230" y="354" text-anchor="middle" font-size="10" fill="#0b8043">+21.28%</text>
+
+  <!-- Bar 2: Small jump ratio=0.956 → y = 320 - (0.956-0.7)/0.35*240 = 320 - 175.5 = 144.5 -->
+  <rect x="320" y="145" width="100" height="175" fill="#0b8043" opacity="0.6"/>
+  <text x="370" y="137" text-anchor="middle" font-size="12" font-weight="600" fill="#0b8043">0.956</text>
+  <text x="370" y="340" text-anchor="middle" font-size="11">Small jump</text>
+  <text x="370" y="354" text-anchor="middle" font-size="10" fill="#0b8043">+4.41%</text>
+
+  <!-- Bar 3: Medium jump ratio=0.913 → y = 320 - (0.913-0.7)/0.35*240 = 320 - 146.1 = 173.9 -->
+  <rect x="460" y="174" width="100" height="146" fill="#0b8043" opacity="0.8"/>
+  <text x="510" y="166" text-anchor="middle" font-size="12" font-weight="600" fill="#0b8043">0.913</text>
+  <text x="510" y="340" text-anchor="middle" font-size="11">Medium jump</text>
+  <text x="510" y="354" text-anchor="middle" font-size="10" fill="#0b8043">+8.69%</text>
+
+  <!-- Bar 4: Large jump ratio=1.015 → y = 320 - (1.015-0.7)/0.35*240 = 320 - 216 = 104 (위로 올라감) -->
+  <rect x="600" y="104" width="100" height="10" fill="#c0392b"/>
+  <text x="650" y="100" text-anchor="middle" font-size="12" font-weight="600" fill="#c0392b">1.015</text>
+  <text x="650" y="340" text-anchor="middle" font-size="11">Large jump</text>
+  <text x="650" y="354" text-anchor="middle" font-size="10" fill="#c0392b">−1.53%</text>
+
+  <!-- 화살표: jump 강도 -->
+  <path d="M 200,365 L 700,365" stroke="#666" stroke-width="1" marker-end="url(#arr2)"/>
+  <text x="450" y="378" text-anchor="middle" font-size="11" fill="#666">jump 강도 ↑ (λ: 0 → 5 → 10 → 20 jumps/year)</text>
+
+  <defs>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0,0 L 10,5 L 0,10 z" fill="#666"/>
+    </marker>
+  </defs>
+</svg>
+<figcaption>
+  녹색 = Buehler 승 (ratio &lt; 1.0). 빨강 = BSM Δ 와 동률 또는 패배.
+  점진적으로 jump 강도가 커질수록 Buehler 의 우위 마진이 줄어들다가 코로나급에서 깨진다.
+</figcaption>
+</figure>
+
+<h3>4.3 절대 손실 규모 — CVaR@5% 비교</h3>
+
+<figure>
+<svg viewBox="0 0 900 350" xmlns="http://www.w3.org/2000/svg" width="100%" height="auto"
+     style="background:#fff;border:1px solid var(--border);border-radius:6px">
+
+  <text x="450" y="22" text-anchor="middle" font-size="13" font-weight="600">
+    절대 CVaR@5% — jump 가 커질수록 두 헤지 모두 손실이 커지지만, Buehler 가 일관되게 작거나 같음
+  </text>
+
+  <!-- axes (max ratio: 30 - mapped to height 240) -->
+  <line x1="100" y1="60" x2="100" y2="290" stroke="#333" stroke-width="1"/>
+  <line x1="100" y1="290" x2="860" y2="290" stroke="#333" stroke-width="1"/>
+
+  <!-- y labels: 0, 5, 10, 15, 20, 25, 30 -->
+  <text x="95" y="294" text-anchor="end" font-size="10" fill="#666">0</text>
+  <text x="95" y="256" text-anchor="end" font-size="10" fill="#666">5</text>
+  <text x="95" y="217" text-anchor="end" font-size="10" fill="#666">10</text>
+  <text x="95" y="179" text-anchor="end" font-size="10" fill="#666">15</text>
+  <text x="95" y="140" text-anchor="end" font-size="10" fill="#666">20</text>
+  <text x="95" y="102" text-anchor="end" font-size="10" fill="#666">25</text>
+  <text x="95" y="63" text-anchor="end" font-size="10" fill="#666">30</text>
+
+  <!-- Group bars: pairs (BSM gray, Buehler green) -->
+  <!-- y(value) = 290 - value/30 * 230  →  factor = 7.667 px / unit -->
+
+  <!-- GBM: BSM=1.83, Buehler=1.44 -->
+  <rect x="160" y="276" width="55" height="14" fill="#888"/>
+  <text x="187" y="270" text-anchor="middle" font-size="10">1.83</text>
+  <rect x="220" y="279" width="55" height="11" fill="#0b8043"/>
+  <text x="247" y="270" text-anchor="middle" font-size="10" fill="#0b8043">1.44</text>
+  <text x="217" y="306" text-anchor="middle" font-size="10">GBM-only</text>
+
+  <!-- Small jump: BSM=4.58, Buehler=4.38 -->
+  <rect x="330" y="255" width="55" height="35" fill="#888"/>
+  <text x="357" y="249" text-anchor="middle" font-size="10">4.58</text>
+  <rect x="390" y="256" width="55" height="34" fill="#0b8043"/>
+  <text x="417" y="249" text-anchor="middle" font-size="10" fill="#0b8043">4.38</text>
+  <text x="387" y="306" text-anchor="middle" font-size="10">Small jump</text>
+
+  <!-- Medium jump: BSM=13.92, Buehler=12.71 -->
+  <rect x="500" y="183" width="55" height="107" fill="#888"/>
+  <text x="527" y="177" text-anchor="middle" font-size="10">13.92</text>
+  <rect x="560" y="193" width="55" height="97" fill="#0b8043"/>
+  <text x="587" y="187" text-anchor="middle" font-size="10" fill="#0b8043">12.71</text>
+  <text x="557" y="306" text-anchor="middle" font-size="10">Medium jump</text>
+
+  <!-- Large jump: BSM=26.48, Buehler=26.89 -->
+  <rect x="670" y="87" width="55" height="203" fill="#888"/>
+  <text x="697" y="81" text-anchor="middle" font-size="10">26.48</text>
+  <rect x="730" y="84" width="55" height="206" fill="#c0392b"/>
+  <text x="757" y="78" text-anchor="middle" font-size="10" fill="#c0392b">26.89</text>
+  <text x="727" y="306" text-anchor="middle" font-size="10">Large jump</text>
+
+  <!-- Legend -->
+  <rect x="700" y="40" width="14" height="10" fill="#888"/>
+  <text x="720" y="49" font-size="11">BSM Δ</text>
+  <rect x="770" y="40" width="14" height="10" fill="#0b8043"/>
+  <text x="790" y="49" font-size="11">Buehler</text>
+
+  <!-- y-axis label -->
+  <text x="55" y="180" font-size="11" fill="#666" transform="rotate(-90 55 180)">CVaR@5% (작을수록 좋음)</text>
+</svg>
+<figcaption>
+  회색 = BSM Δ baseline, 녹색 = Buehler. 회색보다 녹색이 같거나 짧으면 Buehler 승.
+  Large jump 만 녹색이 회색보다 살짝 길다 (1.5% 패배).
+</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2>5. 해석 — 왜 이런 결과가 나왔나</h2>
+
+<h3>5.1 GBM-only 에서 +21.28% 인 이유 (정상)</h3>
+<p>
+  학습 분포 그대로. Buehler 의 PG-on-CVaR 가 거래비용 환경에서 제대로 학습된 결과 (이전 보고서의 +24.5% 와 약간 차이는 평가 seed 차이 + 표본 크기 8000).
+</p>
+
+<h3>5.2 Small / Medium jump 에서 +4~9% 인 이유 (놀라운 결과)</h3>
+
+<div class="callout callout-purple">
+  <strong>핵심 발견</strong> — 정책은 jump 가 있다는 것을 <em>전혀 모른다</em>. 그저 GBM 환경에서 "현재 가격, 시간, 보유 헤지" 만 보고 행동하도록 학습됨.
+  그런데 Medium jump 환경에서도 BSM Δ 보다 +8.69% 잘함.
+  <br><br>
+  <strong>왜?</strong> Buehler 가 학습한 것은 "특정 분포에 맞춘 헤지" 가 아니라 "거래비용 + 이산 리밸런싱 환경에서 손실 꼬리를 줄이는 일반적 행동 양식".
+  이 양식은 GBM 가정에 강하게 의존하지 않아서, jump 가 약간 섞여도 깨지지 않는다.
+</div>
+
+<h3>5.3 Large jump 에서 −1.53% 깨진 이유 (정직한 한계)</h3>
+<p>
+  코로나급 stress 에서는 정책 행동의 디테일 (몇 % 헤지 비율을 잡을지) 자체가 의미 없어진다.
+  jump 한 번에 −8% 갭이 1주에 한 번 와버리면 BSM Δ 도 Buehler 도 큰 손실을 똑같이 떠안음.
+  ratio 가 1 근처로 수렴 — 두 방법의 차이가 사라지는 지점.
+</p>
+
+<h3>5.4 면접 talking point 3 줄</h3>
+
+<div class="callout callout-yellow">
+  <ol style="margin:0;padding-left:20px">
+    <li>"제 헤지 정책은 학습 환경에 jump 신호가 없었음에도, 분기 어닝쇼크 수준 (λ=10) 의 비정형성에서 BSM Δ 대비 8.69% 우위를 유지했습니다."</li>
+    <li>"하지만 코로나급 (λ=20) 에서는 1.5% 패배합니다 — 이게 제 모델의 한계 지점입니다."</li>
+    <li>"이 한계를 넘으려면 jump 환경 자체를 학습 데이터에 섞은 retraining 또는 jump-aware feature 추가가 필요한데, 후자는 Buehler 의 model-free 정신을 깨므로 전자만 추천합니다."</li>
+  </ol>
+</div>
+
+<!-- ============================================================ -->
+<h2>6. TL;DR (비전공자용)</h2>
+
+<div class="callout callout-info">
+  <ol style="margin:0;padding-left:20px">
+    <li>"갑작스런 점프 (어닝쇼크, 코로나) 같은 비정형 변동을 시뮬에 추가하는 옵션을 헤지 환경에 끼웠다 (기존 옵션은 그대로)."</li>
+    <li>"새 옵션을 끄면 (default) 기존 코드와 100% 동일하게 동작 — 회귀 0건."</li>
+    <li>"기존에 잘 학습된 헤지 정책을 (재학습 없이) 새 환경에서 평가한 결과: 일상~분기 어닝쇼크급에서는 BSM 공식 헤지보다 4~9% 잘하고, 코로나급에서는 1.5% 패배."</li>
+    <li>"이게 의미하는 것 — 제 헤지 정책은 미래를 전혀 예측하지 않지만, 적당한 비정형성까지는 견딘다. 깨지는 지점이 어디인지도 정확히 측정해뒀다."</li>
+  </ol>
+</div>
+
+<!-- ============================================================ -->
+<h2>7. 관련 파일</h2>
+
+<table>
+  <thead><tr><th>파일</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr><td><code>packages/ai_hedging/src/ai_hedging/env.py</code></td><td>HedgingEnvConfig + step() 에 jump 옵션 (gym 버전)</td></tr>
+    <tr><td><code>packages/ai_hedging/src/ai_hedging/agents/buehler_pg.py</code></td><td>BuehlerConfig + simulate_batch 에 jump 옵션 (PyTorch batch 버전)</td></tr>
+    <tr><td><code>packages/ai_hedging/tests/test_jump_env.py</code></td><td>호환성 + fat-tail 테스트 4 건 (모두 PASS)</td></tr>
+    <tr><td><code>scripts/stress_test_buehler_jump.py</code></td><td>4 시나리오 stress test 스크립트 (8000 path × 4 = 약 100 초)</td></tr>
+    <tr><td><code>data/stress_test_buehler_jump.json</code></td><td>결과 raw JSON</td></tr>
+  </tbody>
+</table>
+
+<h3>재현 방법</h3>
+<pre><code># 1. 호환성 테스트
+python -m pytest packages/ai_hedging/tests/test_jump_env.py -v
+# → 4 passed
+
+# 2. 전체 회귀 테스트
+python -m pytest packages/ --ignore=packages/fastmc -q
+# → 41 passed (기존 37 + 신규 4)
+
+# 3. stress test 실행 (약 100 초, CPU)
+python scripts/stress_test_buehler_jump.py
+# → data/stress_test_buehler_jump.json
+# → 콘솔에 4 시나리오 표 출력</code></pre>
+
+<!-- ============================================================ -->
+<h2 id="glossary">8. 용어 정리집</h2>
+
+<table>
+  <thead><tr><th style="width:22%">용어</th><th style="width:38%">한 줄 설명</th><th>본문에서의 역할</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>jump-diffusion</strong></td>
+      <td>주가가 평소엔 부드럽게 흔들리지만 (diffusion) 가끔 갭으로 점프하는 (jump) 모델</td>
+      <td>비정형 시뮬 환경의 본체. Merton 1976 가 원조</td>
+    </tr>
+    <tr>
+      <td><strong>Merton jump-diffusion</strong></td>
+      <td>1976년 Merton 의 모델 — jump 횟수는 Poisson, jump 크기는 log-normal</td>
+      <td>이 stress test 의 환경 모델 그 자체</td>
+    </tr>
+    <tr>
+      <td><strong>Poisson 분포</strong></td>
+      <td>"평균적으로 1년에 λ번 일어나는 사건이 1개월 안에 몇 번 일어날까?" 를 답해주는 분포</td>
+      <td>jump 횟수를 뽑는 데 사용 (λ=20 → 1년에 평균 20번)</td>
+    </tr>
+    <tr>
+      <td><strong>log-normal 분포</strong></td>
+      <td>로그값이 정규분포인 분포 — 양의 값만 나오므로 "주가 비율 변화" 모델링에 자연스러움</td>
+      <td>jump 크기 (S 가 몇 배로 변하는지) 의 분포</td>
+    </tr>
+    <tr>
+      <td><strong>λ (jump intensity)</strong></td>
+      <td>1년에 평균 jump 가 몇 번 일어나는가</td>
+      <td>4 시나리오의 핵심 변수 (0/5/10/20)</td>
+    </tr>
+    <tr>
+      <td><strong>μJ (jump mean)</strong></td>
+      <td>jump 가 일어났을 때 log-수익률 평균. 음수면 평균적으로 떨어지는 jump</td>
+      <td>모든 시나리오에서 음수 (어닝쇼크 = 평균적 −방향)</td>
+    </tr>
+    <tr>
+      <td><strong>σJ (jump std)</strong></td>
+      <td>jump 크기의 표준편차. 클수록 jump 의 흩어짐 큼</td>
+      <td>jump 의 "예측 불가능성" 강도</td>
+    </tr>
+    <tr>
+      <td><strong>risk-neutral compensator (κ)</strong></td>
+      <td>jump 가 평균적으로 가격을 끌어내릴 때, 이론적 가격 일관성을 위해 drift 에서 미리 빼주는 보정값</td>
+      <td>이론 가격 정합성 — jump 환경에서도 "공정 가격" 의미 유지</td>
+    </tr>
+    <tr>
+      <td><strong>CVaR@5%</strong></td>
+      <td>최악의 5% 손실들의 평균 (tail expected loss)</td>
+      <td>모든 시나리오의 비교 지표 — 작을수록 좋음</td>
+    </tr>
+    <tr>
+      <td><strong>BSM Δ-hedge</strong></td>
+      <td>BSM 공식이 알려주는 "현재 σ 에서의 헤지 비율 (Δ)" 만큼 매 step 보유</td>
+      <td>비교 baseline. 환경 변화를 모르는 단순 헤지</td>
+    </tr>
+    <tr>
+      <td><strong>Buehler PG-on-CVaR</strong></td>
+      <td>거래비용 환경에서 CVaR 손실을 직접 backward 해서 학습한 신경망 정책</td>
+      <td>이 stress test 의 주인공 — 평가 대상</td>
+    </tr>
+    <tr>
+      <td><strong>model-free 정책</strong></td>
+      <td>가격 모델 (BSM, Heston 등) 의 가정을 정책 입력에 안 쓰는 정책</td>
+      <td>Buehler 의 정신 — 본 변경에서 보존됨</td>
+    </tr>
+    <tr>
+      <td><strong>fat tail</strong></td>
+      <td>정규분포보다 극단값 (대규모 손실/이익) 이 자주 나오는 분포 모양</td>
+      <td>jump 의 효과 — 시뮬 PnL 분포가 fat tail 이 됨</td>
+    </tr>
+    <tr>
+      <td><strong>bit-exact 호환</strong></td>
+      <td>같은 입력에 정확히 같은 출력 (부동소수점 비트까지 일치)</td>
+      <td>λ=0 시 기존과 100% 동일 보장 — 기존 모델 재학습 불필요</td>
+    </tr>
+  </tbody>
+</table>
+
+<p class="meta" style="margin-top:48px;padding-top:14px;border-top:1px solid var(--border)">
+  관련 보고서:
+  <a href="../2026-04-25/B4_buehler_implementation.html">B4 Buehler 구현 (+24.5% 달성)</a> ·
+  <a href="../why_dh_failed.html">Deep Hedging 5번 실패 진단</a> ·
+  <a href="project_overview.html">프로젝트 종합 설명서</a>
+</p>
+
+</body>
+</html>

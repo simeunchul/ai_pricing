@@ -64,6 +64,13 @@ class HedgingEnvConfig:
     loss_penalty_pow: float = 1.0     # exponent: -|pnl|^pow when pnl<0; pow>1 amplifies tail
     tail_shock_weight: float = 0.0    # extra penalty on per-step rep_err when |rep_err|>tail_shock_thr
     tail_shock_thr: float = 0.05      # absolute rep_err threshold for tail-shock penalty
+    # Merton jump-diffusion (optional). All defaults 0 → pure GBM, RNG sequence
+    # identical to legacy. Set jump_intensity > 0 to activate. Policy 입력에는
+    # jump 정보가 들어가지 않으므로 Buehler "예측 안 함" 철학은 그대로 유지된다.
+    jump_intensity: float = 0.0       # λ — Poisson jumps per year
+    jump_mean: float = 0.0            # μJ — log-normal jump mean (log scale)
+    jump_std: float = 0.0             # σJ — log-normal jump std
+    jump_compensator: bool = True     # subtract λκ dt from drift (risk-neutral)
 
 
 class HedgingEnv(gym.Env if _HAS_GYM else object):
@@ -141,12 +148,23 @@ class HedgingEnv(gym.Env if _HAS_GYM else object):
         S_pre = self.S
         cash_pre = self.cash
 
-        # advance underlying one step (GBM)
+        # advance underlying one step (GBM + optional Merton jump)
         Z = self.rng.standard_normal()
-        S_next = self.S * math.exp(
-            (self.cfg.r - self.cfg.q - 0.5 * self.cfg.sigma**2) * dt
-            + self.cfg.sigma * math.sqrt(dt) * Z
-        )
+        log_drift = (self.cfg.r - self.cfg.q - 0.5 * self.cfg.sigma**2) * dt
+        log_diff = self.cfg.sigma * math.sqrt(dt) * Z
+        log_jump = 0.0
+        if self.cfg.jump_intensity > 0.0:
+            lam = self.cfg.jump_intensity
+            muJ = self.cfg.jump_mean
+            sigJ = self.cfg.jump_std
+            if self.cfg.jump_compensator:
+                kappa = math.exp(muJ + 0.5 * sigJ * sigJ) - 1.0
+                log_drift -= lam * kappa * dt
+            n_jumps = int(self.rng.poisson(lam * dt))
+            if n_jumps > 0:
+                jump_z = self.rng.standard_normal(n_jumps)
+                log_jump = float(np.sum(muJ + sigJ * jump_z))
+        S_next = self.S * math.exp(log_drift + log_diff + log_jump)
 
         # PnL accumulation: hedge gains, cash grows at r
         hedge_pnl = self.hedge * (S_next - self.S)

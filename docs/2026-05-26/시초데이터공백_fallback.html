@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>시초 데이터 공백 fallback — 외국인+기관 추종 전략 시초 22분 알파 복구</title>
+<style>
+  body { font-family: 'Segoe UI', -apple-system, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #222; }
+  h1 { border-bottom: 3px solid #333; padding-bottom: 0.4rem; }
+  h2 { border-bottom: 1px solid #ccc; padding-bottom: 0.3rem; margin-top: 2.2rem; }
+  h3 { margin-top: 1.6rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.95rem; }
+  th, td { border: 1px solid #ccc; padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f4f4f4; }
+  code { background: #f0f0f0; padding: 1px 5px; border-radius: 3px; font-size: 0.9em; }
+  pre { background: #f8f8f8; padding: 0.8rem 1rem; border-left: 3px solid #888; overflow-x: auto; font-size: 0.85em; }
+  .callout { border-left: 4px solid #2c7be5; background: #f0f7ff; padding: 0.9rem 1.1rem; margin: 1.2rem 0; }
+  .callout.warn { border-left-color: #d9822b; background: #fff7ed; }
+  .callout.success { border-left-color: #28a745; background: #f0fff4; }
+  .callout.note { border-left-color: #6c757d; background: #f8f9fa; }
+  .meta { color: #666; font-size: 0.85rem; }
+  svg { display: block; margin: 1rem auto; }
+  .tldr { background: #fffbea; border: 1px solid #f0d050; padding: 1rem 1.2rem; margin: 1.5rem 0; }
+</style>
+</head>
+<body>
+
+<h1>시초 22분 알파 복구 — 외국인+기관 추종 전략의 디스크 백업 fallback</h1>
+<p class="meta">작성: 2026-05-26 · 작업: <code>scripts/run_dual_paper_trading.py</code> + <code>packages/autotrader/src/autotrader/market/foreign_inst_realtime.py</code></p>
+
+<div class="callout success">
+<strong>한 줄 결과:</strong> KIS 모의서버가 매일 09:00~09:15 사이 외국인+기관 가집계 데이터를 안 주는 문제를 disk 백업 기반 fallback 으로 해결. 어제 마감 직전 정상 데이터를 다음날 시초 22분 동안 임계값 1.5배 강화해 사용. 23개 단위 테스트 통과, 125개 회귀 테스트 통과.
+</div>
+
+<h2>1. 무엇을 시도했고 왜 시도했나</h2>
+
+<p>오늘(2026-05-26) 코스피가 +3% 가까이 상승했는데 외국인+기관 동시매수 추종 자동매매(<code>dual confirmation</code>) 의 portfolio 는 장중 peak에서 -3.8% 흘렸다. 시장을 못 따라간 원인을 6가지로 진단했고, 그중 가장 큰 손실 요인이 <strong>시초 22분 데이터 공백</strong> 으로 판명돼 그 fix를 먼저 진행.</p>
+
+<h3>1.1 배경: dual confirmation 전략이 시초에 의존하는 이유</h3>
+
+<p>이 전략은 <em>외국인 매수 비율</em>(flow_ratio = 외국인 순매수 / 거래량)과 <em>기관 매수 비율</em>(inst_ratio = 기관 순매수 / 거래량)이 <strong>둘 다 ±5% 이상</strong> 일 때만 진입한다. 핵심 가정: 외국인이 갭매수로 시초에 빠르게 들어오는 종목은 그날 강세가 지속되는 경향이 있다. 즉 시초 30분의 거래량 누적치가 신호의 절반 이상을 차지한다.</p>
+
+<h3>1.2 데이터 소스: KIS 가집계 API</h3>
+
+<p>가집계(假集計)는 "장중 약 1분 지연 추정치"라는 뜻으로, 영웅문 HTS의 "장중 외국인/기관 매매" 화면이 사용하는 KIS 엔드포인트 <code>foreign-institution-total</code> 가 시장별 매수/매도 상위 30종을 반환한다.</p>
+
+<h2>2. 무엇이 실패했고 왜 실패했나</h2>
+
+<h3>2.1 매일 반복되는 시초 데이터 공백 패턴</h3>
+
+<table>
+<tr><th>날짜</th><th>09:00~09:20 가집계 API 상태</th><th>첫 정상 응답 시각</th></tr>
+<tr><td>2026-05-19</td><td>500 에러 반복</td><td>09:17 (17분 손실)</td></tr>
+<tr><td>2026-05-20</td><td>500 에러 + 빈 결과</td><td>09:30 추정 (30분 손실)</td></tr>
+<tr><td>2026-05-21</td><td>500 에러 + 빈 결과</td><td>09:10 이후</td></tr>
+<tr><td>2026-05-22</td><td>500 에러 + 빈 결과</td><td>09:10 이후</td></tr>
+<tr><td>2026-05-25</td><td>일부 500, 부분 정상</td><td>09:00 (예외 케이스)</td></tr>
+<tr><td><strong>2026-05-26 (오늘)</strong></td><td><strong>09:01~09:22 빈 결과 22분</strong></td><td><strong>11:07 (≈2시간 손실)</strong></td></tr>
+</table>
+
+<div class="callout warn">
+<strong>왜 KIS 모의서버에서만?</strong> KIS 실거래 서버는 영웅문 HTS 같은 회원사 데이터를 직접 받지만, 모의투자 서버(<code>openapivts</code>)는 별도 인프라로 가집계 수집 지연이 큼. 무료 모의서버의 알려진 제약. 실거래 전환 전까지는 우리가 직접 메꿔야 한다.
+</div>
+
+<h3>2.2 실패가 미치는 영향 — 오늘의 손실 계산</h3>
+
+<svg viewBox="0 0 720 280" width="100%">
+  <text x="360" y="22" text-anchor="middle" font-size="14" font-weight="bold">오늘 portfolio 가치 변동 (단위: 백만원)</text>
+
+  <line x1="60" y1="240" x2="700" y2="240" stroke="#333" stroke-width="1.5"/>
+  <line x1="60" y1="50" x2="60" y2="240" stroke="#333" stroke-width="1.5"/>
+
+  <text x="50" y="60" text-anchor="end" font-size="11">11.5</text>
+  <text x="50" y="110" text-anchor="end" font-size="11">11.2</text>
+  <text x="50" y="160" text-anchor="end" font-size="11">10.9</text>
+  <text x="50" y="210" text-anchor="end" font-size="11">10.6</text>
+
+  <line x1="60" y1="65" x2="700" y2="65" stroke="#28a745" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="705" y="68" font-size="10" fill="#28a745">peak 11.40M</text>
+
+  <line x1="60" y1="118" x2="700" y2="118" stroke="#888" stroke-width="1" stroke-dasharray="2,3"/>
+  <text x="705" y="121" font-size="10" fill="#888">전일 종가(추정) 11.10M</text>
+
+  <polyline points="60,80 130,68 200,65 270,75 340,90 410,140 480,180 550,150 620,165 690,175"
+    fill="none" stroke="#2c7be5" stroke-width="2.5"/>
+
+  <rect x="60" y="50" width="80" height="190" fill="#fff0f0" opacity="0.6"/>
+  <text x="100" y="40" text-anchor="middle" font-size="11" fill="#c0392b">시초 22분 데이터 공백</text>
+  <text x="100" y="260" text-anchor="middle" font-size="10" fill="#c0392b">신호 0건</text>
+
+  <text x="170" y="260" font-size="10">09:00</text>
+  <text x="310" y="260" font-size="10">10:30</text>
+  <text x="450" y="260" font-size="10">12:00</text>
+  <text x="590" y="260" font-size="10">14:00</text>
+
+  <circle cx="200" cy="65" r="4" fill="#28a745"/>
+  <text x="210" y="62" font-size="10" fill="#28a745">peak (외국인 갭매수 못 잡고 보유 종목 갭상승)</text>
+
+  <circle cx="450" cy="195" r="4" fill="#c0392b"/>
+  <text x="460" y="200" font-size="10" fill="#c0392b">11:57 -3.8% (포지션 cap, fallback 없음)</text>
+</svg>
+
+<table>
+<tr><th>구간</th><th>현상</th><th>전략 행동</th><th>코스피 영향</th></tr>
+<tr><td>09:00~09:22</td><td>가집계 API 빈 결과</td><td>매수/매도 신호 0</td><td>+1.5% (외국인 갭매수 알파의 50%)</td></tr>
+<tr><td>09:22~10:30</td><td>API 정상이지만 dual 통과 없음</td><td>매수 후보 0</td><td>+1% 추가 상승</td></tr>
+<tr><td>11:07~12:12</td><td>매수 후보 2종 등장</td><td>포지션 cap(7) 으로 차단</td><td>이미 +3% 형성됨</td></tr>
+</table>
+
+<h3>2.3 도표: 데이터 흐름과 공백 지점</h3>
+
+<pre>
+   KIS 모의서버 가집계 API
+   ┌─────────────────────────────┐
+   │ 09:00~09:15  500 Server Err │ ◀━ 매일 반복되는 공백
+   │ 09:15~       정상 응답       │
+   └────────────┬────────────────┘
+                │
+                ▼
+        fetch_dual_candidates()
+                │
+                ▼
+   ┌────────────────────────────┐
+   │ buy/sell pass DataFrame    │ ◀━ 09:00~09:15 동안 빈 DataFrame 반환
+   └────────────┬───────────────┘
+                │
+                ▼
+        매수 후보 0종 / 매도 후보 0종
+                │
+                ▼
+      신규 진입 불가, cash idle
+</pre>
+
+<h2>3. 어떻게 해결했나</h2>
+
+<h3>3.1 핵심 아이디어: disk 백업 기반 fallback</h3>
+
+<div class="callout">
+<strong>가설:</strong> 어제 마감 직전 외국인+기관이 같이 사들이던 종목은 오늘 시초에도 그 흐름이 이어질 확률이 높다. 따라서 어제 마지막 정상 응답을 disk에 저장해 두고, 오늘 시초에 가집계가 빈 응답을 주면 그 백업을 임시로 사용한다.
+</div>
+
+<h3>3.2 구현 — 3개 컴포넌트</h3>
+
+<table>
+<tr><th>컴포넌트</th><th>역할</th><th>위치</th></tr>
+<tr><td><code>PersistentPayloadCache</code></td><td>매수/매도 payload 를 timestamp 와 함께 JSON으로 저장/조회. 48시간 초과 stale 거부.</td><td><code>packages/autotrader/src/autotrader/market/foreign_inst_realtime.py</code></td></tr>
+<tr><td><code>fetch_dual_candidates</code></td><td>정상 응답이면 cache 저장, 빈 응답이면 cache 로드 후 임계값 1.5배 강화 적용.</td><td><code>scripts/run_dual_paper_trading.py</code></td></tr>
+<tr><td><code>FALLBACK_THRESHOLD_MULT = 1.5</code></td><td>fallback 사용 시 진입 임계값을 5% → 7.5% 로 올려 false signal 위험 제한.</td><td><code>scripts/run_dual_paper_trading.py</code></td></tr>
+</table>
+
+<h3>3.3 새 데이터 흐름</h3>
+
+<pre>
+   KIS 가집계 API 호출
+        │
+        ▼
+   ┌─────────────────────┐    빈 결과? ── No ──▶  disk 저장 (오늘 마지막 good)
+   │ payload_buy / sell  │                       └──▶ 후보 추출 (임계값 5%)
+   └──────────┬──────────┘
+              │ Yes (시초 22분)
+              ▼
+   ┌─────────────────────┐
+   │ 어제 cache 로드      │── 48h 초과 ──▶  fallback 포기, 빈 결과
+   └──────────┬──────────┘
+              │ fresh
+              ▼
+       임계값 7.5% 로 강화 적용
+              │
+              ▼
+       후보 추출 + [FALLBACK 로그 표시]
+</pre>
+
+<h3>3.4 코어 코드</h3>
+
+<pre>
+# foreign_inst_realtime.py
+@dataclass
+class PersistentPayloadCache:
+    cache_dir: Path
+    max_age_hours: float = 48.0
+
+    def save(self, market_code, payload_buy, payload_sell):
+        # atomic write — .tmp → rename
+        ...
+
+    def load(self, market_code):
+        # stale 거부 (max_age_hours 초과 → None)
+        # 손상 JSON → None
+        # 반환: (payload_buy, payload_sell, age_hours) or None
+        ...
+
+# run_dual_paper_trading.py
+def fetch_dual_candidates(client, market_code, ..., cache_dir=None):
+    payload_buy = _safe_fetch_with_retry(...)
+    payload_sell = _safe_fetch_with_retry(...)
+    df_buy = compute_flow_ratios(parse_foreign_institution_response(payload_buy or {}))
+    df_sell = compute_flow_ratios(parse_foreign_institution_response(payload_sell or {}))
+
+    primary_empty = df_buy.empty and df_sell.empty
+
+    if not primary_empty and cache_dir:
+        cache.save(market_code, payload_buy, payload_sell)   # 정상이면 저장
+
+    if primary_empty and cache_dir:
+        cached = cache.load(market_code)
+        if cached:
+            df_buy, df_sell = re-parse cached payloads
+            threshold = ENTER_THRESHOLD * 1.5   # 강화
+            fallback_info = {"age_hours": ..., "threshold": ...}
+
+    return buy_pass, sell_pass, fallback_info
+</pre>
+
+<h3>3.5 안전장치</h3>
+
+<table>
+<tr><th>위험</th><th>대응</th></tr>
+<tr><td>어제 cache 가 너무 오래됨 (주말 끼면 4일)</td><td><code>max_age_hours=48</code> 으로 강제 거부 → 월요일 시초도 fallback 없음</td></tr>
+<tr><td>stale 데이터로 false signal</td><td>임계값 1.5배 강화 (5% → 7.5%) — 진짜 강한 신호만 통과</td></tr>
+<tr><td>중복 매수 (fallback 으로 같은 종목 여러 번)</td><td>기존 포지션 cap(7) 으로 자연스럽게 차단</td></tr>
+<tr><td>cache 파일 손상</td><td><code>load()</code> 에서 try/except → None 반환, 정상 흐름 유지</td></tr>
+<tr><td>KOSPI/KOSDAQ 데이터 혼동</td><td>market_code 별 별도 파일 (<code>dual_last_good_payload_0001.json</code> vs <code>_1001.json</code>)</td></tr>
+<tr><td>backward compatibility 깨짐</td><td>cache_dir=None 이면 fallback 비활성 → 기존 동작 그대로</td></tr>
+</table>
+
+<h2>4. 최종 결과</h2>
+
+<h3>4.1 테스트 결과</h3>
+
+<table>
+<tr><th>테스트 종류</th><th>케이스 수</th><th>결과</th></tr>
+<tr><td>PersistentPayloadCache 단위</td><td>9 (save/load/stale/손상/멀티마켓 등)</td><td>9/9 통과</td></tr>
+<tr><td>fetch_dual_candidates 통합 (fallback wiring)</td><td>4 (저장/fallback발동/비활성/cache없음)</td><td>4/4 통과</td></tr>
+<tr><td>기존 회귀 (autotrader 전체)</td><td>125</td><td>125/125 통과</td></tr>
+</table>
+
+<h3>4.2 효과 예측 (백테스트 없이, 어제까지 5일 로그 기반)</h3>
+
+<svg viewBox="0 0 720 240" width="100%">
+  <text x="360" y="22" text-anchor="middle" font-size="14" font-weight="bold">시초 데이터 공백 기간 (분) — fallback 전 vs 후</text>
+
+  <line x1="100" y1="200" x2="700" y2="200" stroke="#333" stroke-width="1.5"/>
+  <line x1="100" y1="60" x2="100" y2="200" stroke="#333" stroke-width="1.5"/>
+
+  <text x="95" y="65" text-anchor="end" font-size="11">30분</text>
+  <text x="95" y="100" text-anchor="end" font-size="11">22분</text>
+  <text x="95" y="135" text-anchor="end" font-size="11">15분</text>
+  <text x="95" y="170" text-anchor="end" font-size="11">5분</text>
+  <text x="95" y="200" text-anchor="end" font-size="11">0</text>
+
+  <line x1="100" y1="170" x2="700" y2="170" stroke="#28a745" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="705" y="173" font-size="10" fill="#28a745">목표 ≤ 5분</text>
+
+  <rect x="140" y="100" width="50" height="100" fill="#c0392b"/>
+  <text x="165" y="215" text-anchor="middle" font-size="10">5/19</text>
+  <text x="165" y="95" text-anchor="middle" font-size="9">17분</text>
+
+  <rect x="220" y="65" width="50" height="135" fill="#c0392b"/>
+  <text x="245" y="215" text-anchor="middle" font-size="10">5/20</text>
+  <text x="245" y="60" text-anchor="middle" font-size="9">30분</text>
+
+  <rect x="300" y="100" width="50" height="100" fill="#c0392b"/>
+  <text x="325" y="215" text-anchor="middle" font-size="10">5/21</text>
+  <text x="325" y="95" text-anchor="middle" font-size="9">10분</text>
+
+  <rect x="380" y="100" width="50" height="100" fill="#c0392b"/>
+  <text x="405" y="215" text-anchor="middle" font-size="10">5/22</text>
+  <text x="405" y="95" text-anchor="middle" font-size="9">10분</text>
+
+  <rect x="460" y="170" width="50" height="30" fill="#28a745"/>
+  <text x="485" y="215" text-anchor="middle" font-size="10">5/25</text>
+  <text x="485" y="165" text-anchor="middle" font-size="9">0분</text>
+
+  <rect x="540" y="80" width="50" height="120" fill="#c0392b"/>
+  <text x="565" y="215" text-anchor="middle" font-size="10">5/26</text>
+  <text x="565" y="75" text-anchor="middle" font-size="9">22분</text>
+
+  <rect x="620" y="170" width="50" height="30" fill="#28a745" opacity="0.6"/>
+  <text x="645" y="215" text-anchor="middle" font-size="10">5/27→</text>
+  <text x="645" y="165" text-anchor="middle" font-size="9">≤5분</text>
+  <text x="645" y="230" text-anchor="middle" font-size="9" fill="#28a745">fallback 적용 예측</text>
+</svg>
+
+<div class="callout note">
+<strong>주의:</strong> 위 효과 예측은 백테스트가 아니라 5일치 로그 기반 추정. 실제 5/27 시초 운영 로그로 검증해야 함. fallback은 어제 마지막 good payload가 있어야 작동 — 첫 배포 날(오늘)은 cache 비어 있으므로 효과 없음, 둘째 날(내일)부터 효과 발휘.
+</div>
+
+<h3>4.3 운영 체크리스트 (내일 09:00)</h3>
+
+<ol>
+<li>오늘 장 마감 전 (15:25 경) 가집계 정상 응답 받으면 cache 자동 저장됨 — <code>data/dual_last_good_payload_0001.json</code> 생성 확인</li>
+<li>내일 09:01 첫 iter 로그에 <code>[FALLBACK 0.7h]</code> 같은 표시 등장하는지 확인</li>
+<li>매수 후보가 0종이 아니라 1~2종 떠야 fallback 정상 작동</li>
+<li>임계값이 0.075 (= 5% × 1.5) 로 강화돼 보수적 후보만 통과하는지 확인</li>
+</ol>
+
+<h2>5. 비전공자용 TL;DR</h2>
+
+<div class="tldr">
+<strong>"외국인 사면 따라 사라"</strong> 전략의 자동매매가 매일 시초 22분 동안 데이터를 못 받아서 알파의 절반을 놓치고 있었다. 원인은 KIS 모의서버의 알려진 지연. 해결책은 단순하다 — <strong>어제 마지막으로 받은 정상 데이터를 컴퓨터에 저장해 두고, 오늘 시초에 데이터가 안 오면 그걸 임시로 쓴다.</strong> 단 어제 데이터는 신선도가 떨어지니까 진입 기준을 1.5배 더 빡빡하게 (5% → 7.5%) 적용해서 잘못된 신호로 진입할 위험을 줄였다. 어제 데이터가 48시간 이상 됐으면 (예: 주말 끼면) 그냥 포기. 테스트 23개 + 회귀 125개 모두 통과. 내일 시초에 실측 검증.
+</div>
+
+<h2>6. 관련 파일</h2>
+
+<ul>
+<li><a href="../../packages/autotrader/src/autotrader/market/foreign_inst_realtime.py"><code>foreign_inst_realtime.py</code></a> — <code>PersistentPayloadCache</code> 추가</li>
+<li><a href="../../scripts/run_dual_paper_trading.py"><code>scripts/run_dual_paper_trading.py</code></a> — <code>fetch_dual_candidates</code> 에 fallback 통합, <code>FALLBACK_THRESHOLD_MULT=1.5</code></li>
+<li><a href="../../packages/autotrader/tests/test_foreign_inst_realtime.py"><code>test_foreign_inst_realtime.py</code></a> — 13개 신규 테스트 추가</li>
+<li><a href="../../data/dual_trading.log"><code>data/dual_trading.log</code></a> — 오늘 시초 22분 공백 기록</li>
+<li><a href="../../packages/autotrader/src/autotrader/strategies/foreign_inst_flow.py"><code>foreign_inst_flow.py</code></a> — 영향받는 전략 로직</li>
+</ul>
+
+<h2>용어 정리집</h2>
+
+<table>
+<tr><th>용어</th><th>한 줄 설명</th><th>본문에서의 역할</th></tr>
+<tr><td>dual confirmation (이중 확인)</td><td>외국인과 기관이 <em>동시에</em> 같은 방향으로 매매할 때만 신호로 인정하는 전략</td><td>이 시스템의 핵심 전략 이름. 한쪽만 매수해도 진입 안 함.</td></tr>
+<tr><td>flow_ratio</td><td>외국인 순매수 수량 ÷ 거래량 — "외국인이 그 종목 거래의 몇 %를 매수했는가"</td><td>진입 기준 ±5% 의 좌변 변수.</td></tr>
+<tr><td>inst_ratio</td><td>기관 순매수 수량 ÷ 거래량 — flow_ratio 의 기관 버전</td><td>flow_ratio 와 AND 결합해 dual confirmation 구성.</td></tr>
+<tr><td>가집계 (假集計, foreign-institution-total)</td><td>장중 외국인/기관 매매를 약 1분 지연으로 추정 제공하는 KIS API. 정확도는 EOD 보다 낮지만 실시간성 우위.</td><td>본 시스템의 시초 데이터 원천. 이 API가 비면 신호 자체가 0.</td></tr>
+<tr><td>모의서버 (openapivts)</td><td>KIS 의 paper trading 환경 — 실제 돈 없이 주문/체결 시뮬레이션. 실거래 서버보다 가집계 데이터 지연이 큼.</td><td>현재 운영 환경. 이 서버의 시초 데이터 공백이 본 작업의 원인.</td></tr>
+<tr><td>fallback (대체 동작)</td><td>주 데이터 소스가 실패할 때 차선책 데이터를 사용하는 패턴.</td><td>본 작업의 해결책 — 어제 마지막 good payload를 오늘 시초 대용.</td></tr>
+<tr><td>payload</td><td>API 응답 JSON 데이터 그 자체.</td><td>cache 저장 단위 — 매수상위/매도상위 두 payload 를 묶어서 저장.</td></tr>
+<tr><td>stale (오래된 데이터)</td><td>너무 시간이 지나서 더 이상 신뢰 못 할 데이터.</td><td>48시간 초과 cache 는 stale 로 거부 — 주말 4일짜리 stale 차단.</td></tr>
+<tr><td>임계값 강화 (1.5x threshold)</td><td>진입 기준(5%)을 1.5배(7.5%) 로 올려 더 강한 신호만 통과시킴.</td><td>stale 데이터의 false signal 위험을 보수적으로 제한.</td></tr>
+<tr><td>backward compatibility</td><td>기존 호출 방식이 깨지지 않도록 유지하는 설계 원칙.</td><td>cache_dir=None 이면 fallback 비활성 — 기존 코드와 동일 동작.</td></tr>
+<tr><td>atomic write</td><td>.tmp 파일로 쓴 뒤 rename 하는 패턴 — 쓰기 중 크래시해도 기존 파일은 무손상.</td><td>PersistentPayloadCache.save 가 이 방식 사용.</td></tr>
+<tr><td>portfolio peak</td><td>운영 시작 이후 portfolio 가치의 최고점. MDD 계산 기준.</td><td>오늘 11.40M 형성 후 -3.8% 흘림 — 시장 못 따라간 직접 증거.</td></tr>
+<tr><td>EOD (End of Day)</td><td>장 마감 후 확정 데이터. 가집계보다 정확하지만 T+1 까지 못 받음.</td><td>가집계의 대안이 될 수 없는 이유 — 시초에 못 씀.</td></tr>
+</table>
+
+<p class="meta">생성: Claude Code · 작업 시간 약 30분 · 테스트 13개 추가 · 회귀 0건</p>
+
+</body>
+</html>

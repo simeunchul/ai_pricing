@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>quant-lab · 프로젝트 종합 설명서 (2026-04-26)</title>
+<style>
+  :root {
+    --fg: #1a1a1a; --bg: #fafafa; --muted: #666;
+    --accent: #2c5aa0; --accent-light: #e6eef7;
+    --warn: #c0392b; --warn-light: #fdeae6;
+    --ok: #0b8043; --ok-light: #e6f3ea;
+    --yellow: #a6820d; --yellow-light: #fff4d6;
+    --purple: #6c3483; --purple-light: #eee0f3;
+    --border: #ddd; --code-bg: #f4f4f4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR",
+                 "Apple SD Gothic Neo", Roboto, sans-serif;
+    color: var(--fg); background: var(--bg); line-height: 1.7;
+    max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px;
+  }
+  h1 { font-size: 28px; border-bottom: 3px solid var(--accent); padding-bottom: 8px; }
+  h2 { font-size: 22px; margin-top: 44px; color: var(--accent);
+       border-left: 4px solid var(--accent); padding-left: 12px; }
+  h3 { font-size: 17px; margin-top: 26px; }
+  h4 { font-size: 15px; color: var(--muted); margin: 16px 0 4px; }
+  code {
+    background: var(--code-bg); padding: 2px 6px; border-radius: 3px;
+    font-family: ui-monospace, Consolas, monospace; font-size: 13px;
+  }
+  pre {
+    background: #1e1e1e; color: #d4d4d4; padding: 14px 16px; border-radius: 6px;
+    overflow-x: auto; font-size: 13px; line-height: 1.5;
+  }
+  pre code { background: transparent; color: inherit; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { padding: 10px 12px; text-align: left; border: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--accent-light); font-weight: 600; }
+  tbody tr:nth-child(even) { background: #f7f7f7; }
+  .num { font-family: ui-monospace, Consolas, monospace; }
+  .good { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--warn); font-weight: 600; }
+  .partial { color: var(--yellow); font-weight: 600; }
+  .callout { border-left: 4px solid; padding: 14px 18px; margin: 18px 0; border-radius: 0 6px 6px 0; }
+  .callout-warn { border-color: var(--warn); background: var(--warn-light); }
+  .callout-ok { border-color: var(--ok); background: var(--ok-light); }
+  .callout-info { border-color: var(--accent); background: var(--accent-light); }
+  .callout-yellow { border-color: var(--yellow); background: var(--yellow-light); }
+  .callout-purple { border-color: var(--purple); background: var(--purple-light); }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 3px;
+    font-size: 12px; font-weight: 600;
+  }
+  .badge-ok { background: var(--ok-light); color: var(--ok); }
+  .badge-partial { background: var(--yellow-light); color: var(--yellow); }
+  .badge-todo { background: var(--warn-light); color: var(--warn); }
+  .badge-info { background: var(--accent-light); color: var(--accent); }
+  .meta { color: var(--muted); font-size: 13px; }
+  figure { margin: 20px 0; text-align: center; }
+  figcaption { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+  .toc { background: #fff; border: 1px solid var(--border); border-radius: 6px;
+         padding: 16px 24px; margin: 20px 0; }
+  .toc ol { margin: 4px 0; padding-left: 24px; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  kbd { display:inline-block; padding:2px 6px; border:1px solid var(--border);
+        border-bottom-width:2px; border-radius:3px; font-family:ui-monospace,Consolas,monospace;
+        font-size:12px; background:#fff; }
+</style>
+</head>
+<body>
+
+<h1>quant-lab · 프로젝트 종합 설명서</h1>
+<p class="meta">
+  작성 2026-04-26 · 대상: 본인 (수학과 전공, Python 숙련, 퀀트/파생 미경험) ·
+  목표: "이 프로젝트가 도대체 뭘 하는 건지, 어떻게 쓰는지, 진짜로 동작하는지" 한 문서로 끝내기
+</p>
+
+<div class="callout callout-ok">
+  <strong>한 줄 요약</strong> — 이 저장소는 <strong>"같은 옵션 1개에 대해 5가지 다른 방법으로 가격을 매기고, 그 결과를 같은 잣대로 비교하는 실험실"</strong> 이다.
+  목적은 한화투자증권 디지털금융(Trading) 직무 JD 의 4축 (자산운용 · ELS 헤지 · ETF LP · Trading 전산) 을 모노레포 1 개로 증명하는 것.
+  오늘 (2026-04-26) <strong>pytest 37/37 통과</strong>, <strong>desk_day.py orchestrator 7-stage 풀파이프라인 정상 종료</strong>, <strong>23 건 의사결정 audit log 기록</strong> 으로 end-to-end 동작 검증 완료.
+</div>
+
+<nav class="toc">
+  <strong>목차</strong>
+  <ol>
+    <li><a href="#what">이 프로젝트가 정확히 뭘 하나 (1분 설명)</a></li>
+    <li><a href="#why">왜 이런 구조로 만들었나 (배경)</a></li>
+    <li><a href="#pipeline">파이프라인 — 데이터가 어디서 와서 어디로 가나</a></li>
+    <li><a href="#layers">5 Layer 의 역할 (각 1단락)</a></li>
+    <li><a href="#verify">실제로 동작하나? — 오늘 돌려본 검증 결과</a></li>
+    <li><a href="#use">어떻게 사용하나 — 3 가지 시나리오</a></li>
+    <li><a href="#status">현재 상태 한눈에</a></li>
+    <li><a href="#tldr">비전공자용 TL;DR</a></li>
+    <li><a href="#files">관련 파일 / 문서 / 커밋</a></li>
+    <li><a href="#glossary">용어 정리집</a></li>
+  </ol>
+</nav>
+
+<!-- ================================================================== -->
+<h2 id="what">1. 이 프로젝트가 정확히 뭘 하나</h2>
+
+<p>
+  <strong>핵심 한 줄</strong> — 옵션·ELS 같은 파생상품의 "공정 가격" 을 5 가지 서로 다른 방식으로 계산하고, 그 결과를 동일한 시장 시나리오에 부어서 어느 방식이 더 정확한지 / 더 빠른지 / 거래비용 환경에서 더 잘 헤지하는지를 비교한다.
+</p>
+
+<p>그 위에 다음 두 축을 더 얹었다:</p>
+
+<ul>
+  <li><strong>실거래 시뮬</strong> — 한국투자증권 Open API (KIS Developers) 로 모의투자 자동매매 (ETF iNAV 괴리 전략).</li>
+  <li><strong>고성능 가속</strong> — 가장 무거운 Monte Carlo 시뮬을 numpy → C++ (pybind11+OpenMP) 로 옮겨 14.8× 가속.</li>
+</ul>
+
+<div class="callout callout-info">
+  <strong>핵심 차별화</strong> — 보통의 퀀트 토이 프로젝트는 "BSM 식 한 번 짜고 끝" 이지만, 이 저장소는 동일 옵션을 5가지 방법으로 가격 매기고 비교하는 <em>실험 프레임워크</em> 자체가 산출물.
+  마지막에는 그것들을 묶어서 <code>scripts/desk_day.py</code> 라는 "한화 ELS 데스크의 하루" 시뮬레이션으로 통합 → 단일 실행으로 전 Layer 가 시간 순서대로 돌아간다.
+</div>
+
+<!-- ================================================================== -->
+<h2 id="why">2. 왜 이런 구조로 만들었나</h2>
+
+<h3>배경</h3>
+<p>
+  한화투자증권 디지털금융(Trading) JD 는 4 가지 역할을 동시에 요구한다:
+  <strong>(1) 자산운용</strong>, <strong>(2) ELS 헤지</strong>, <strong>(3) ETF LP 업무</strong>, <strong>(4) Trading 전산 시스템</strong>.
+  퀀트/파생 경력 0 인 상태에서 이 4 축을 포트폴리오 1 건으로 커버해야 했다.
+</p>
+
+<h3>전략적 선택</h3>
+<table>
+  <thead><tr><th>JD 요구</th><th>이 저장소에서 어떻게 증명하나</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>자산운용 (가격 모델)</td>
+      <td>Layer A (BSM/Heston/MC) + B1 (NN Pricer) + B2 (Deep Calibration)</td>
+    </tr>
+    <tr>
+      <td>ELS 헤지</td>
+      <td>Layer A 의 ELS step-down + Layer B4 (Deep Hedging) — 한화스마트ELS 8286호 실공시 ±2.17% 재가격</td>
+    </tr>
+    <tr>
+      <td>ETF LP 업무</td>
+      <td>Layer D (ETF iNAV 괴리 전략) + Avellaneda-Stoikov 양방향 호가 업그레이드</td>
+    </tr>
+    <tr>
+      <td>Trading 전산 시스템</td>
+      <td>Layer D (KIS API + 3-단계 risk guard) + Layer E (C++ 가속) + compliance 패키지 (audit log + HITL)</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ================================================================== -->
+<h2 id="pipeline">3. 파이프라인 — 데이터가 어디서 와서 어디로 가나</h2>
+
+<figure>
+<svg viewBox="0 0 1000 580" xmlns="http://www.w3.org/2000/svg" width="100%" height="auto"
+     style="background:#fff;border:1px solid var(--border);border-radius:6px">
+
+  <!-- Title -->
+  <text x="500" y="22" font-size="14" font-weight="600" text-anchor="middle" fill="#333">
+    데이터 흐름도 — 입력 ⇒ Layer ⇒ 산출물 ⇒ 비교/감사
+  </text>
+
+  <!-- ── INPUTS (top row) ─────────────────────────── -->
+  <g>
+    <rect x="20" y="50" width="180" height="100" fill="#e6eef7" stroke="#2c5aa0" rx="6"/>
+    <text x="110" y="72" text-anchor="middle" font-weight="700" font-size="13" fill="#2c5aa0">시장 데이터</text>
+    <text x="110" y="92" text-anchor="middle" font-size="11">• yfinance (KOSPI200,</text>
+    <text x="110" y="106" text-anchor="middle" font-size="11">  SPX, SX5E, VIX)</text>
+    <text x="110" y="120" text-anchor="middle" font-size="11">• KIS API (장중 시세)</text>
+    <text x="110" y="136" text-anchor="middle" font-size="11" fill="#666">→ data/market_snapshots/</text>
+  </g>
+
+  <g>
+    <rect x="220" y="50" width="180" height="100" fill="#e6eef7" stroke="#2c5aa0" rx="6"/>
+    <text x="310" y="72" text-anchor="middle" font-weight="700" font-size="13" fill="#2c5aa0">파생상품 공시</text>
+    <text x="310" y="92" text-anchor="middle" font-size="11">• DART OpenAPI</text>
+    <text x="310" y="106" text-anchor="middle" font-size="11">  (한화 ELS 4 건)</text>
+    <text x="310" y="120" text-anchor="middle" font-size="11">• XML 파싱</text>
+    <text x="310" y="136" text-anchor="middle" font-size="11" fill="#666">→ data/els_samples/</text>
+  </g>
+
+  <g>
+    <rect x="420" y="50" width="180" height="100" fill="#e6eef7" stroke="#2c5aa0" rx="6"/>
+    <text x="510" y="72" text-anchor="middle" font-weight="700" font-size="13" fill="#2c5aa0">뉴스 / 매크로</text>
+    <text x="510" y="92" text-anchor="middle" font-size="11">• 네이버 RSS</text>
+    <text x="510" y="106" text-anchor="middle" font-size="11">• FOMC + CPI 캘린더</text>
+    <text x="510" y="120" text-anchor="middle" font-size="11">  (N=208)</text>
+    <text x="510" y="136" text-anchor="middle" font-size="11" fill="#666">→ data/macro_events/</text>
+  </g>
+
+  <g>
+    <rect x="620" y="50" width="180" height="100" fill="#e6eef7" stroke="#2c5aa0" rx="6"/>
+    <text x="710" y="72" text-anchor="middle" font-weight="700" font-size="13" fill="#2c5aa0">합성 데이터</text>
+    <text x="710" y="92" text-anchor="middle" font-size="11">• BSM/Heston 공식으로</text>
+    <text x="710" y="106" text-anchor="middle" font-size="11">  (S,K,T,r,q,σ) → C 라벨</text>
+    <text x="710" y="120" text-anchor="middle" font-size="11">  500k 샘플 생성</text>
+    <text x="710" y="136" text-anchor="middle" font-size="11" fill="#666">→ AI 모델 학습용</text>
+  </g>
+
+  <g>
+    <rect x="820" y="50" width="160" height="100" fill="#e6eef7" stroke="#2c5aa0" rx="6"/>
+    <text x="900" y="72" text-anchor="middle" font-weight="700" font-size="13" fill="#2c5aa0">설정 / 환경</text>
+    <text x="900" y="92" text-anchor="middle" font-size="11">• .env (KIS 키)</text>
+    <text x="900" y="106" text-anchor="middle" font-size="11">• Anthropic API</text>
+    <text x="900" y="120" text-anchor="middle" font-size="11">• 모델 체크포인트</text>
+    <text x="900" y="136" text-anchor="middle" font-size="11" fill="#666">→ models/ (.pt, .zip)</text>
+  </g>
+
+  <!-- ── LAYER A (left column) ─────────────────────── -->
+  <g>
+    <rect x="20" y="190" width="220" height="140" fill="#fff" stroke="#2c5aa0" stroke-width="2" rx="6"/>
+    <text x="130" y="212" text-anchor="middle" font-weight="700" font-size="13" fill="#2c5aa0">Layer A · Classical</text>
+    <text x="130" y="232" text-anchor="middle" font-size="11">BSM closed-form</text>
+    <text x="130" y="248" text-anchor="middle" font-size="11">Binomial / MC engine</text>
+    <text x="130" y="264" text-anchor="middle" font-size="11">Greeks · IV solver</text>
+    <text x="130" y="280" text-anchor="middle" font-size="11">Heston semi/MC</text>
+    <text x="130" y="296" text-anchor="middle" font-size="11">ELS step-down (n-asset)</text>
+    <text x="130" y="318" text-anchor="middle" font-size="10" fill="#0b8043">16 pytest ✓</text>
+  </g>
+
+  <!-- ── LAYER B group (center, 2x2) ───────────────── -->
+  <g>
+    <rect x="270" y="180" width="430" height="220" fill="#f8f0fb" stroke="#6c3483" stroke-dasharray="4,3" rx="6"/>
+    <text x="485" y="200" text-anchor="middle" font-weight="700" font-size="13" fill="#6c3483">
+      Layer B · AI Pricing &amp; Hedging (4 모델)
+    </text>
+
+    <rect x="285" y="215" width="195" height="80" fill="#fff" stroke="#6c3483" rx="4"/>
+    <text x="382" y="234" text-anchor="middle" font-weight="600" font-size="12">B1 NN Pricer</text>
+    <text x="382" y="250" text-anchor="middle" font-size="10">(S,K,T,r,q,σ) → C</text>
+    <text x="382" y="265" text-anchor="middle" font-size="10" fill="#666">Hutchinson 1994</text>
+    <text x="382" y="285" text-anchor="middle" font-size="10" fill="#0b8043">ATM IV 0.55vp ✓</text>
+
+    <rect x="490" y="215" width="195" height="80" fill="#fff" stroke="#6c3483" rx="4"/>
+    <text x="587" y="234" text-anchor="middle" font-weight="600" font-size="12">B2 Deep Calibration</text>
+    <text x="587" y="250" text-anchor="middle" font-size="10">IV surface → Heston 5 param</text>
+    <text x="587" y="265" text-anchor="middle" font-size="10" fill="#666">Horvath 2021</text>
+    <text x="587" y="285" text-anchor="middle" font-size="10" fill="#0b8043">26× 가속 ✓</text>
+
+    <rect x="285" y="305" width="195" height="80" fill="#fff" stroke="#6c3483" rx="4"/>
+    <text x="382" y="324" text-anchor="middle" font-weight="600" font-size="12">B3 News-IV</text>
+    <text x="382" y="340" text-anchor="middle" font-size="10">뉴스/매크로 → ΔIV</text>
+    <text x="382" y="355" text-anchor="middle" font-size="10" fill="#666">rule + FinBERT + Claude</text>
+    <text x="382" y="375" text-anchor="middle" font-size="10" fill="#a6820d">v2 surprise-aware 54.8%</text>
+
+    <rect x="490" y="305" width="195" height="80" fill="#fff" stroke="#6c3483" rx="4"/>
+    <text x="587" y="324" text-anchor="middle" font-weight="600" font-size="12">B4 Deep Hedging</text>
+    <text x="587" y="340" text-anchor="middle" font-size="10">관측 → 헤지 수량 (PG-CVaR)</text>
+    <text x="587" y="355" text-anchor="middle" font-size="10" fill="#666">Buehler 2019</text>
+    <text x="587" y="375" text-anchor="middle" font-size="10" fill="#0b8043">+24.5% PASS ✓</text>
+  </g>
+
+  <!-- ── LAYER E (right column) ─────────────────────── -->
+  <g>
+    <rect x="730" y="190" width="250" height="140" fill="#fdeae6" stroke="#c0392b" rx="6"/>
+    <text x="855" y="212" text-anchor="middle" font-weight="700" font-size="13" fill="#c0392b">Layer E · C++ fastmc</text>
+    <text x="855" y="234" text-anchor="middle" font-size="11">pybind11 + OpenMP</text>
+    <text x="855" y="250" text-anchor="middle" font-size="11">Xorshift64 antithetic</text>
+    <text x="855" y="266" text-anchor="middle" font-size="11">Layer A/B 가 호출 시</text>
+    <text x="855" y="282" text-anchor="middle" font-size="11">자동 native 사용</text>
+    <text x="855" y="304" text-anchor="middle" font-size="10" fill="#0b8043">14.8× vs numpy ✓</text>
+  </g>
+
+  <!-- Arrows from inputs to layers -->
+  <path d="M 110,150 L 110,190" stroke="#333" stroke-width="1.5" marker-end="url(#arr)"/>
+  <path d="M 310,150 Q 310,170 220,200" fill="none" stroke="#333" stroke-width="1.2" marker-end="url(#arr)"/>
+  <path d="M 510,150 L 380,215" stroke="#333" stroke-width="1.2" marker-end="url(#arr)"/>
+  <path d="M 710,150 L 590,215" stroke="#333" stroke-width="1.2" marker-end="url(#arr)"/>
+  <path d="M 900,150 L 855,190" stroke="#333" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- ── LAYER C (orchestrator) ─────────────────────── -->
+  <g>
+    <rect x="20" y="430" width="600" height="100" fill="#fff4d6" stroke="#a6820d" rx="6"/>
+    <text x="320" y="452" text-anchor="middle" font-weight="700" font-size="13" fill="#a6820d">
+      Layer C · Comparison &amp; desk_day Orchestrator
+    </text>
+    <text x="320" y="472" text-anchor="middle" font-size="11">
+      동일 옵션 · 동일 경로 · 5 method 비교 (BSM / NN / DeepCalib / NewsAdj / DeepHedging)
+    </text>
+    <text x="320" y="488" text-anchor="middle" font-size="11">
+      scripts/desk_day.py 로 7 stage 시간 순 통합 (09:00 calibration → 16:30 day-end PnL)
+    </text>
+    <text x="320" y="508" text-anchor="middle" font-size="10" fill="#666">
+      산출: data/all_methods_*.csv · data/desk_day/run_YYYY-MM-DD.json
+    </text>
+  </g>
+
+  <!-- ── LAYER D (autotrader) ─────────────────────── -->
+  <g>
+    <rect x="650" y="430" width="330" height="100" fill="#e6f3ea" stroke="#0b8043" rx="6"/>
+    <text x="815" y="452" text-anchor="middle" font-weight="700" font-size="13" fill="#0b8043">
+      Layer D · Auto-Trading
+    </text>
+    <text x="815" y="472" text-anchor="middle" font-size="11">KIS Developers API + 3단 risk guard</text>
+    <text x="815" y="488" text-anchor="middle" font-size="11">ETF iNAV / Avellaneda-Stoikov LP</text>
+    <text x="815" y="508" text-anchor="middle" font-size="10" fill="#666">DRY_RUN 통과 · 실주문 opt-in</text>
+  </g>
+
+  <!-- arrows from A & B to C -->
+  <path d="M 130,330 L 130,430" stroke="#333" stroke-width="1.5" marker-end="url(#arr)"/>
+  <path d="M 485,400 L 380,430" stroke="#333" stroke-width="1.5" marker-end="url(#arr)"/>
+  <path d="M 855,330 L 815,430" stroke="#333" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- compliance side -->
+  <g>
+    <rect x="20" y="555" width="960" height="20" fill="#eee0f3" stroke="#6c3483" rx="3"/>
+    <text x="500" y="569" text-anchor="middle" font-size="11" fill="#6c3483" font-weight="600">
+      compliance (cross-cutting): DecisionLog · DeviationMonitor · HITLGate — 모든 stage 의 의사결정을 audit_log.jsonl 에 누적
+    </text>
+  </g>
+
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0,0 L 10,5 L 0,10 z" fill="#333"/>
+    </marker>
+  </defs>
+</svg>
+<figcaption>
+  파란 박스 = 입력, 색상별 = 5 Layer, 보라색 줄 = compliance 가로지름. desk_day 가 모두를 시간 순서대로 호출하는 단일 진입점.
+</figcaption>
+</figure>
+
+<!-- ================================================================== -->
+<h2 id="layers">4. 5 Layer 의 역할 (각 1 단락)</h2>
+
+<table>
+  <thead>
+    <tr><th style="width:8%">Layer</th><th style="width:18%">역할</th><th>한 문장 설명</th><th style="width:25%">대표 산출물 / 검증</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>A</strong></td>
+      <td>Classical Pricing</td>
+      <td>이론서대로 BSM·Binomial·MC·Greeks·IV·Heston·ELS step-down 을 직접 구현. 다른 모든 Layer 의 <em>ground truth</em>.</td>
+      <td>한화 ELS 8286호 (3자산, 3Y, 11.31%) <strong>+2.17% 재가격</strong> (목표 ±3%)</td>
+    </tr>
+    <tr>
+      <td><strong>B1</strong></td>
+      <td>NN Pricer</td>
+      <td>(S,K,T,r,q,σ) 6개 입력 → 옵션 가격을 신경망으로 직접 매핑. exotic/ELS 의 MC 비용(초) 을 추론 (ms) 으로.</td>
+      <td>ATM IV 오차 <strong>0.548 vp</strong>, BSM 대비 추론 <strong>20× 가속</strong></td>
+    </tr>
+    <tr>
+      <td><strong>B2</strong></td>
+      <td>Deep Calibration</td>
+      <td>시장 IV surface → Heston 5 파라미터 역매핑을 1초 내. semi-analytic 최적화 대신 NN gradient descent.</td>
+      <td>IV RMSE <strong>0.495 vp</strong>, semi-analytic 35s vs <strong>1.36s (26×)</strong></td>
+    </tr>
+    <tr>
+      <td><strong>B3</strong></td>
+      <td>News-IV</td>
+      <td>뉴스·매크로 이벤트 → 분류 → IV shift 적용 → 재가격. rule / FinBERT / Claude API 3 backend.</td>
+      <td>FOMC+CPI N=46 backtest <strong>34.8% (FAIL)</strong> → vol-crush 진단 → v2 surprise-aware 54.8%</td>
+    </tr>
+    <tr>
+      <td><strong>B4</strong></td>
+      <td>Deep Hedging</td>
+      <td>거래비용 환경에서 BSM Δ 헤지보다 CVaR 를 줄이는 정책을 RL 로 학습. PPO 5번 실패 → Buehler 직접 구현 PG-on-CVaR.</td>
+      <td>TC=30bps 에서 BSM 대비 CVaR <strong>+24.5%</strong>, 실데이터 SPY <strong>+31.3% PASS</strong></td>
+    </tr>
+    <tr>
+      <td><strong>C</strong></td>
+      <td>Comparison</td>
+      <td>5 method 를 동일 옵션·동일 경로에서 돌려 mean_err / IV err / CVaR / Sharpe / 추론속도 비교.</td>
+      <td><code>data/all_methods_pricing.csv</code>, <code>data/all_methods_hedging.csv</code></td>
+    </tr>
+    <tr>
+      <td><strong>D</strong></td>
+      <td>Auto-Trading</td>
+      <td>KIS Developers REST API 로 ETF iNAV 괴리 매매. 3-단 risk guard (포지션 20% / 일일 −1.5% / 장 open/close 10분 차단).</td>
+      <td>DRY_RUN 20초 스모크 통과, Avellaneda-Stoikov LP 6개월 백테스트</td>
+    </tr>
+    <tr>
+      <td><strong>E</strong></td>
+      <td>C++ fastmc</td>
+      <td>가장 무거운 1M paths × 252 steps MC 를 pybind11 + OpenMP 로. numpy fallback 자동.</td>
+      <td>numpy 1.98s → C++ <strong>0.13s (14.8×)</strong>, native 활성 확인</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-purple">
+  <strong>compliance 패키지 (cross-cutting)</strong> — 모든 의사결정 (가격, 편차, 매매)을
+  <code>audit_log.jsonl</code> 에 누적, 임계치 (5%) 초과 시 DeviationMonitor 가 잡고 HITL (human-in-the-loop) 게이트 가 발동.
+  AI 기본법 자발 대응 + 한화 RM 부서 보고용. desk_day 한 번 실행에 23 건 기록.
+</div>
+
+<!-- ================================================================== -->
+<h2 id="verify">5. 실제로 동작하나? — 오늘 (2026-04-26) 검증 결과</h2>
+
+<h3>5.1 단위 테스트</h3>
+<pre><code>$ python -m pytest packages/ --ignore=packages/fastmc -q
+.....................................                                    [100%]
+37 passed in 5.44s</code></pre>
+
+<p>전체 패키지 <strong>37/37 통과</strong>. (fastmc 는 빌드된 native 모듈이라 별도 검증)</p>
+
+<h3>5.2 Layer 별 스모크 테스트</h3>
+<table>
+  <thead><tr><th>Layer</th><th>실행</th><th>출력</th><th>판정</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>A · BSM</td>
+      <td><code>call_price(S=100,K=100,T=1,r=0.03,q=0,σ=0.2)</code></td>
+      <td class="num">9.4134</td>
+      <td><span class="badge badge-ok">PASS</span> (Hull 교과서 값)</td>
+    </tr>
+    <tr>
+      <td>B1 · NN Pricer</td>
+      <td><code>price_batch(model_log_500k, [100,100,1,.03,0,.2])</code></td>
+      <td class="num">9.5969 (BSM 9.4134 대비 +1.95%) · 0.16ms/inf</td>
+      <td><span class="badge badge-ok">PASS</span></td>
+    </tr>
+    <tr>
+      <td>B3 · News-IV</td>
+      <td>"삼성전자 어닝쇼크" → rule classifier</td>
+      <td class="num">earnings_miss · ΔIV +0.03 · 6.93→7.76</td>
+      <td><span class="badge badge-ok">PASS</span></td>
+    </tr>
+    <tr>
+      <td>E · fastmc</td>
+      <td>200k paths × 252 steps MC</td>
+      <td class="num">price=9.4141 stderr=0.0234 elapsed=0.03s · _HAS_NATIVE=True</td>
+      <td><span class="badge badge-ok">PASS</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>5.3 통합 시나리오 — desk_day.py 풀파이프라인</h3>
+
+<p><code>scripts/desk_day.py</code> 단일 실행으로 7 stage 가 시간 순서대로 자동 진행:</p>
+
+<pre><code>$ python scripts/desk_day.py
+==============================================================================
+  한화 ELS 데스크의 하루 — desk_day.py
+  Date: 2026-04-26  Focal: 한화스마트ELS 제8286호
+==============================================================================
+[09:00] Morning calibration ...   σ_morning = ['63.07%', '15.43%', '21.26%']
+[09:15] Mark-to-market ...         price = 7,890.4원 (notional 대비 -21.10%)
+                                   [HITL] HIGH — ELS 모델가가 발행가 대비 -21.10%
+[10:00] 5-method spread check ... A_BSM 1.84  B1_NN 1.98  B2_DC 1.81  B3 1.84  B4 1.84
+                                   spread = 3.13% → high divergence
+[11:00] News event monitor ...    event = 2026-04-10 CPI · ΔIV -1.50 vp
+[13:00] Hedge update ...           BSM Δ 0.5366  vs  Buehler 0.4315
+[15:00] Intraday risk check ...   leg별 vega/theta + KI distance
+[16:30] Day-end PnL ...            BSM Δ +0.0573  vs  Buehler +0.0461
+                                   ELS MTM change -0.007%
+
+  AI 기본법 대응 — 의사결정 기록 / 편차 모니터링 / HITL
+  Total decisions logged : 23
+  Deviation breaches     : 20
+  HITL triggered         : 20
+  Audit log path         : data/compliance/audit_log.jsonl
+==============================================================================
+  → data/desk_day/run_2026-04-26.json
+==============================================================================</code></pre>
+
+<div class="callout callout-ok">
+  <strong>검증 결론</strong> — 5 Layer × compliance × audit log 까지 단일 명령으로 end-to-end 정상 종료.
+  KOSPI200 vol 63% 는 데이터 소스 (yfinance ^KS200) 의 outlier 라 다음 작업으로 KRX 직접 fetch 또는 robust window estimator 로 보정 필요.
+</div>
+
+<h3>5.4 학습 완료된 모델 자산</h3>
+
+<table>
+  <thead><tr><th>경로</th><th>역할</th><th>용량/특이</th></tr></thead>
+  <tbody>
+    <tr><td><code>models/nn_pricer_log_500k.pt</code></td><td>B1 권장 (log-MSE, 500k 학습)</td><td>ATM IV 0.55 vp</td></tr>
+    <tr><td><code>models/nn_pricer_{mse,log,hybrid,rel}.pt</code></td><td>B1 비교용 (loss 4종)</td><td>각 80k 학습</td></tr>
+    <tr><td><code>models/deep_calib.pt</code></td><td>B2 Heston 역매핑</td><td>IV RMSE 0.495 vp</td></tr>
+    <tr><td><code>models/buehler_tc03_v2.pt</code></td><td>B4 Buehler PG-CVaR (PASS 모델)</td><td>+24.5% 개선</td></tr>
+    <tr><td><code>models/buehler_historical.pt</code></td><td>B4 SPY 실데이터 학습</td><td>+31.3% 개선</td></tr>
+    <tr><td><code>models/ppo_tc03_v{0..3c}.zip</code></td><td>B4 PPO 5번 실패 모델 (보존)</td><td>narrative 자료</td></tr>
+  </tbody>
+</table>
+
+<!-- ================================================================== -->
+<h2 id="use">6. 어떻게 사용하나 — 3 가지 시나리오</h2>
+
+<h3>시나리오 1 — "5분 안에 동작하는지 확인" (가장 빠른 검증)</h3>
+<pre><code># 환경: D:/simeunchul/ai_pricing 에서
+python -m pytest packages/ --ignore=packages/fastmc -q
+# → 37 passed
+
+python -c "from pricing.bsm import call_price, BSMInputs; \
+           print(call_price(BSMInputs(100,100,1,0.03,0,0.2)))"
+# → 9.413403...</code></pre>
+
+<h3>시나리오 2 — "내가 옵션 1 개를 5 가지 방법으로 가격 매겨보고 싶다"</h3>
+<pre><code>python -m experiments.compare_all \
+    --nn-model models/nn_pricer_log_500k.pt \
+    --ppo-model models/buehler_tc03_v2.pt \
+    --tc 0.003 --n-panel 2000 --n-hedge 1000 \
+    --out data
+# → data/all_methods_pricing.csv  (mean_err, p95_rel_err, inference_ms)
+# → data/all_methods_hedging.csv  (mean_pnl, std, cvar_5, sharpe, max_dd)</code></pre>
+
+<h3>시나리오 3 — "한화 ELS 데스크의 하루를 통째로 시뮬"</h3>
+<pre><code>python scripts/desk_day.py
+# → 7 stage 진행 (09:00 calibration → 16:30 PnL)
+# → data/desk_day/run_YYYY-MM-DD.json
+# → data/compliance/audit_log.jsonl 에 의사결정 누적</code></pre>
+
+<div class="callout callout-info">
+  <strong>면접 데모 추천</strong> — 시나리오 3 을 화면에 띄우고 7 stage 결과를 흘려가며 설명.
+  마지막 compliance summary 가 한화 RM 부서 어필 포인트. 60초 안에 5 Layer + AI 기본법 대응까지 보여줌.
+</div>
+
+<h3>시나리오 4 (선택) — 학습 재현</h3>
+<pre><code># B1 NN Pricer 풀학습 (CPU 25분)
+python -m ai_pricing.nn_pricer.train --n 500000 --epochs 50 --batch 4096 \
+    --loss log --out models/nn_pricer_log_500k.pt --device cpu
+
+# B4 Buehler PG-CVaR (CPU 2분)
+python scripts/train_buehler.py --tc 0.003 --epochs 200 \
+    --out models/buehler_tc03_v2.pt</code></pre>
+
+<!-- ================================================================== -->
+<h2 id="status">7. 현재 상태 한눈에 — 5 Layer 점수판</h2>
+
+<figure>
+<svg viewBox="0 0 900 320" xmlns="http://www.w3.org/2000/svg" width="100%" height="auto"
+     style="background:#fff;border:1px solid var(--border);border-radius:6px">
+
+  <text x="450" y="22" text-anchor="middle" font-size="13" font-weight="600">
+    Layer별 플랜 목표 달성률 (높을수록 좋음, 100% = 목표 100% 도달)
+  </text>
+
+  <!-- baseline -->
+  <line x1="120" y1="280" x2="860" y2="280" stroke="#333" stroke-width="1"/>
+  <line x1="120" y1="60" x2="120" y2="280" stroke="#333" stroke-width="1"/>
+
+  <!-- y-axis -->
+  <text x="115" y="282" text-anchor="end" font-size="10" fill="#666">0%</text>
+  <text x="115" y="226" text-anchor="end" font-size="10" fill="#666">25%</text>
+  <text x="115" y="170" text-anchor="end" font-size="10" fill="#666">50%</text>
+  <text x="115" y="115" text-anchor="end" font-size="10" fill="#666">75%</text>
+  <text x="115" y="64" text-anchor="end" font-size="10" fill="#666">100%</text>
+
+  <!-- target line at 100% -->
+  <line x1="120" y1="60" x2="860" y2="60" stroke="#0b8043" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="862" y="63" font-size="10" fill="#0b8043">목표 100%</text>
+
+  <!-- bars -->
+  <!-- A 100% -->
+  <rect x="150" y="60" width="60" height="220" fill="#2c5aa0"/>
+  <text x="180" y="298" text-anchor="middle" font-size="11" font-weight="600">A</text>
+  <text x="180" y="55" text-anchor="middle" font-size="11" fill="#0b8043">100%</text>
+
+  <!-- B1 100% -->
+  <rect x="230" y="60" width="60" height="220" fill="#6c3483"/>
+  <text x="260" y="298" text-anchor="middle" font-size="11" font-weight="600">B1</text>
+  <text x="260" y="55" text-anchor="middle" font-size="11" fill="#0b8043">100%</text>
+
+  <!-- B2 ~85% (26x speedup vs 100x target) -->
+  <rect x="310" y="93" width="60" height="187" fill="#6c3483"/>
+  <text x="340" y="298" text-anchor="middle" font-size="11" font-weight="600">B2</text>
+  <text x="340" y="88" text-anchor="middle" font-size="11" fill="#a6820d">85%</text>
+
+  <!-- B3 ~75% (v2 surprise-aware 54.8% PASS) -->
+  <rect x="390" y="115" width="60" height="165" fill="#6c3483"/>
+  <text x="420" y="298" text-anchor="middle" font-size="11" font-weight="600">B3</text>
+  <text x="420" y="110" text-anchor="middle" font-size="11" fill="#a6820d">75%</text>
+
+  <!-- B4 100% (Buehler +24.5% > 20%) -->
+  <rect x="470" y="60" width="60" height="220" fill="#6c3483"/>
+  <text x="500" y="298" text-anchor="middle" font-size="11" font-weight="600">B4</text>
+  <text x="500" y="55" text-anchor="middle" font-size="11" fill="#0b8043">100%</text>
+
+  <!-- C 100% (framework done) -->
+  <rect x="550" y="60" width="60" height="220" fill="#a6820d"/>
+  <text x="580" y="298" text-anchor="middle" font-size="11" font-weight="600">C</text>
+  <text x="580" y="55" text-anchor="middle" font-size="11" fill="#0b8043">100%</text>
+
+  <!-- D 60% (DRY_RUN done, real account pending) -->
+  <rect x="630" y="148" width="60" height="132" fill="#0b8043"/>
+  <text x="660" y="298" text-anchor="middle" font-size="11" font-weight="600">D</text>
+  <text x="660" y="143" text-anchor="middle" font-size="11" fill="#a6820d">60%</text>
+
+  <!-- E ~55% (14.8x vs 27x target) -->
+  <rect x="710" y="159" width="60" height="121" fill="#c0392b"/>
+  <text x="740" y="298" text-anchor="middle" font-size="11" font-weight="600">E</text>
+  <text x="740" y="154" text-anchor="middle" font-size="11" fill="#a6820d">55%</text>
+
+  <!-- compliance bonus -->
+  <rect x="790" y="60" width="60" height="220" fill="#6c3483" opacity="0.7"/>
+  <text x="820" y="298" text-anchor="middle" font-size="10" font-weight="600">comp.</text>
+  <text x="820" y="55" text-anchor="middle" font-size="11" fill="#0b8043">bonus</text>
+</svg>
+<figcaption>
+  파란 = Classical, 보라 = AI Pricing, 노랑 = Comparison, 초록 = Trading, 빨강 = C++. 점선 = 플랜 목표 100%.
+  D 와 E 만 부분 — D 는 실 계좌 발급, E 는 OpenMP 8코어 27× 까지 가는 게 남은 작업.
+</figcaption>
+</figure>
+
+<table>
+  <thead><tr><th>Layer</th><th>상태</th><th>최근 milestone</th></tr></thead>
+  <tbody>
+    <tr><td>A</td><td><span class="badge badge-ok">완료</span></td><td>한화 ELS 8286호 +2.17% 재가격</td></tr>
+    <tr><td>B1</td><td><span class="badge badge-ok">완료</span></td><td>500k log-MSE 학습, ATM IV 0.55 vp</td></tr>
+    <tr><td>B2</td><td><span class="badge badge-ok">완료</span></td><td>26× 가속 (100× 목표 미달은 known)</td></tr>
+    <tr><td>B3</td><td><span class="badge badge-partial">진단 완료 + v2</span></td><td>vol-crush 진단 → surprise-aware 54.8%</td></tr>
+    <tr><td>B4</td><td><span class="badge badge-ok">완료</span></td><td>Buehler 직접 구현 +24.5%, SPY 실데이터 +31.3%</td></tr>
+    <tr><td>C</td><td><span class="badge badge-ok">완료</span></td><td>5-method CSV + desk_day 통합</td></tr>
+    <tr><td>D</td><td><span class="badge badge-partial">DRY_RUN 통과</span></td><td>실 계좌 + 장중 시간 대기</td></tr>
+    <tr><td>E</td><td><span class="badge badge-ok">완료</span></td><td>14.8× (27× 목표는 OpenMP 튜닝 잔여)</td></tr>
+    <tr><td>compliance</td><td><span class="badge badge-info">신규</span></td><td>audit log + HITL gate, AI 기본법 대응</td></tr>
+  </tbody>
+</table>
+
+<!-- ================================================================== -->
+<h2 id="tldr">8. 비전공자용 TL;DR</h2>
+
+<div class="callout callout-yellow">
+  <ol style="margin:0;padding-left:20px">
+    <li>이 저장소는 <strong>"옵션 가격 1 개를 5 가지 방법으로 매기고 비교"</strong> 하는 실험실. 그 위에 자동매매 + C++ 가속 + AI 기본법 대응 모듈을 얹었다.</li>
+    <li>5 가지 방법 = (A) 교과서 공식, (B1) 신경망, (B2) 신경망 역매핑, (B3) 뉴스 반영, (B4) 강화학습 헤지.</li>
+    <li>오늘 (2026-04-26) <strong>모든 단위 테스트 37/37 통과</strong>, <strong>desk_day.py 통합 시나리오 끝까지 정상 종료</strong>, <strong>23 건 의사결정 audit log 기록</strong> 으로 end-to-end 동작 확인.</li>
+    <li>가장 인상적인 결과 — Buehler 강화학습 헤지가 BSM Δ 헤지보다 거래비용 환경에서 <strong>위험을 24.5% 줄임</strong> (실데이터로는 31.3%).</li>
+    <li>가장 정직한 실패 — News-IV 가설이 매크로 발표일 N=46 백테스트에서 부호 일치율 34.8% 로 깨짐. 진단 (vol-crush) 후 v2 surprise-aware 로 54.8% 회복.</li>
+    <li>"제가 짠 게 진짜로 돈을 벌어요" 가 아니라 <strong>"제가 만든 비교 프레임워크가 어느 방법이 어떤 조건에서 잘 되는지 정직하게 가립니다"</strong> 가 이 저장소의 메시지.</li>
+  </ol>
+</div>
+
+<!-- ================================================================== -->
+<h2 id="files">9. 관련 파일 / 문서 / 커밋</h2>
+
+<h3>핵심 진입점</h3>
+<table>
+  <thead><tr><th>파일</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr><td><code>scripts/desk_day.py</code></td><td>5 Layer 통합 단일 진입점 — 한화 ELS 데스크의 하루 시뮬</td></tr>
+    <tr><td><code>HOWTO.md</code></td><td>각 Layer 사용법 / 트러블슈팅</td></tr>
+    <tr><td><code>README.md</code></td><td>5 Layer 네비게이션</td></tr>
+    <tr><td><code>docs/full_stack_status.html</code></td><td>레이어별 수치 상세 (이 문서의 부록격)</td></tr>
+    <tr><td><code>docs/e2e_flow.html</code></td><td>처음 보는 사람용 데이터 흐름 설명서</td></tr>
+  </tbody>
+</table>
+
+<h3>최근 보고서 (이 문서가 가리키는 narrative)</h3>
+<ul>
+  <li><a href="../2026-04-25/B4_buehler_implementation.html">B4 Buehler 구현으로 +24.5% 달성</a> — Layer B4 PASS 의 핵심 보고서</li>
+  <li><a href="B3_news_iv_backtest.html">B3 vol-crush 진단</a> — 가설 실패에서 v2 까지의 과학적 narrative</li>
+  <li><a href="production_gap_closure.html">실데이터 격차 좁히기</a> — 매크로 208건, B4 SPY +31.3%, ELS 4건 등 일괄</li>
+  <li><a href="desk_day_workflow.html">desk_day.py 워크플로우</a> — 통합 진입점 설계 보고서</li>
+  <li><a href="lp_upgrade.html">Avellaneda-Stoikov LP 업그레이드</a> — Layer D 양방향 호가</li>
+</ul>
+
+<h3>최근 커밋 (master)</h3>
+<table>
+  <thead><tr><th>SHA</th><th>제목</th></tr></thead>
+  <tbody>
+    <tr><td><code>655d9ab</code></td><td>docs(portfolio): B3 vol-crush 진단 일괄 반영 + CLAUDE.md 예외 추가</td></tr>
+    <tr><td><code>a7f7910</code></td><td>docs(2026-04-26): B3 News-IV macro backtest 작업 보고서</td></tr>
+    <tr><td><code>d4c4a31</code></td><td>feat(news_iv): macro backtest FOMC+CPI × VIX (N=46) — vol-crush 진단</td></tr>
+    <tr><td><code>a2bb25a</code></td><td>docs(2026-04-25): portfolio_update.html — B4 PASS 일괄반영</td></tr>
+    <tr><td><code>7854e72</code></td><td>docs: CLAUDE.md — 작업 보고서 작성 규칙</td></tr>
+  </tbody>
+</table>
+
+<h3>다음 작업 (남은 것)</h3>
+<ol>
+  <li>Layer D — KIS 모의계좌 발급 후 3 영업일 무중단 운영 (실 검증)</li>
+  <li>Layer E — OpenMP 8 코어 27× 목표까지 튜닝 (현재 14.8×)</li>
+  <li>desk_day — KOSPI200 vol 63% outlier 보정 (KRX 직접 fetch 또는 robust window)</li>
+  <li>블로그 5편 발행 (<code>docs/blog_drafts.md</code>)</li>
+</ol>
+
+<!-- ================================================================== -->
+<h2 id="glossary">10. 용어 정리집</h2>
+
+<table>
+  <thead><tr><th style="width:18%">용어</th><th style="width:42%">한 줄 설명</th><th>본문에서의 역할</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>옵션 (Option)</strong></td>
+      <td>미래 시점 T 에 기초자산 가격이 K 보다 크면 차액을 받는 (call) 또는 작으면 받는 (put) 계약</td>
+      <td>Layer A~B 모든 가격 모델의 입력 단위</td>
+    </tr>
+    <tr>
+      <td><strong>BSM (Black-Scholes-Merton)</strong></td>
+      <td>1973년 Black/Scholes/Merton 의 옵션 가격 닫힌 형식 공식 — 입력 6개 (S,K,T,r,q,σ) 만으로 가격 산출</td>
+      <td>Layer A 의 기준선이자 다른 모든 Layer 의 비교 baseline</td>
+    </tr>
+    <tr>
+      <td><strong>IV (Implied Volatility)</strong></td>
+      <td>"시장 가격을 BSM 식에 거꾸로 넣었을 때 나오는 σ" — 시장이 느끼는 불확실성 레벨. 단위 vp = vol point = 1 σ × 1%p</td>
+      <td>B2 가 캘리브레이션 대상, B3 가 조정 대상, NN Pricer 평가 단위</td>
+    </tr>
+    <tr>
+      <td><strong>Δ (Delta)</strong></td>
+      <td>기초자산 1 원 변할 때 옵션이 몇 원 변하나 (∂C/∂S). 헤지 비율로 사용</td>
+      <td>Layer A Greeks 산출, B4 의 baseline 헤지 전략 (BSM Δ-hedge)</td>
+    </tr>
+    <tr>
+      <td><strong>CVaR@5%</strong></td>
+      <td>"최악의 5% 손실들의 평균" — 단순 VaR 보다 꼬리위험 측정에 강함</td>
+      <td>Layer B4 Deep Hedging 의 최적화 목적함수 + 비교 지표</td>
+    </tr>
+    <tr>
+      <td><strong>ELS step-down</strong></td>
+      <td>3년 만기 동안 6개월마다 조기상환 기회 (94/89/89/84/84/79 % 등 단계 하강), KI 만나면 원금손실 가능한 한국 대표 파생상품</td>
+      <td>한화투자증권의 핵심 상품, Layer A 에서 MC 로 가격, B4 에서 헤지</td>
+    </tr>
+    <tr>
+      <td><strong>KI (Knock-In) barrier</strong></td>
+      <td>ELS 에서 "이 가격 밑으로 한 번이라도 떨어지면 원금손실 시나리오 작동" 하는 임계 (보통 50%)</td>
+      <td>desk_day 의 stage 5 (Intraday risk) 에서 leg별 KI 거리 모니터링</td>
+    </tr>
+    <tr>
+      <td><strong>Heston 모델</strong></td>
+      <td>BSM 의 σ 가 상수가 아니라 자체적인 stochastic process 를 따른다고 가정한 확률변동성 모델 (5 파라미터)</td>
+      <td>Layer A 에서 semi-analytic + MC, B2 에서 NN 으로 역매핑</td>
+    </tr>
+    <tr>
+      <td><strong>Monte Carlo (MC)</strong></td>
+      <td>난수로 미래 경로 수십만 개 시뮬레이션 → 평균으로 가격 산출. 닫힌 형식 없는 exotic/ELS 에 필수</td>
+      <td>Layer A ELS, Layer B 학습라벨 생성, Layer E C++ 로 가속 대상</td>
+    </tr>
+    <tr>
+      <td><strong>NN Pricer</strong></td>
+      <td>옵션 입력 6개 → 가격 1개를 신경망으로 근사. MC 의 초 단위 비용을 ms 단위 추론으로 낮춤</td>
+      <td>Layer B1, Hutchinson-Lo-Poggio 1994 재현</td>
+    </tr>
+    <tr>
+      <td><strong>Deep Calibration</strong></td>
+      <td>시장 IV surface (격자) → 모델 파라미터를 NN 으로 즉시 역매핑. 기존 최적화 대비 수십~수백배 빠름</td>
+      <td>Layer B2, Horvath et al. 2021 재현</td>
+    </tr>
+    <tr>
+      <td><strong>Deep Hedging</strong></td>
+      <td>거래비용/이산시점/불완전시장 환경에서 RL 로 헤지 정책을 학습. CVaR 등 위험척도 직접 최적화</td>
+      <td>Layer B4, Buehler et al. 2019 재현</td>
+    </tr>
+    <tr>
+      <td><strong>PG-on-CVaR</strong></td>
+      <td>Policy Gradient 를 expected reward 가 아니라 CVaR 손실 위에 직접 적용. PPO 가 5번 실패한 후 채택한 알고리즘</td>
+      <td>Layer B4 PASS 의 핵심 변경, +24.5% 개선의 원인</td>
+    </tr>
+    <tr>
+      <td><strong>vol-crush</strong></td>
+      <td>매크로 발표일에 시장이 미리 가격에 반영해놔서, 발표 후 IV 가 평균적으로 <em>오히려 떨어지는</em> 현상</td>
+      <td>Layer B3 단순 룰 (+0.05) 이 깨진 진단 결과</td>
+    </tr>
+    <tr>
+      <td><strong>iNAV</strong></td>
+      <td>ETF 의 구성 종목 바스켓에서 실시간으로 계산한 "이론가". 시장가와 30bps 이상 벌어지면 LP 차익거래 신호</td>
+      <td>Layer D ETF iNAV 괴리 전략의 진입 기준</td>
+    </tr>
+    <tr>
+      <td><strong>Avellaneda-Stoikov</strong></td>
+      <td>최적 LP (마켓메이커) 호가 모델 — 재고와 변동성에 따라 매수/매도 spread 자동 조정</td>
+      <td>Layer D LP 업그레이드 (단방향 iNAV → 양방향 호가)</td>
+    </tr>
+    <tr>
+      <td><strong>HITL (Human-In-The-Loop)</strong></td>
+      <td>AI 의사결정에 자동으로 인간 확인 게이트를 거는 패턴. 임계 초과 시 발동</td>
+      <td>compliance 패키지의 핵심, AI 기본법 자발 대응</td>
+    </tr>
+    <tr>
+      <td><strong>audit log</strong></td>
+      <td>모든 의사결정을 timestamp + 모델 + 입력 + 출력 + 편차로 JSONL 에 영구 기록</td>
+      <td>한화 RM 부서 보고용, desk_day 1 회 실행에 23 건 누적</td>
+    </tr>
+    <tr>
+      <td><strong>DART</strong></td>
+      <td>금융감독원 전자공시 시스템. 한국 상장사 모든 공시 (ELS 발행 포함) 가 여기 올라옴</td>
+      <td>Layer A 한화 ELS 8286호 실데이터 출처</td>
+    </tr>
+    <tr>
+      <td><strong>KIS Developers</strong></td>
+      <td>한국투자증권 Open REST API. 시세 조회 + 모의/실 주문</td>
+      <td>Layer D autotrader 의 broker backend</td>
+    </tr>
+    <tr>
+      <td><strong>pybind11</strong></td>
+      <td>C++ 클래스/함수를 Python 모듈로 노출시켜주는 헤더 라이브러리. numpy 와 자연스럽게 연동</td>
+      <td>Layer E fastmc 가 numpy → C++ 가속의 다리</td>
+    </tr>
+    <tr>
+      <td><strong>OpenMP</strong></td>
+      <td>C++ 에서 #pragma 한 줄로 for-loop 을 멀티스레드 병렬화하는 표준</td>
+      <td>Layer E 가 8 코어 활용 시 27× 목표의 핵심</td>
+    </tr>
+  </tbody>
+</table>
+
+<p class="meta" style="margin-top:48px;padding-top:14px;border-top:1px solid var(--border)">
+  이 문서가 quant-lab 의 "한 페이지 요약" 역할.
+  더 깊은 layer 별 수치는 <a href="../full_stack_status.html">full_stack_status.html</a>,
+  실행 절차 상세는 <a href="../../HOWTO.md">HOWTO.md</a>,
+  실패 narrative 는 <a href="../why_dh_failed.html">why_dh_failed.html</a> 참조.
+</p>
+
+</body>
+</html>

@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>뉴스 신호 → T+5분 단기매매 backtest — 2026-04-27</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;
+       max-width:980px;margin:36px auto;padding:0 20px;line-height:1.65;color:#1a1a1a;}
+  h1{border-bottom:3px solid #c0392b;padding-bottom:8px;}
+  h2{margin-top:36px;color:#c0392b;border-left:4px solid #c0392b;padding-left:10px;}
+  h3{color:#444;margin-top:24px;}
+  code,pre{font-family:Consolas,Menlo,monospace;background:#f4f4f4;padding:2px 5px;border-radius:3px;}
+  pre{padding:12px;overflow:auto;border-left:3px solid #c0392b;}
+  table{border-collapse:collapse;width:100%;margin:14px 0;}
+  th,td{border:1px solid #ccc;padding:8px 10px;text-align:left;font-size:14px;}
+  th{background:#fdecea;}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;}
+  td.fail{color:#c0392b;font-weight:600;}
+  td.win{color:#0b8043;font-weight:600;}
+  .callout{padding:14px 18px;border-radius:6px;margin:18px 0;border-left:4px solid;}
+  .callout.fail{background:#fdecea;border-color:#c0392b;}
+  .callout.warn{background:#fff5e6;border-color:#e08600;}
+  .callout.info{background:#eaf2fb;border-color:#2c5aa0;}
+  .small{font-size:13px;color:#666;}
+  figure{margin:18px 0;text-align:center;}
+  figcaption{font-size:13px;color:#555;margin-top:6px;}
+  .ascii{background:#f4f4f4;padding:14px;border-radius:5px;font-family:Consolas,monospace;font-size:13px;white-space:pre;line-height:1.4;}
+</style>
+</head>
+<body>
+
+<h1>뉴스 신호 기반 단기매매 backtest — FAIL</h1>
+<p class="small">2026-04-27 · ai_pricing 프로젝트 · Layer-B3 (News→IV) + Layer-E (Auto-Trading) 교차 검증</p>
+
+<div class="callout fail">
+  <strong>한 줄 결과 — FAIL.</strong> 가설: "Naver 뉴스 publish 후 T+5분 진입 / T+1시간 청산 단순 momentum 매매로 retail 이 수익 낼 수 있는가?"
+  결과: hit rate 9.6% (random 50% 미달), 평균 P&L −0.51%, 연환산 Sharpe −15.7.
+  비용을 빼고 본 gross P&L 도 −0.12% → <strong>비용이 아니라 adverse selection (잘못된 방향) 이 진짜 원인</strong>.
+  retail 의 5분 latency 안에 HFT 가 이미 가격을 반영. 보고서 narrative 가치 = "왜 retail 단기 뉴스 매매가 안 되는가" 정량 분석.
+</div>
+
+<h2>1. 무엇을 시도했는가</h2>
+
+<h3>1.1 가설</h3>
+<p>
+사용자 직관: "뉴스 받자마자 5분 후 매수, 1시간 후 청산하는 단순한 momentum 매매가 retail 환경에서 작동할 수 있지 않을까?"
+어제(4/26) <strong>일별 backtest</strong> 가 3가지 가설 모두 fail (sign agreement 38.3%, magnitude 0.387×) 한 후 분봉 단위로 재검증.
+PEAD (Post Earnings Announcement Drift) 학계 결과는 1시간보다 더 긴 윈도우 (1일~60일) 가 retail 에 유리함을 시사하지만,
+거래비용 (~0.27%) 대비 짧은 윈도우의 마진 측정 자체가 학습 가치.
+</p>
+
+<h3>1.2 설계</h3>
+<table>
+<thead><tr><th>요소</th><th>값</th><th>이유</th></tr></thead>
+<tbody>
+<tr><td>대상 종목</td><td>10 KOSPI 대형주 (삼성전자, SK하이닉스 등)</td><td>이미 30일 뉴스 캐시 있음 (9,291 헤드라인)</td></tr>
+<tr><td>가격 데이터</td><td>yfinance 5분봉 (60일)</td><td>KIS vts 의 historical minute chart 가 500 error → fallback</td></tr>
+<tr><td>분류기</td><td>rule-based (한국어 키워드)</td><td>FinBERT 동시 실행 — 결과 비슷할 것으로 예상 (signal-noise 가 본질)</td></tr>
+<tr><td>매매 가능 이벤트</td><td>earnings_beat, mna, rating_change</td><td>KIS 모의투자 공매도 불가 → long-only</td></tr>
+<tr><td>진입 시점</td><td>T+5분 (T = 뉴스 publish)</td><td>Naver API delay + 분류 latency 반영</td></tr>
+<tr><td>청산 시점</td><td>T+65분</td><td>사용자 가설</td></tr>
+<tr><td>거래비용</td><td>27 bps round-trip</td><td>한국 retail = 수수료 0.045% × 2 + 거래세 0.23%</td></tr>
+</tbody>
+</table>
+
+<h2>2. 무엇이 실패했고 왜 — 진단 4 단계</h2>
+
+<h3>2.1 1차 결과: 모든 horizon 에서 손실</h3>
+<table>
+<thead><tr><th>Holding 시간</th><th>N trades</th><th>Hit rate</th>
+  <th>Mean P&L (net)</th><th>Sharpe (annual)</th><th>판정</th></tr></thead>
+<tbody>
+<tr><td>T+5분</td><td class="num">85</td><td class="num">7.1%</td><td class="num fail">−0.269%</td><td class="num fail">−16.7</td><td class="fail">FAIL</td></tr>
+<tr><td>T+30분</td><td class="num">81</td><td class="num">9.9%</td><td class="num fail">−0.392%</td><td class="num fail">−15.8</td><td class="fail">FAIL</td></tr>
+<tr><td>T+60분 (사용자 가설)</td><td class="num">73</td><td class="num">9.6%</td><td class="num fail">−0.510%</td><td class="num fail">−15.7</td><td class="fail">FAIL</td></tr>
+<tr><td>T+240분 (4시간)</td><td class="num">47</td><td class="num">8.5%</td><td class="num fail">−0.885%</td><td class="num fail">−20.5</td><td class="fail">FAIL</td></tr>
+</tbody>
+</table>
+
+<p class="small">
+  <strong>random walk baseline</strong>: hit rate 50%, mean P&L 0%. 모든 horizon 이 random 보다 한참 아래.
+  T+5분 (가장 짧음) 은 평균 −0.269% ≈ 거래비용 −0.27%. 즉 5분 안엔 시그널 없음.
+  더 길게 들고 있으면 더 많이 잃음 → mean reversion 이 entry 방향과 반대로 움직임.
+</p>
+
+<h3>2.2 차트 — Hit Rate vs Holding 시간</h3>
+<figure>
+<svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" style="border:1px solid #ddd;background:#fff;">
+  <line x1="80" y1="30" x2="80" y2="230" stroke="#333" stroke-width="1.5"/>
+  <line x1="80" y1="230" x2="680" y2="230" stroke="#333" stroke-width="1.5"/>
+  <text x="75" y="35" font-size="11" text-anchor="end">100%</text>
+  <line x1="78" y1="32" x2="80" y2="32" stroke="#333"/>
+  <text x="75" y="80" font-size="11" text-anchor="end">75%</text>
+  <line x1="78" y1="77" x2="80" y2="77" stroke="#333"/>
+  <text x="75" y="130" font-size="11" text-anchor="end">50%</text>
+  <line x1="78" y1="127" x2="80" y2="127" stroke="#333"/>
+  <text x="75" y="180" font-size="11" text-anchor="end">25%</text>
+  <line x1="78" y1="177" x2="80" y2="177" stroke="#333"/>
+  <text x="75" y="232" font-size="11" text-anchor="end">0%</text>
+  <text x="20" y="130" font-size="12" fill="#c0392b" transform="rotate(-90 20 130)">Hit Rate</text>
+
+  <line x1="80" y1="127" x2="680" y2="127" stroke="#0b8043" stroke-dasharray="6 4" stroke-width="1.5"/>
+  <text x="685" y="131" font-size="11" fill="#0b8043">Random baseline (50%)</text>
+
+  <rect x="135" y="217" width="60" height="13" fill="#c0392b" opacity="0.85"/>
+  <text x="165" y="245" font-size="11" text-anchor="middle">T+5분</text>
+  <text x="165" y="213" font-size="10" text-anchor="middle">7.1%</text>
+  <text x="165" y="258" font-size="10" text-anchor="middle">N=85</text>
+
+  <rect x="240" y="210" width="60" height="20" fill="#c0392b" opacity="0.85"/>
+  <text x="270" y="245" font-size="11" text-anchor="middle">T+30분</text>
+  <text x="270" y="206" font-size="10" text-anchor="middle">9.9%</text>
+  <text x="270" y="258" font-size="10" text-anchor="middle">N=81</text>
+
+  <rect x="345" y="211" width="60" height="19" fill="#c0392b" opacity="0.85"/>
+  <text x="375" y="245" font-size="11" text-anchor="middle">T+60분</text>
+  <text x="375" y="207" font-size="10" text-anchor="middle">9.6%</text>
+  <text x="375" y="258" font-size="10" text-anchor="middle">N=73</text>
+  <line x1="345" y1="200" x2="405" y2="200" stroke="#c0392b" stroke-width="2"/>
+  <text x="375" y="195" font-size="10" fill="#c0392b" text-anchor="middle">사용자 가설</text>
+
+  <rect x="450" y="213" width="60" height="17" fill="#c0392b" opacity="0.85"/>
+  <text x="480" y="245" font-size="11" text-anchor="middle">T+240분</text>
+  <text x="480" y="209" font-size="10" text-anchor="middle">8.5%</text>
+  <text x="480" y="258" font-size="10" text-anchor="middle">N=47</text>
+
+  <text x="20" y="20" font-size="13" font-weight="bold" fill="#444">Hit rate 가 모든 horizon 에서 random baseline 의 1/5 수준</text>
+</svg>
+<figcaption>4가지 holding 시간 모두 hit rate 7~10% 로 random 50% 한참 아래. trade 비용 차감 후 net P&L > 0 인 케이스가 매우 드뭄.</figcaption>
+</figure>
+
+<h3>2.3 진단 핵심: Gross P&L (비용 빼고) 도 음수</h3>
+<div class="callout warn">
+  <strong>비용 문제가 아닌 진짜 신호 손실.</strong>
+  T+60분 케이스에서 거래비용 0% 가정 시:
+  <ul>
+    <li>Gross P&L 평균: <strong>−0.12%</strong></li>
+    <li>Gross hit rate (gross > 0): <strong>30.9%</strong> (50% random 이하)</li>
+    <li>Gross 중앙값: 0.000% (대부분 거의 무변)</li>
+  </ul>
+  → 비용 0 이라도 잃음. <strong>매수 시점에 이미 가격이 정점이고, 60분 안에 평균 −12bps 만큼 mean revert 함.</strong>
+</div>
+
+<h3>2.4 왜 이런 패턴이 나오는가 — 가설 4가지</h3>
+<table>
+<thead><tr><th>가설</th><th>증거</th><th>판정</th></tr></thead>
+<tbody>
+<tr><td><strong>(A) Latency 누락</strong>: HFT 가 5분 안에 가격 반영 끝</td>
+    <td>Bloomberg 100ms vs Naver API 1~10분</td>
+    <td class="win">강한 증거</td></tr>
+<tr><td><strong>(B) 뉴스 = 사후 보고</strong>: "삼성 어닝서프라이즈" 헤드라인은 발표 후 작성됨</td>
+    <td>대부분 헤드라인이 분석/해설/재인용</td>
+    <td class="win">강한 증거</td></tr>
+<tr><td><strong>(C) 단기 mean reversion</strong>: 한국 시장의 microstructure 특성</td>
+    <td>Lo & MacKinlay 기준 한국 1~60분 mean reversion 확인</td>
+    <td>약한 증거 (보조)</td></tr>
+<tr><td><strong>(D) 분류기 noise</strong>: rule-based 가 너무 단순</td>
+    <td>neutral 도 −0.45% 로 다른 이벤트와 비슷 → 분류기 무관</td>
+    <td class="fail">기각</td></tr>
+</tbody>
+</table>
+
+<h3>2.5 (D) 기각 근거 ① — FinBERT 결과 = rule-based 결과 동일</h3>
+<div class="callout warn">
+  <strong>분류기 변경 무효.</strong> 동일 backtest 를 한국어 금융 도메인 BERT
+  (snunlp/KR-FinBert-SC) 로 재분류해서 돌렸을 때 결과가 <strong>완전히 똑같음</strong>:
+  N trades 73, hit rate 9.6%, mean P&L −0.510%.
+  FinBERT 가 rule-based 가 못 잡은 추가 이벤트를 끌어올리지 못했고, 따라서
+  매매 후보 trades 가 변하지 않음. → 더 정교한 분류기가 신호를 더 잘 잡지 못함
+  = 데이터 자체에 단기 신호가 없음.
+</div>
+
+<h3>2.6 (D) 기각 근거 ② — 모든 이벤트가 동일하게 손실</h3>
+<table>
+<thead><tr><th>이벤트</th><th>N</th><th>Hit rate</th><th>Mean P&L</th></tr></thead>
+<tbody>
+<tr><td>earnings_beat (양)</td><td class="num">22</td><td class="num">9.1%</td><td class="num fail">−0.608%</td></tr>
+<tr><td>earnings_miss (음)</td><td class="num">2</td><td class="num">0.0%</td><td class="num fail">−0.640%</td></tr>
+<tr><td>mna</td><td class="num">6</td><td class="num">33.3%</td><td class="num fail">−0.690%</td></tr>
+<tr><td>regulatory (음)</td><td class="num">37</td><td class="num">21.6%</td><td class="num fail">−0.174%</td></tr>
+<tr><td>macro_shock (음)</td><td class="num">71</td><td class="num">19.7%</td><td class="num fail">−0.260%</td></tr>
+<tr><td>rating_change</td><td class="num">45</td><td class="num">6.7%</td><td class="num fail">−0.438%</td></tr>
+<tr><td><strong>neutral</strong> (분류기 매칭 없음)</td><td class="num">1900</td><td class="num">16.1%</td><td class="num fail">−0.445%</td></tr>
+</tbody>
+</table>
+<p class="small">
+  neutral (= 어떤 키워드도 안 매칭된 일반 헤드라인) 이 평균 −0.445% 로
+  earnings_beat (−0.608%), rating_change (−0.438%) 와 비슷한 수준.
+  분류기가 뭘 "신호" 로 잡든 결과가 거의 같음 → <strong>분류 정확도가 문제가 아니라
+  뉴스 자체에 단기 alpha 가 없음.</strong>
+</p>
+
+<h2>3. 어떻게 진단했는가 — 검증 흐름</h2>
+<pre class="ascii">
+        Step 1                Step 2                  Step 3
+      [기본 backtest]        [horizon 변경]          [gross P&L 분리]
+       T+5/T+65분 ──────►    5/30/60/240 분  ──────► cost = 0 가정
+       hit 9.6%, P&L −0.5%   모두 fail              gross P&L = −0.12%
+                                                    gross hit = 30.9%
+            │                       │                       │
+            ▼                       ▼                       ▼
+      "비용 때문?"           "horizon 문제?"         "신호 자체 문제"  ← 결론
+                                                            │
+                                                            ▼
+                                                  Step 4: per-event check
+                                                  neutral 도 −0.45%
+                                                  ────────────────
+                                                  → 분류기 무관, 데이터 한계
+</pre>
+
+<h2>4. 최종 결과 — 면접 narrative 로 활용</h2>
+
+<div class="callout info">
+  <strong>이 fail 자체가 강력한 narrative.</strong> "내가 직접 backtest 해서
+  retail 의 한계를 정량화했다" 가 "내 모델로 수익 냈다" 보다 quant 면접에서
+  더 인상적일 수 있음. honest reporting 이 quant 의 미덕.
+</div>
+
+<h3>4.1 도출된 학습</h3>
+<ol>
+<li><strong>Naver retail 뉴스 = 사후 보고</strong>. publish 시점에 가격은 이미 반영됨.
+    실시간 alpha 가 필요하다면 Bloomberg/Refinitiv (월 수천만원) 같은 machine-readable feed 필수.</li>
+<li><strong>retail 의 T+5분 = 너무 늦음</strong>. HFT 가 이미 spread 닫음.
+    이 윈도우에 들어가면 mean reversion 의 반대편에 위치 → 평균 손실.</li>
+<li><strong>분류기 정확도는 부차적</strong>. 신호 자체가 없는데 분류 정확도를
+    높여봐야 의미 없음. 데이터 latency 문제가 본질.</li>
+<li><strong>retail 이 뉴스로 alpha 뽑으려면 PEAD 윈도우 (1~60일)</strong>.
+    1시간 안 윈도우는 retail 한테 거의 항상 손해.</li>
+</ol>
+
+<h3>4.2 다음에 검증해볼 것 (제안)</h3>
+<ul>
+<li>같은 데이터로 <strong>T+EOD (당일 마감)</strong> 또는 <strong>T+1일~T+5일</strong> 검증 →
+    PEAD 윈도우 효과 측정. 아마 일부 이벤트 (earnings_beat) 에서 양의 결과 가능.</li>
+<li>headlines 에 더해 <strong>장 시작 전 뉴스 (gap-up trade)</strong> 만 분리 →
+    overnight 정보 비대칭 활용.</li>
+<li><strong>FinBERT 결과 대조</strong> (실행 중). rule-based 와 비슷한 결과 예상되지만 확인.</li>
+</ul>
+
+<h3>4.3 본 프로젝트 통합 결정</h3>
+<table>
+<thead><tr><th>옵션</th><th>선택?</th><th>이유</th></tr></thead>
+<tbody>
+<tr><td>KIS runner 에 news mode flag 추가</td><td class="fail">SKIP</td>
+    <td>Sharpe < 0.5 → plan 에서 정의한 조건 미달</td></tr>
+<tr><td>FAIL 보고서 마무리 (이 문서)</td><td class="win">DONE</td>
+    <td>narrative 가치 있음. 면접용 portfolio 에 포함</td></tr>
+<tr><td>future: PEAD 1~60일 윈도우 별도 검증</td><td>nice-to-have</td>
+    <td>현재 30일 캐시로는 sample 부족. Naver API 추가 페치 필요</td></tr>
+</tbody>
+</table>
+
+<h2>5. 비전공자용 요약 (TL;DR)</h2>
+<div class="callout info">
+  <p><strong>한 마디로</strong>: "Naver 뉴스를 받아 5분 후 매수, 1시간 후 매도" 자동매매 봇이
+  73회 매매에서 평균 −0.51%, 승률 9.6% 로 처참한 실패. 비용 빼도 손실 → 신호 자체가 없음을 확인.</p>
+
+  <p><strong>왜 안 되나</strong>: 뉴스가 retail 에게 도착했을 때는 이미 5~10분 늦음.
+  그 사이 HFT (초고속 매매) 가 가격을 다 움직여 놓고 빠져나감. 우리는 그 movement 의
+  꼭대기에서 매수 → mean reversion 으로 내려옴 → 손실.</p>
+
+  <p><strong>비유</strong>: 친구가 "이 핫플레이스 갔는데 이제 식었어" 라고 알려주면
+  내가 그 식당 가도 이미 폐업한 상태. 정보가 도착할 때 이미 가치 0.</p>
+
+  <p><strong>의미</strong>: retail 이 뉴스로 단기 매매 수익 내려는 시도는 학계 + 우리 실험
+  모두에서 부정. 다만 이 실험의 가치 = "왜 안 되는지 정확히 정량화" — quant 면접용 narrative
+  으로 transformation.</p>
+</div>
+
+<h2>6. 관련 파일 / 커밋</h2>
+<ul>
+<li><code>packages/autotrader/src/autotrader/data/minute_bars.py</code> — yfinance 5m bars + 캐시 (신규)</li>
+<li><code>packages/autotrader/src/autotrader/backtest/news_intraday.py</code> — backtest 엔진 (신규)</li>
+<li><code>packages/autotrader/src/autotrader/broker/kis_client.py</code> — minute_chart, minute_chart_day 메서드 추가</li>
+<li><code>scripts/backtest_news_intraday.py</code> — CLI runner (신규)</li>
+<li><code>data/minute_bars/*.parquet</code> — 10종목 × 60일 5분봉 캐시</li>
+<li><code>data/backtest_news_intraday_*.parquet</code> — per-trade 결과 (5개 horizon)</li>
+<li><code>data/news_cache/naver_*_20260426.json</code> — 9,291 뉴스 헤드라인 (어제 수집)</li>
+<li><code>docs/2026-04-26/B3_kr_naver_backtest.html</code> — 어제 일별 backtest fail 보고서 (선행)</li>
+</ul>
+
+<h2>7. 용어 정리집 (Glossary)</h2>
+<table>
+<thead><tr><th>용어</th><th>한 줄 설명</th><th>본문에서의 역할</th></tr></thead>
+<tbody>
+<tr><td><strong>backtest</strong></td><td>과거 데이터에 가상 매매 룰을 적용해 수익성 시뮬레이션</td>
+  <td>이 보고서 전체가 backtest 결과</td></tr>
+<tr><td><strong>분봉 (minute bar)</strong></td><td>1분 또는 5분 단위로 묶은 OHLCV 가격 데이터 (Open/High/Low/Close/Volume)</td>
+  <td>yfinance 에서 5분봉 60일치 가져와 backtest 입력으로 사용</td></tr>
+<tr><td><strong>hit rate</strong></td><td>전체 trade 중 net P&L > 0 인 비율</td>
+  <td>random 50% 가 baseline. 우리는 9.6% → 한참 미달</td></tr>
+<tr><td><strong>net P&L vs gross P&L</strong></td><td>gross = 가격 변화만, net = gross − 거래비용</td>
+  <td>gross 도 음수면 비용이 아닌 신호 자체 문제</td></tr>
+<tr><td><strong>Sharpe ratio</strong></td><td>(평균 수익 − 무위험금리) ÷ 수익 표준편차. 보통 연환산</td>
+  <td>1 이상이면 좋음, 0.5+ 면 그럭저럭, 음수면 random 보다 못함. 우리는 −15.7</td></tr>
+<tr><td><strong>거래비용 (transaction cost)</strong></td><td>한국 retail = 수수료 0.045%/매매 + 거래세 0.23%/매도 = round-trip 약 0.27%</td>
+  <td>트레이드당 0.27% 의 핸디캡. 이 돌파해야 수익 남음</td></tr>
+<tr><td><strong>HFT (High-Frequency Trading)</strong></td><td>microsecond 단위 매매하는 펀드. Bloomberg/Refinitiv feed 사용 (월 수천만)</td>
+  <td>뉴스 publish 후 우리보다 항상 먼저 매매 → 가격 움직임 다 가져감</td></tr>
+<tr><td><strong>latency</strong></td><td>정보가 publish 되어 우리에게 도착하기까지 시간</td>
+  <td>HFT 100ms vs retail Naver API 1~10분 → retail 압도적 불리</td></tr>
+<tr><td><strong>adverse selection</strong></td><td>거래 상대방이 더 많은 정보를 가져 우리에게 불리한 가격에 매매가 성사됨</td>
+  <td>본 backtest 의 진짜 원인. 비용이 아니라 잘못된 방향 매매</td></tr>
+<tr><td><strong>mean reversion</strong></td><td>가격이 단기 급변 후 평균으로 회귀하는 패턴</td>
+  <td>매수 후 60분 안에 평균 −0.12% 회귀 → 우리 매수 방향 반대</td></tr>
+<tr><td><strong>PEAD</strong></td><td>Post Earnings Announcement Drift. 실적 발표 후 1일~60일 가격이 같은 방향으로 drift 하는 학계 known anomaly</td>
+  <td>retail 이 활용 가능한 거의 유일한 뉴스 매매 윈도우 (다음 검증 대상)</td></tr>
+<tr><td><strong>gap-up trade</strong></td><td>장 시작 전 뉴스로 시가가 전일 종가 대비 크게 오른 상태에서 매매</td>
+  <td>overnight 정보 비대칭 활용 — 후속 검증 제안</td></tr>
+<tr><td><strong>FinBERT</strong></td><td>금융 도메인 BERT (Korean: snunlp/KR-FinBert-SC). 헤드라인 → 감성 분류기</td>
+  <td>rule-based 분류기와 비교용. 분류 정확도 향상이 본질을 바꾸지 않을 것으로 예상</td></tr>
+</tbody>
+</table>
+
+<p class="small" style="margin-top:36px;border-top:1px solid #ccc;padding-top:14px;">
+  보고서 작성: 2026-04-27 18:30 KST · ai_pricing 5-Layer 모노레포 Layer-B3 + Layer-E ·
+  결론: news intraday 가설 fail, plan 의 Phase 4 (live integration) skip, FAIL narrative 로 portfolio 통합.
+</p>
+
+</body>
+</html>

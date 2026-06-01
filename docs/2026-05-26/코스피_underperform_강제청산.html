@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>코스피 대비 underperform 강제 청산 — 베타 약한 보유 종목 자동 회전</title>
+<style>
+  body { font-family: 'Segoe UI', -apple-system, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.6; color: #222; }
+  h1 { border-bottom: 3px solid #333; padding-bottom: 0.4rem; }
+  h2 { border-bottom: 1px solid #ccc; padding-bottom: 0.3rem; margin-top: 2.2rem; }
+  h3 { margin-top: 1.6rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.95rem; }
+  th, td { border: 1px solid #ccc; padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: #f4f4f4; }
+  code { background: #f0f0f0; padding: 1px 5px; border-radius: 3px; font-size: 0.9em; }
+  pre { background: #f8f8f8; padding: 0.8rem 1rem; border-left: 3px solid #888; overflow-x: auto; font-size: 0.85em; }
+  .callout { border-left: 4px solid #2c7be5; background: #f0f7ff; padding: 0.9rem 1.1rem; margin: 1.2rem 0; }
+  .callout.warn { border-left-color: #d9822b; background: #fff7ed; }
+  .callout.success { border-left-color: #28a745; background: #f0fff4; }
+  .callout.note { border-left-color: #6c757d; background: #f8f9fa; }
+  .meta { color: #666; font-size: 0.85rem; }
+  svg { display: block; margin: 1rem auto; }
+  .tldr { background: #fffbea; border: 1px solid #f0d050; padding: 1rem 1.2rem; margin: 1.5rem 0; }
+</style>
+</head>
+<body>
+
+<h1>코스피 대비 underperform 강제 청산 — 베타 약한 종목 자동 회전</h1>
+<p class="meta">작성: 2026-05-26 · 작업: <code>scripts/run_dual_paper_trading.py</code> + <code>packages/autotrader/src/autotrader/broker/kis_client.py</code> + <code>packages/autotrader/src/autotrader/paper/dual_state.py</code></p>
+
+<div class="callout success">
+<strong>한 줄 결과:</strong> 매수 시점부터 코스피 대비 5% 이상 underperform 한 보유 종목을 매 iter 자동 청산. 12개 단위 테스트 통과 (146개 회귀 모두 통과). 기존 보유 종목은 kospi_at_entry 가 없어 자동으로 skip (backward compat 유지), 새 매수부터 점진 적용.
+</div>
+
+<h2>1. 무엇이 문제였나</h2>
+
+<h3>1.1 오늘 사례 — peak 에서 -3.8% 흘림</h3>
+
+<p>오늘(2026-05-26) 코스피가 +3% 정도 올랐는데 portfolio 는 장중 peak (11.40M) 에서 현재 (10.97M) 까지 <strong>-3.8% 흘렸다</strong>. cap 도달로 신규 진입은 안 됐고, 동시에 보유 7종 중 일부가 시장 대비 약세였던 게 원인.</p>
+
+<h3>1.2 베타 (β) 개념과 보유 종목 분포</h3>
+
+<table>
+<tr><th>베타</th><th>의미</th><th>코스피 +3% 일 때 기댓값</th></tr>
+<tr><td>1.0</td><td>시장과 같이 움직임</td><td>+3%</td></tr>
+<tr><td>0.5</td><td>시장의 절반만</td><td>+1.5%</td></tr>
+<tr><td>1.5</td><td>시장보다 1.5배 출렁</td><td>+4.5%</td></tr>
+<tr><td>음수</td><td>시장과 반대</td><td>-3%</td></tr>
+</table>
+
+<p>오늘 보유 7종 평균 베타 추정 ≈ 0.85 (방어주 + 중소형주 혼재). 즉 코스피 +3% 일 때 기댓값 +2.55%. 거기에 종목별 그날 알파가 빠지면 실제는 +1~2% 수준.</p>
+
+<h3>1.3 dual confirmation 전략의 구조적 한계</h3>
+
+<div class="callout warn">
+"외국인+기관 둘 다 매수" 조건을 통과하는 종목은 자연스럽게 <strong>방어적 대형주</strong> 또는 <strong>저변동 가치주</strong> 가 많다. 양쪽이 동의하는 종목은 "꾸준히 사들이는 안정 종목" 이라 베타가 1보다 낮은 경향. 이게 alpha 측면에선 장점(누적 매수세 = 안정 상승)이지만, 시장 directional rally 의 베타는 못 잡는다.
+</div>
+
+<h2>2. 어떻게 풀었나</h2>
+
+<h3>2.1 핵심 아이디어</h3>
+
+<pre>
+relative_return = stock_return - kospi_return
+                = (현재가 - 매수가) / 매수가  -  (현재코스피 - 매수시코스피) / 매수시코스피
+
+if relative_return &lt; -threshold (= -5%):
+    강제 청산
+</pre>
+
+<p>"매수 이후 코스피보다 5% 이상 뒤처졌으면 그 자리에 더 강한 후보가 들어올 수 있게 자리 비워준다" 는 단순한 회전 룰.</p>
+
+<h3>2.2 변경 사항 — 3개 파일</h3>
+
+<table>
+<tr><th>파일</th><th>변경 내용</th></tr>
+<tr><td><code>packages/autotrader/src/autotrader/paper/dual_state.py</code></td><td><code>Position.kospi_at_entry: float | None</code> 필드 추가 (default None — backward compat)</td></tr>
+<tr><td><code>packages/autotrader/src/autotrader/broker/kis_client.py</code></td><td><code>KISClient.index_price(index_code)</code> 추가 — KOSPI 종합지수 현재가 조회 (TR FHPUP02100000)</td></tr>
+<tr><td><code>scripts/run_dual_paper_trading.py</code></td><td><code>should_force_sell_underperform()</code> helper, 매수 시 <code>kospi_at_entry</code> 기록, 매도 단계에서 underperform 강제 청산 분기 추가</td></tr>
+</table>
+
+<h3>2.3 매 iter 흐름 (신규)</h3>
+
+<pre>
+0. 보유 잔고 sync + 현재가 평가
+1. KOSPI 지수 현재가 조회 (kospi_now)          ◀ NEW
+2. dual confirmation 후보 fetch (#1 fallback 포함)
+3. dual sell 신호 → 매도 (기존)
+4. <strong>각 보유 종목 underperform 검사 → 강제 청산 (#5 NEW)</strong>
+   - kospi_at_entry 없으면 skip (기존 보유 종목 backward compat)
+   - entry_date 부터 2거래일 미만이면 skip (잡음 흡수)
+   - relative_return &lt; -5% 면 매도 주문 + state 갱신
+5. cap 확장 계산 (#3) → 매수 → Position 에 kospi_now 기록
+</pre>
+
+<h3>2.4 핵심 helper</h3>
+
+<pre>
+UNDERPERFORM_THRESHOLD = 0.05         # 5%
+UNDERPERFORM_MIN_HOLD_DAYS = 2        # 최소 2거래일 보유 후 검사
+
+def should_force_sell_underperform(position, current_price, current_kospi,
+                                     today=None, threshold=..., min_hold_days=...):
+    # Skip 조건들 — 데이터 부족 / 너무 짧은 보유
+    if position.kospi_at_entry is None or position.kospi_at_entry &lt;= 0:
+        return False, None
+    if current_kospi &lt;= 0 or current_price &lt;= 0 or position.avg_entry &lt;= 0:
+        return False, None
+    if _days_between(position.entry_date, today) &lt; min_hold_days:
+        return False, None
+
+    stock_return = (current_price - position.avg_entry) / position.avg_entry
+    kospi_return = (current_kospi - position.kospi_at_entry) / position.kospi_at_entry
+    relative = stock_return - kospi_return
+    return (relative &lt; -threshold), relative
+</pre>
+
+<h2>3. 검증 — 12개 단위 테스트</h2>
+
+<table>
+<tr><th>케이스</th><th>입력</th><th>결과</th></tr>
+<tr><td>임계 초과 underperform</td><td>stock -3%, kospi +5%, relative -8%</td><td>청산 (rel=-0.08)</td></tr>
+<tr><td>임계 미만 underperform</td><td>stock -3%, kospi 0%, relative -3%</td><td>보유</td></tr>
+<tr><td>outperform 중</td><td>stock +5%, kospi -2%, relative +7%</td><td>보유</td></tr>
+<tr><td>legacy 종목 (kospi_at_entry None)</td><td>큰 underperform이라도</td><td>skip (None 반환)</td></tr>
+<tr><td>짧은 보유 (1일 < 2일 임계)</td><td>큰 underperform이라도</td><td>skip</td></tr>
+<tr><td>entry_date='unknown'</td><td>KIS sync backfill 종목</td><td>skip</td></tr>
+<tr><td>kospi 조회 실패 (0)</td><td>—</td><td>skip</td></tr>
+<tr><td>정확히 임계값 (-5%)</td><td>경계</td><td>보유 (strict less than)</td></tr>
+<tr><td>KIS index_price 응답 파싱</td><td>"2,650.45" (쉼표 포함)</td><td>2650.45</td></tr>
+<tr><td>parse 손상 입력</td><td>{}, None, "not-a-number"</td><td>0.0</td></tr>
+<tr><td>_days_between 정확성</td><td>2026-05-20 → 2026-05-26</td><td>6일</td></tr>
+<tr><td>threshold override</td><td>threshold=0.02, relative -3%</td><td>청산 (커스텀 룰 작동)</td></tr>
+</table>
+
+<h2>4. 효과 추정 (오늘 사례 적용)</h2>
+
+<svg viewBox="0 0 720 280" width="100%">
+  <text x="360" y="22" text-anchor="middle" font-size="14" font-weight="bold">오늘 보유 7종 relative return (가상 시나리오)</text>
+
+  <line x1="100" y1="240" x2="700" y2="240" stroke="#333" stroke-width="1.5"/>
+  <line x1="100" y1="50" x2="100" y2="240" stroke="#333" stroke-width="1.5"/>
+
+  <text x="95" y="60" text-anchor="end" font-size="11">+10%</text>
+  <text x="95" y="115" text-anchor="end" font-size="11">0%</text>
+  <text x="95" y="170" text-anchor="end" font-size="11">-5%</text>
+  <text x="95" y="225" text-anchor="end" font-size="11">-10%</text>
+
+  <line x1="100" y1="115" x2="700" y2="115" stroke="#888" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="705" y="118" font-size="10" fill="#888">코스피 (0%)</text>
+
+  <line x1="100" y1="170" x2="700" y2="170" stroke="#c0392b" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="705" y="173" font-size="10" fill="#c0392b">청산 임계 -5%</text>
+
+  <rect x="150" y="105" width="40" height="10" fill="#28a745"/>
+  <text x="170" y="260" text-anchor="middle" font-size="10">005930</text>
+  <text x="170" y="100" text-anchor="middle" font-size="9" fill="#28a745">+2%</text>
+
+  <rect x="210" y="115" width="40" height="5" fill="#888"/>
+  <text x="230" y="260" text-anchor="middle" font-size="10">003550</text>
+  <text x="230" y="110" text-anchor="middle" font-size="9" fill="#888">-1%</text>
+
+  <rect x="270" y="115" width="40" height="0" fill="#888"/>
+  <text x="290" y="260" text-anchor="middle" font-size="10">000720</text>
+  <text x="290" y="110" text-anchor="middle" font-size="9" fill="#888">0%</text>
+
+  <rect x="330" y="115" width="40" height="22" fill="#d9822b"/>
+  <text x="350" y="260" text-anchor="middle" font-size="10">011780</text>
+  <text x="350" y="148" text-anchor="middle" font-size="9" fill="#d9822b">-2%</text>
+
+  <rect x="390" y="115" width="40" height="44" fill="#d9822b"/>
+  <text x="410" y="260" text-anchor="middle" font-size="10">001450</text>
+  <text x="410" y="170" text-anchor="middle" font-size="9" fill="#d9822b">-4%</text>
+
+  <rect x="450" y="115" width="40" height="55" fill="#c0392b"/>
+  <text x="470" y="260" text-anchor="middle" font-size="10">003690</text>
+  <text x="470" y="180" text-anchor="middle" font-size="9" fill="#c0392b">-5%</text>
+
+  <rect x="510" y="115" width="40" height="88" fill="#c0392b"/>
+  <text x="530" y="260" text-anchor="middle" font-size="10">008700</text>
+  <text x="530" y="215" text-anchor="middle" font-size="9" fill="#c0392b">-8%</text>
+
+  <text x="530" y="277" text-anchor="middle" font-size="10" fill="#c0392b" font-weight="bold">↑ 강제 청산 대상</text>
+</svg>
+
+<div class="callout note">
+※ 위 그래프는 illustrative — 실제 어제까지의 entry 시점 KOSPI 값을 알 수 없어 (이번 fix 이전 매수라 kospi_at_entry 없음) 새 매수부터 추적된다. 즉 오늘 보유 종목 7종은 모두 skip, 내일부터 새로 매수된 종목부터 점진 적용.
+</div>
+
+<h2>5. 운영 안전장치</h2>
+
+<table>
+<tr><th>위험</th><th>대응</th></tr>
+<tr><td>매수 직후 변동성 노이즈로 잘못 청산</td><td>min_hold_days=2 — 최소 2거래일 경과 후 검사</td></tr>
+<tr><td>KIS index_price 호출 실패</td><td>kospi_now=0 → 전체 underperform 룰 skip (try/except)</td></tr>
+<tr><td>legacy 종목 (기존 보유)</td><td>kospi_at_entry=None → 자동 skip, 다음 매수부터 적용</td></tr>
+<tr><td>매수가/현재가가 0 또는 음수</td><td>data sanity check → skip</td></tr>
+<tr><td>entry_date 가 'unknown' (KIS sync backfill)</td><td>_days_between 이 0 반환 → min_hold_days 검사로 자동 skip</td></tr>
+<tr><td>임계값 잘못 설정 → 과도한 회전</td><td>config 로 외부 조정 가능 (threshold/min_hold_days 인자화). 첫 1주 운영 후 튜닝</td></tr>
+</table>
+
+<h2>6. 다른 fix 와의 상호작용</h2>
+
+<table>
+<tr><th>시나리오</th><th>#1 fallback</th><th>#3 cap 확장</th><th>#5 underperform</th><th>결과</th></tr>
+<tr><td>정상 데이터 + 평범 신호</td><td>X</td><td>X</td><td>적용</td><td>약한 종목 회전</td></tr>
+<tr><td>정상 데이터 + strong 다발</td><td>X</td><td>+1~3</td><td>적용</td><td>cap 확장 + 약한 종목 회전 → 회전율 ↑</td></tr>
+<tr><td>시초 fallback + 평범 신호</td><td>O (1.5x 임계)</td><td>X</td><td>적용</td><td>보수적 진입 + 회전</td></tr>
+<tr><td>시초 fallback + strong 다발</td><td>O</td><td>X (확장 금지)</td><td>적용</td><td>가장 보수 — 진입 제한 + 회전</td></tr>
+</table>
+
+<p>세 fix 가 독립적으로 작동하면서 서로의 단점 보완:</p>
+<ul>
+<li><strong>#1</strong> — 시초 데이터 공백 메우기 (알파 윈도우 캡처)</li>
+<li><strong>#3</strong> — 강한 신호 다발 시 cap 우회 (기회 캡처)</li>
+<li><strong>#5</strong> — 약한 보유 종목 자동 청산 (자리 회전)</li>
+</ul>
+
+<h2>7. 비전공자용 TL;DR</h2>
+
+<div class="tldr">
+지금까지 매수한 종목들은 외국인+기관 둘 다 매도해야 청산했는데, 그 신호가 안 떠도 코스피가 신나게 오를 때 못 따라가는 종목들이 자리만 차지하고 있었다. 이번 fix는 단순히 <strong>"매수 이후 코스피보다 5% 이상 뒤처졌으면 그 종목 강제로 팔고 자리 비운다"</strong> 룰을 추가했다. 단 매수 직후 2일 동안은 변동성 잡음일 수 있어서 검사 안 함, 코스피 가격 못 받으면 검사 안 함, 옛날에 산 종목은 매수 시점 코스피를 모르니까 검사 안 함. 새로 사는 종목부터 점진적으로 적용된다. 12개 단위 테스트 + 146개 회귀 테스트 모두 통과.
+</div>
+
+<h2>8. 관련 파일</h2>
+
+<ul>
+<li><a href="../../scripts/run_dual_paper_trading.py"><code>run_dual_paper_trading.py</code></a> — <code>should_force_sell_underperform</code>, <code>_parse_kospi_quote</code>, <code>_days_between</code>, daemon/one-shot 매도 분기 + 매수 Position 기록</li>
+<li><a href="../../packages/autotrader/src/autotrader/paper/dual_state.py"><code>dual_state.py</code></a> — <code>Position.kospi_at_entry</code> 필드</li>
+<li><a href="../../packages/autotrader/src/autotrader/broker/kis_client.py"><code>kis_client.py</code></a> — <code>index_price()</code> 메서드</li>
+<li><a href="../../packages/autotrader/tests/test_foreign_inst_realtime.py"><code>test_foreign_inst_realtime.py</code></a> — 12개 신규 테스트</li>
+<li><a href="시초데이터공백_fallback.html">#1 fallback fix 보고서</a></li>
+<li><a href="포지션cap_동적확장.html">#3 cap 확장 fix 보고서</a></li>
+</ul>
+
+<h2>용어 정리집</h2>
+
+<table>
+<tr><th>용어</th><th>한 줄 설명</th><th>본문에서의 역할</th></tr>
+<tr><td>relative return</td><td>종목 수익률 - 시장 수익률 = "시장 대비 얼마나 잘/못 했나"</td><td>본 fix의 청산 트리거 변수.</td></tr>
+<tr><td>베타 (β)</td><td>코스피 1% 움직일 때 그 종목은 평균 몇 % 움직이는지의 척도.</td><td>왜 보유 종목이 시장 못 따라가는지의 구조적 이유.</td></tr>
+<tr><td>코스피 (KOSPI)</td><td>한국 종합주가지수 — 한국 주식시장 전체 흐름의 대표 지표.</td><td>비교 기준선. KIS API <code>0001</code> 코드로 조회.</td></tr>
+<tr><td>kospi_at_entry</td><td>매수 시점의 코스피 지수값. Position 에 저장됨.</td><td>relative return 계산의 코스피 측 기준값.</td></tr>
+<tr><td>min_hold_days</td><td>매수 후 강제 청산 검사 시작까지의 최소 거래일 수.</td><td>잡음 흡수 — 매수 직후 변동성으로 잘못 청산하는 일 방지.</td></tr>
+<tr><td>backward compatibility</td><td>기존 데이터/코드와의 호환성.</td><td>kospi_at_entry=None 인 legacy 종목은 자동 skip 으로 안전 처리.</td></tr>
+<tr><td>회전 (turnover)</td><td>약한 종목을 팔고 강한 종목으로 갈아타는 빈도.</td><td>본 fix의 목적 — 약한 보유 자동 제거 → 새 strong 후보 진입 공간 확보.</td></tr>
+<tr><td>directional rally</td><td>시장 전체가 한 방향(보통 상승)으로 강하게 움직이는 날.</td><td>오늘 같은 코스피 +3% 가 그것. dual confirmation 약점이 노출되는 시점.</td></tr>
+<tr><td>strict less than (&lt;)</td><td>경계값 정확히 같으면 포함 안 함.</td><td>relative -5% 정확히는 청산 안 함 — 임계 미세 흔들림에 과민반응 방지.</td></tr>
+<tr><td>TR_ID (FHPUP02100000)</td><td>KIS API 의 거래 식별자. 엔드포인트별 고유.</td><td>index_price() 가 사용하는 지수 시세 TR. 영웅문 HTS 와 동일.</td></tr>
+<tr><td>dual sell signal</td><td>외국인+기관 둘 다 -5% 이상 매도 → 청산 신호.</td><td>기존 청산 룰. 본 fix는 그 외 보조 청산 룰로 추가됨.</td></tr>
+</table>
+
+<p class="meta">생성: Claude Code · 작업 시간 약 35분 · 테스트 12개 추가 · 회귀 0건 (146/146)</p>
+
+</body>
+</html>

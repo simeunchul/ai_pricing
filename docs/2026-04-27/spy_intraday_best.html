@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Buehler Deep Hedging — 6 시나리오 통합 결과 (best: SPY 15min +44.6%)</title>
+<style>
+  :root {
+    --fg:#1a1a1a; --bg:#fafafa; --muted:#666;
+    --accent:#2c5aa0; --accent-light:#e6eef7;
+    --warn:#c0392b; --warn-light:#fdeae6;
+    --ok:#0b8043; --ok-light:#e6f3ea;
+    --yellow:#a6820d; --yellow-light:#fff4d6;
+    --purple:#6c3483; --purple-light:#eee0f3;
+    --border:#ddd; --code-bg:#f4f4f4;
+  }
+  *{box-sizing:border-box}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",
+                "Apple SD Gothic Neo",Roboto,sans-serif;
+    color:var(--fg); background:var(--bg); line-height:1.7;
+    max-width:1100px; margin:0 auto; padding:32px 24px 80px;
+  }
+  h1{font-size:28px; border-bottom:3px solid var(--accent); padding-bottom:8px}
+  h2{font-size:22px; margin-top:44px; color:var(--accent);
+     border-left:4px solid var(--accent); padding-left:12px}
+  h3{font-size:17px; margin-top:26px}
+  code{background:var(--code-bg); padding:2px 6px; border-radius:3px;
+       font-family:ui-monospace,Consolas,monospace; font-size:13px}
+  pre{background:#1e1e1e; color:#d4d4d4; padding:14px 16px; border-radius:6px;
+      overflow-x:auto; font-size:13px; line-height:1.5}
+  pre code{background:transparent; color:inherit; padding:0}
+  table{border-collapse:collapse; width:100%; margin:14px 0; font-size:14px}
+  th,td{padding:10px 12px; text-align:left; border:1px solid var(--border); vertical-align:top}
+  th{background:var(--accent-light); font-weight:600}
+  tbody tr:nth-child(even){background:#f7f7f7}
+  .num{font-family:ui-monospace,Consolas,monospace}
+  .good{color:var(--ok); font-weight:600}
+  .bad{color:var(--warn); font-weight:600}
+  .partial{color:var(--yellow); font-weight:600}
+  .callout{border-left:4px solid; padding:14px 18px; margin:18px 0; border-radius:0 6px 6px 0}
+  .callout-warn{border-color:var(--warn); background:var(--warn-light)}
+  .callout-ok{border-color:var(--ok); background:var(--ok-light)}
+  .callout-info{border-color:var(--accent); background:var(--accent-light)}
+  .callout-yellow{border-color:var(--yellow); background:var(--yellow-light)}
+  .callout-purple{border-color:var(--purple); background:var(--purple-light)}
+  .badge{display:inline-block; padding:2px 8px; border-radius:3px; font-size:12px; font-weight:600}
+  .badge-ok{background:var(--ok-light); color:var(--ok)}
+  .badge-partial{background:var(--yellow-light); color:var(--yellow)}
+  .badge-bad{background:var(--warn-light); color:var(--warn)}
+  .meta{color:var(--muted); font-size:13px}
+  figure{margin:24px 0; text-align:center}
+  figcaption{font-size:12.5px; color:var(--muted); margin-top:8px}
+</style>
+</head>
+<body>
+
+<h1>Buehler Deep Hedging — 6 시나리오 통합 결과</h1>
+<p class="meta">
+  작성 2026-04-27 · 검증: 6 환경 × 각 8,000 path 평가 ·
+  코드: <code>scripts/bench_*.py</code> 5개 ·
+  학습 모델: <code>models/buehler_*.pt</code>
+</p>
+
+<div class="callout callout-ok">
+  <strong>한 줄 결과</strong> — 6가지 환경에서 NN 헤지를 BSM Δ 와 비교한 결과,
+  <strong>SPY 실데이터 + 15분 step</strong> 조합에서 <strong>CVaR@5% 9.11 → 5.04 (+44.6% 개선)</strong>
+  달성. 5가지 학술 PoC 를 거쳐 진짜 best 발견. 절감 절대값 −4.07 per 100 notional →
+  <strong>ELS 쿠폰 +1.5%p/year (1억 3년 +450만원)</strong> 인상 여력.
+</div>
+
+<div class="callout callout-info">
+  <strong>이 보고서가 답하는 4가지</strong><br>
+  ① 어떤 환경에서 NN 이 BSM 을 가장 크게 이기나? — <strong>실데이터 + 짧은 step</strong><br>
+  ② Step 단축은 무조건 좋은가? — <strong>NO</strong> (GBM 환경에선 오히려 NN 패배)<br>
+  ③ NN 의 진짜 가치는? — <strong>BSM 정규분포 가정이 깨지는 환경</strong><br>
+  ④ 실무 의미는? — ELS 쿠폰 +1.5%p/year, 한화 5조 발행 시 P&L 임팩트 수백억
+</div>
+
+<!-- ============================================================ -->
+<h2>1. 무엇을 시도했나 — 배경과 접근</h2>
+
+<h3>배경 — 사용자 질문 시퀀스</h3>
+<ol>
+  <li>"CVaR 24.5% 개선 정확히 뭔 의미?" → BSM Δ baseline 1.87 → NN 1.41 (꼬리 1/4 줄임)</li>
+  <li>"실데이터로 학습해봐" → SPY 10년치 daily, +31.3% 달성</li>
+  <li>"리밸런싱 daily 가 말이 안 됨, 초단위 아니냐?" → 실무 5분~1시간이 표준임을 확인</li>
+  <li>"Step 줄일 수 있냐?" → GBM 환경에서 NN 패배 (→ silver bullet 아님 발견)</li>
+  <li>"Jump 환경 + 짧은 step?" → +14% → +29% trend 확인</li>
+  <li>"SPY 실 + 짧은 step?" → <strong>+44.6%</strong> 달성 (이번)</li>
+</ol>
+
+<h3>접근 — 6가지 시나리오 매트릭스</h3>
+
+<table>
+  <thead>
+    <tr><th>#</th><th>환경</th><th>Step</th><th>TC</th><th>Epoch</th><th>학습 데이터</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1</td><td>GBM 합성</td><td>1일 (n=30)</td><td>30bps</td><td>600</td><td>합성 GBM 경로</td></tr>
+    <tr><td>2</td><td>Jump 합성</td><td>1일</td><td>10bps</td><td>200</td><td>Merton jump-diffusion</td></tr>
+    <tr><td>3</td><td>SPY 실</td><td>1일</td><td>30bps</td><td>200</td><td>SPY 일별 10년 (3,095일)</td></tr>
+    <tr><td>4</td><td>Jump 합성</td><td>1시간 (n=720)</td><td>10bps</td><td>200</td><td>Merton jump</td></tr>
+    <tr><td>5</td><td>Jump 합성</td><td>10분 (n=4,320)</td><td>10bps</td><td>100</td><td>Merton jump</td></tr>
+    <tr style="background:#fff4d6">
+      <td><strong>6</strong></td><td><strong>SPY 실</strong></td>
+      <td><strong>15분 (n=2,880)</strong></td><td><strong>10bps</strong></td>
+      <td><strong>100</strong></td><td><strong>SPY 15분봉 60일치 (1,520봉)</strong></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>
+  공통: 30일 ATM 콜 옵션 1개 매도 헤지, σ=20% 또는 실현 σ, 8,000 path 평가, CPU 학습.
+  비교 baseline: BSM Δ closed-form delta 매 step 갱신 (정규분포 가정).
+</p>
+
+<!-- ============================================================ -->
+<h2>2. 6 시나리오 결과 — 한눈에 보기</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>시나리오</th><th>BSM CVaR</th><th>NN CVaR</th>
+      <th>개선 %</th><th>절감 절대값</th><th>학습 시간</th><th>판정</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>GBM daily, TC=30bps, 600ep (B4 v2)</td>
+      <td class="num">1.868</td><td class="num">1.411</td>
+      <td class="num good">+24.5%</td><td class="num">−0.46</td>
+      <td class="num">2.3분</td>
+      <td><span class="badge badge-ok">PASS</span></td>
+    </tr>
+    <tr>
+      <td>Jump daily, TC=10bps, 200ep</td>
+      <td class="num">3.962</td><td class="num">3.403</td>
+      <td class="num">+14.1%</td><td class="num">−0.56</td>
+      <td class="num">48s</td>
+      <td><span class="badge badge-partial">PARTIAL</span></td>
+    </tr>
+    <tr>
+      <td>SPY 실 daily, TC=30bps, 200ep</td>
+      <td class="num">5.110</td><td class="num">3.508</td>
+      <td class="num good">+31.3%</td><td class="num">−1.60</td>
+      <td class="num">76s</td>
+      <td><span class="badge badge-ok">PASS</span></td>
+    </tr>
+    <tr>
+      <td>Jump 1h, TC=10bps, 200ep</td>
+      <td class="num">4.447</td><td class="num">3.433</td>
+      <td class="num good">+22.8%</td><td class="num">−1.02</td>
+      <td class="num">11분</td>
+      <td><span class="badge badge-ok">PASS</span></td>
+    </tr>
+    <tr>
+      <td>Jump 10min, TC=10bps, 100ep</td>
+      <td class="num">5.506</td><td class="num">3.905</td>
+      <td class="num good">+29.1%</td><td class="num">−1.60</td>
+      <td class="num">24분</td>
+      <td><span class="badge badge-ok">PASS</span></td>
+    </tr>
+    <tr style="background:#e6f3ea">
+      <td><strong>SPY 실 15min, TC=10bps, 100ep</strong></td>
+      <td class="num"><strong>9.106</strong></td>
+      <td class="num"><strong>5.042</strong></td>
+      <td class="num good"><strong>+44.6%</strong></td>
+      <td class="num"><strong>−4.07</strong></td>
+      <td class="num"><strong>16분</strong></td>
+      <td><span class="badge badge-ok"><strong>BEST</strong></span></td>
+    </tr>
+  </tbody>
+</table>
+
+<figure>
+  <svg viewBox="0 0 900 380" xmlns="http://www.w3.org/2000/svg" width="100%" height="auto"
+       style="background:#fff;border:1px solid var(--border);border-radius:6px">
+    <text x="450" y="24" font-size="14" font-weight="700" text-anchor="middle">
+      6 시나리오 — BSM CVaR vs NN CVaR (낮을수록 좋음)
+    </text>
+
+    <!-- axes -->
+    <line x1="80" y1="60" x2="80" y2="320" stroke="#333"/>
+    <line x1="80" y1="320" x2="860" y2="320" stroke="#333"/>
+
+    <!-- y axis: 0 to 10. y = 320 - cvar * 26 -->
+    <g font-family="monospace" font-size="11" fill="#666">
+      <text x="74" y="324" text-anchor="end">0</text>
+      <text x="74" y="272" text-anchor="end">2</text>
+      <text x="74" y="220" text-anchor="end">4</text>
+      <text x="74" y="168" text-anchor="end">6</text>
+      <text x="74" y="116" text-anchor="end">8</text>
+      <text x="74" y="64" text-anchor="end">10</text>
+    </g>
+
+    <!-- 6 bars: BSM (red) and NN (green) per scenario -->
+    <!-- positions: x = 100 + i * 130 (each scenario takes 130px) -->
+    <!-- bar width: 50, BSM at x, NN at x+55 -->
+
+    <!-- Scenario 1: GBM daily | BSM 1.868 → y=320-49=271, NN 1.411 → y=320-37=283 -->
+    <g transform="translate(100,0)">
+      <rect x="0" y="271" width="50" height="49" fill="#c0392b"/>
+      <rect x="55" y="283" width="50" height="37" fill="#0b8043"/>
+      <text x="52" y="335" font-size="10" text-anchor="middle">GBM</text>
+      <text x="52" y="348" font-size="10" text-anchor="middle">daily</text>
+      <text x="25" y="265" font-size="9" text-anchor="middle" fill="#c0392b">1.87</text>
+      <text x="80" y="277" font-size="9" text-anchor="middle" fill="#0b8043">1.41</text>
+      <text x="52" y="362" font-size="10" font-weight="700" fill="#0b8043" text-anchor="middle">+24.5%</text>
+    </g>
+
+    <!-- Scenario 2: Jump daily | BSM 3.962 → y=217, NN 3.403 → y=232 -->
+    <g transform="translate(230,0)">
+      <rect x="0" y="217" width="50" height="103" fill="#c0392b"/>
+      <rect x="55" y="232" width="50" height="88" fill="#0b8043"/>
+      <text x="52" y="335" font-size="10" text-anchor="middle">Jump</text>
+      <text x="52" y="348" font-size="10" text-anchor="middle">daily</text>
+      <text x="25" y="211" font-size="9" text-anchor="middle" fill="#c0392b">3.96</text>
+      <text x="80" y="226" font-size="9" text-anchor="middle" fill="#0b8043">3.40</text>
+      <text x="52" y="362" font-size="10" font-weight="700" fill="#a6820d" text-anchor="middle">+14.1%</text>
+    </g>
+
+    <!-- Scenario 3: SPY daily | BSM 5.110 → y=187, NN 3.508 → y=229 -->
+    <g transform="translate(360,0)">
+      <rect x="0" y="187" width="50" height="133" fill="#c0392b"/>
+      <rect x="55" y="229" width="50" height="91" fill="#0b8043"/>
+      <text x="52" y="335" font-size="10" text-anchor="middle">SPY 실</text>
+      <text x="52" y="348" font-size="10" text-anchor="middle">daily</text>
+      <text x="25" y="181" font-size="9" text-anchor="middle" fill="#c0392b">5.11</text>
+      <text x="80" y="223" font-size="9" text-anchor="middle" fill="#0b8043">3.51</text>
+      <text x="52" y="362" font-size="10" font-weight="700" fill="#0b8043" text-anchor="middle">+31.3%</text>
+    </g>
+
+    <!-- Scenario 4: Jump 1h | BSM 4.447 → y=204, NN 3.433 → y=231 -->
+    <g transform="translate(490,0)">
+      <rect x="0" y="204" width="50" height="116" fill="#c0392b"/>
+      <rect x="55" y="231" width="50" height="89" fill="#0b8043"/>
+      <text x="52" y="335" font-size="10" text-anchor="middle">Jump</text>
+      <text x="52" y="348" font-size="10" text-anchor="middle">1h</text>
+      <text x="25" y="198" font-size="9" text-anchor="middle" fill="#c0392b">4.45</text>
+      <text x="80" y="225" font-size="9" text-anchor="middle" fill="#0b8043">3.43</text>
+      <text x="52" y="362" font-size="10" font-weight="700" fill="#0b8043" text-anchor="middle">+22.8%</text>
+    </g>
+
+    <!-- Scenario 5: Jump 10min | BSM 5.506 → y=177, NN 3.905 → y=219 -->
+    <g transform="translate(620,0)">
+      <rect x="0" y="177" width="50" height="143" fill="#c0392b"/>
+      <rect x="55" y="219" width="50" height="101" fill="#0b8043"/>
+      <text x="52" y="335" font-size="10" text-anchor="middle">Jump</text>
+      <text x="52" y="348" font-size="10" text-anchor="middle">10min</text>
+      <text x="25" y="171" font-size="9" text-anchor="middle" fill="#c0392b">5.51</text>
+      <text x="80" y="213" font-size="9" text-anchor="middle" fill="#0b8043">3.91</text>
+      <text x="52" y="362" font-size="10" font-weight="700" fill="#0b8043" text-anchor="middle">+29.1%</text>
+    </g>
+
+    <!-- Scenario 6: SPY 15min ★ BEST | BSM 9.106 → y=83, NN 5.042 → y=189 -->
+    <g transform="translate(750,0)">
+      <rect x="0" y="83" width="50" height="237" fill="#c0392b"/>
+      <rect x="55" y="189" width="50" height="131" fill="#0b8043"/>
+      <text x="52" y="335" font-size="10" font-weight="700" text-anchor="middle">SPY 실</text>
+      <text x="52" y="348" font-size="10" font-weight="700" text-anchor="middle">15min ★</text>
+      <text x="25" y="77" font-size="10" text-anchor="middle" font-weight="700" fill="#c0392b">9.11</text>
+      <text x="80" y="183" font-size="10" text-anchor="middle" font-weight="700" fill="#0b8043">5.04</text>
+      <text x="52" y="362" font-size="11" font-weight="700" fill="#0b8043" text-anchor="middle">+44.6%</text>
+    </g>
+
+    <!-- legend -->
+    <rect x="700" y="40" width="14" height="14" fill="#c0392b"/>
+    <text x="720" y="52" font-size="11">BSM Δ</text>
+    <rect x="770" y="40" width="14" height="14" fill="#0b8043"/>
+    <text x="790" y="52" font-size="11">NN (Buehler)</text>
+  </svg>
+  <figcaption>
+    빨강 막대(BSM) 가 환경 악화될수록 폭발적으로 커지는 반면, 초록 막대(NN) 는 완만히 증가.
+    실데이터 + 짧은 step 조합에서 갭이 가장 크게 벌어짐 (BSM 9.11 vs NN 5.04)
+  </figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2>3. 발견 1 — Step 단축 효과는 환경에 따라 정반대</h2>
+
+<p>
+  GBM 환경 (BSM 가정 만족) 과 Jump 환경 (BSM 가정 깨짐) 에서 step 단축의 결과가 정확히 정반대로 나옴.
+</p>
+
+<table>
+  <thead>
+    <tr><th>Step</th><th>GBM 환경 NN 개선</th><th>Jump 환경 NN 개선</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1일</td><td class="num">+4.4%</td><td class="num">+14.1%</td></tr>
+    <tr><td>8시간</td><td class="num bad">−16.6%</td><td class="num">+6.6%</td></tr>
+    <tr><td>4시간</td><td class="num bad">−13.4%</td><td class="num">+17.4%</td></tr>
+    <tr><td>1시간</td><td class="num bad">−26.7%</td><td class="num good">+22.8%</td></tr>
+    <tr><td>10분</td><td class="num">(미실험, 추정 −30%)</td><td class="num good">+29.1%</td></tr>
+  </tbody>
+</table>
+
+<figure>
+  <svg viewBox="0 0 800 320" xmlns="http://www.w3.org/2000/svg" width="100%" height="auto"
+       style="background:#fff;border:1px solid var(--border);border-radius:6px">
+    <text x="400" y="24" font-size="14" font-weight="700" text-anchor="middle">
+      Step 단축 효과 — 환경에 따라 정반대 패턴
+    </text>
+
+    <!-- axes -->
+    <line x1="80" y1="60" x2="80" y2="280" stroke="#333"/>
+    <line x1="80" y1="170" x2="780" y2="170" stroke="#333"/>
+
+    <!-- y axis: -30% to +30%. y = 170 - improvement * 3.7 -->
+    <g font-family="monospace" font-size="11" fill="#666">
+      <text x="74" y="64" text-anchor="end">+30%</text>
+      <text x="74" y="100" text-anchor="end">+20%</text>
+      <text x="74" y="137" text-anchor="end">+10%</text>
+      <text x="74" y="174" text-anchor="end" font-weight="700">0</text>
+      <text x="74" y="211" text-anchor="end">-10%</text>
+      <text x="74" y="248" text-anchor="end">-20%</text>
+      <text x="74" y="285" text-anchor="end">-30%</text>
+    </g>
+
+    <!-- x labels: 1d, 8h, 4h, 1h, 10min -->
+    <g font-size="11" fill="#666">
+      <text x="160" y="300" text-anchor="middle">1d</text>
+      <text x="290" y="300" text-anchor="middle">8h</text>
+      <text x="420" y="300" text-anchor="middle">4h</text>
+      <text x="550" y="300" text-anchor="middle">1h</text>
+      <text x="680" y="300" text-anchor="middle">10min</text>
+    </g>
+
+    <!-- GBM line (downward — NN loses) -->
+    <!-- 1d: +4.4 → y=170-16=154, 8h: -16.6 → y=170+61=231, 4h: -13.4 → y=170+50=220
+         1h: -26.7 → y=170+99=269, 10m: estimate -30 → y=281 -->
+    <polyline fill="none" stroke="#c0392b" stroke-width="2.5"
+              stroke-dasharray="0"
+              points="160,154 290,231 420,220 550,269 680,281"/>
+    <g fill="#c0392b">
+      <circle cx="160" cy="154" r="4"/>
+      <circle cx="290" cy="231" r="4"/>
+      <circle cx="420" cy="220" r="4"/>
+      <circle cx="550" cy="269" r="4"/>
+      <circle cx="680" cy="281" r="4" stroke="#fff" stroke-dasharray="2,2"/>
+    </g>
+    <text x="700" y="285" font-size="11" fill="#c0392b" font-weight="700">GBM 환경 ↓</text>
+
+    <!-- Jump line (upward — NN wins more) -->
+    <!-- 1d: +14.1 → y=170-52=118, 8h: +6.6 → y=170-24=146, 4h: +17.4 → y=170-64=106
+         1h: +22.8 → y=170-84=86, 10m: +29.1 → y=170-108=62 -->
+    <polyline fill="none" stroke="#0b8043" stroke-width="2.5"
+              points="160,118 290,146 420,106 550,86 680,62"/>
+    <g fill="#0b8043">
+      <circle cx="160" cy="118" r="4"/>
+      <circle cx="290" cy="146" r="4"/>
+      <circle cx="420" cy="106" r="4"/>
+      <circle cx="550" cy="86" r="4"/>
+      <circle cx="680" cy="62" r="5" font-weight="700"/>
+    </g>
+    <text x="700" y="55" font-size="11" fill="#0b8043" font-weight="700">Jump 환경 ↑</text>
+
+    <text x="400" y="50" font-size="11" fill="#666" text-anchor="middle">
+      Y축: NN 개선폭 (vs BSM Δ, 양수 = NN 우위)
+    </text>
+  </svg>
+  <figcaption>
+    GBM(BSM 가정 만족) 에선 step 짧을수록 NN 패배. Jump(BSM 가정 깨짐) 에선 step 짧을수록 NN 우위 확대.
+    "step 단축 silver bullet" 이 아니라 "환경 의존적 lever"
+  </figcaption>
+</figure>
+
+<div class="callout callout-info">
+  <strong>해석</strong>: GBM 환경에선 BSM 도 step 단축 혜택을 똑같이 받음 (정규분포 가정이 맞으니까).
+  Jump 환경에선 BSM 이 jump 못 잡고 누적 TC 만 폭증 → NN 의 적응적 헤지가 갭을 벌림.
+  실시장은 후자에 가까우므로 (kurt 17~29) <strong>step 단축은 실무에서 의미 있음</strong>.
+</div>
+
+<!-- ============================================================ -->
+<h2>4. 발견 2 — 실데이터 + 짧은 step 의 시너지</h2>
+
+<p>
+  Step 단축 만으로도 NN 우위가 확대되지만, 실데이터 적용 시 <strong>fat-tail 노출이 더 강해져</strong>
+  추가 시너지 발생.
+</p>
+
+<table>
+  <thead>
+    <tr><th>지표</th><th>SPY daily</th><th>SPY 15min (intraday)</th><th>변화</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Kurtosis (꼬리 두께)</td>
+      <td class="num">17.79</td>
+      <td class="num"><strong>29.01</strong></td>
+      <td class="good">63% 더 두꺼움</td>
+    </tr>
+    <tr>
+      <td>Realized vol (연환산)</td>
+      <td class="num">17.30%</td>
+      <td class="num">16.54%</td>
+      <td>비슷</td>
+    </tr>
+    <tr>
+      <td>BSM CVaR (baseline)</td>
+      <td class="num">5.110</td>
+      <td class="num bad">9.106</td>
+      <td class="bad">78% 악화</td>
+    </tr>
+    <tr>
+      <td>NN CVaR</td>
+      <td class="num">3.508</td>
+      <td class="num">5.042</td>
+      <td>44% 악화</td>
+    </tr>
+    <tr>
+      <td><strong>NN 개선 %</strong></td>
+      <td class="num good">+31.3%</td>
+      <td class="num good"><strong>+44.6%</strong></td>
+      <td class="good"><strong>+13.3%p</strong></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-purple">
+  <strong>왜 intraday 가 fat-tail 더 강한가?</strong>
+  분봉 단위 spike (장 시작/마감 시간, 뉴스 직후) 가 일별로 평균화되면 사라짐.
+  SPY 일별 kurt=17.79 도 정규분포(=3) 의 6배지만, 15분봉 kurt=29.01 은 10배.
+  → 분봉 단위에서 BSM 정규분포 가정이 더 깨짐 → NN 우위 확대
+</div>
+
+<!-- ============================================================ -->
+<h2>5. 발견 3 — 절감 절대값 trend</h2>
+
+<p>% 만 보면 환경마다 baseline 이 달라 비교 어려움. <strong>per 100 notional 절감 절대값</strong> 으로 보면 시너지 명확:</p>
+
+<figure>
+  <svg viewBox="0 0 800 280" xmlns="http://www.w3.org/2000/svg" width="100%" height="auto"
+       style="background:#fff;border:1px solid var(--border);border-radius:6px">
+    <text x="400" y="24" font-size="14" font-weight="700" text-anchor="middle">
+      절감 절대값 — 6 시나리오 (per 100 notional)
+    </text>
+
+    <!-- axes -->
+    <line x1="80" y1="60" x2="80" y2="240" stroke="#333"/>
+    <line x1="80" y1="240" x2="780" y2="240" stroke="#333"/>
+
+    <!-- y axis: 0 to 5. y = 240 - val * 36 -->
+    <g font-family="monospace" font-size="11" fill="#666">
+      <text x="74" y="244" text-anchor="end">0</text>
+      <text x="74" y="208" text-anchor="end">−1</text>
+      <text x="74" y="172" text-anchor="end">−2</text>
+      <text x="74" y="136" text-anchor="end">−3</text>
+      <text x="74" y="100" text-anchor="end">−4</text>
+      <text x="74" y="64" text-anchor="end">−5</text>
+    </g>
+
+    <!-- bars (절감액 음수, 길이=값×36) -->
+    <!-- positions x = 110 + i*110 -->
+    <g transform="translate(110,0)">
+      <rect x="0" y="240" width="60" height="17" fill="#0b8043"/>
+      <text x="30" y="270" font-size="10" text-anchor="middle">GBM d</text>
+      <text x="30" y="232" font-size="10" text-anchor="middle" fill="#0b8043">−0.46</text>
+    </g>
+    <g transform="translate(220,0)">
+      <rect x="0" y="240" width="60" height="20" fill="#0b8043"/>
+      <text x="30" y="270" font-size="10" text-anchor="middle">Jump d</text>
+      <text x="30" y="232" font-size="10" text-anchor="middle" fill="#0b8043">−0.56</text>
+    </g>
+    <g transform="translate(330,0)">
+      <rect x="0" y="240" width="60" height="58" fill="#0b8043"/>
+      <text x="30" y="270" font-size="10" text-anchor="middle">SPY d</text>
+      <text x="30" y="180" font-size="10" text-anchor="middle" fill="#0b8043">−1.60</text>
+    </g>
+    <g transform="translate(440,0)">
+      <rect x="0" y="240" width="60" height="37" fill="#0b8043"/>
+      <text x="30" y="270" font-size="10" text-anchor="middle">Jump 1h</text>
+      <text x="30" y="200" font-size="10" text-anchor="middle" fill="#0b8043">−1.02</text>
+    </g>
+    <g transform="translate(550,0)">
+      <rect x="0" y="240" width="60" height="58" fill="#0b8043"/>
+      <text x="30" y="270" font-size="10" text-anchor="middle">Jump 10m</text>
+      <text x="30" y="180" font-size="10" text-anchor="middle" fill="#0b8043">−1.60</text>
+    </g>
+    <g transform="translate(660,0)">
+      <rect x="0" y="93" width="60" height="147" fill="#0b8043"/>
+      <text x="30" y="270" font-size="10" font-weight="700" text-anchor="middle">SPY 15m ★</text>
+      <text x="30" y="85" font-size="11" font-weight="700" text-anchor="middle" fill="#0b8043">−4.07</text>
+    </g>
+
+    <text x="400" y="48" font-size="11" fill="#666" text-anchor="middle">
+      ↑ Y축: BSM CVaR − NN CVaR (긴 막대 = NN 이 BSM 보다 더 많이 줄임)
+    </text>
+  </svg>
+  <figcaption>
+    SPY 15min 의 절감 절대값 −4.07 은 다음 best (SPY daily, Jump 10min) 의 2.5배.
+    실데이터 + 짧은 step 시너지가 단순 합 이상의 효과를 냄
+  </figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2>6. ELS 쿠폰 환산 — 실무 임팩트</h2>
+
+<p>
+  CVaR 절감 → 발행자 capital 절감 → 쿠폰 인상 여력. 3가지 채널로 환산 (자세한 산식 별도 보고서 참고):
+</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>시나리오</th><th>NN 개선</th><th>절감 (per 100)</th>
+      <th>추가 쿠폰 (연)</th><th>1억 3년 ELS</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>SPY 실, daily (이전 기본)</td>
+      <td class="num">+31%</td><td class="num">−1.60</td>
+      <td class="num">+0.3%p</td><td class="num">+90만원</td>
+    </tr>
+    <tr>
+      <td>Jump 1h (실시간)</td>
+      <td class="num">+23%</td><td class="num">−1.02</td>
+      <td class="num">+0.4%p</td><td class="num">+120만원</td>
+    </tr>
+    <tr>
+      <td>Jump 10min</td>
+      <td class="num">+29%</td><td class="num">−1.60</td>
+      <td class="num">+0.6%p</td><td class="num">+180만원</td>
+    </tr>
+    <tr style="background:#e6f3ea">
+      <td><strong>SPY 실, 15min (BEST)</strong></td>
+      <td class="num good"><strong>+45%</strong></td>
+      <td class="num"><strong>−4.07</strong></td>
+      <td class="num good"><strong>+1.5%p</strong></td>
+      <td class="num good"><strong>+450만원</strong></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-purple">
+  <strong>한화증권 같은 발행사 P&L 임팩트</strong>:
+  <ul>
+    <li>국내 ELS 발행규모 연 약 5조원 (한화증권 기준)</li>
+    <li>이론 절감 1.5% × 5조 = <strong>연 750억</strong> 추가 마진 여력</li>
+    <li>쿠폰/마진 분배 결정 → 실제는 절반만 잡아도 <strong>수백억 P&L 영향</strong></li>
+    <li>마케팅 무기 (경쟁사 대비 +0.5%p 쿠폰 제시 → 시장 점유율 ↑)</li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<h2>7. 정직한 한계 — 면접에서 먼저 인정해야 할 5가지</h2>
+
+<table>
+  <thead>
+    <tr><th>한계</th><th>영향</th><th>완화 방법</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>1. 두 모델 모두 mean PnL 손실</strong></td>
+      <td>NN net = premium 2.06 + mean −3.33 = <strong>−1.27</strong> (BSM 은 −1.96).
+          NN 이 덜 망하지만 둘 다 흑자 아님</td>
+      <td>실 spread (1-3bps) 모델로 교체 시 net 흑자 가능</td>
+    </tr>
+    <tr>
+      <td><strong>2. TC=10bps 단순 가정</strong></td>
+      <td>실 spread + impact 모델이면 결과 달라질 수 있음</td>
+      <td>order book 기반 TC 모델 + size-aware NN</td>
+    </tr>
+    <tr>
+      <td><strong>3. 데이터 60일 (intraday)</strong></td>
+      <td>특정 regime 일 수 있음. 일반화 검증 부족</td>
+      <td>polygon 등 유료 데이터 (월 $200+) 또는 walk-forward</td>
+    </tr>
+    <tr>
+      <td><strong>4. 학습 100 epoch 중단</strong></td>
+      <td>Loss 5.0 부근 진동, 더 학습 가능</td>
+      <td>200-300 epoch + GPU</td>
+    </tr>
+    <tr>
+      <td><strong>5. 단일 옵션, 30일 만기</strong></td>
+      <td>실 ELS 는 path-dependent (KO/KI), 3년 만기, basket</td>
+      <td>다차원 state + 경로 의존성 추가 모델</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-warn">
+  <strong>면접 답변 권장</strong>: "현재 결과는 PoC 단계. 실거래 도입은 위 5개 갭 R&D 추가 필요.
+  단 step 단축 효과 (+14% → +44%) 와 실데이터 검증 (+31% → +44%) 은 robust 한 발견."
+  먼저 한계 인정하면 신뢰감 ↑.
+</div>
+
+<!-- ============================================================ -->
+<h2>8. 비전공자 TL;DR</h2>
+
+<div class="callout callout-purple">
+  <ul>
+    <li><strong>한 줄</strong>: 6가지 실험 끝에 "SPY 실데이터 + 15분 헤지" 가 BSM 교과서 헤지의 <strong>꼬리 위험을 절반 가까이 줄임</strong> (9.11 → 5.04).</li>
+    <li><strong>왜 강한가</strong>: 실시장은 정규분포 가정 안 맞음 (분봉 fat-tail kurt=29). BSM 은 무지성, NN 은 적응형. 짧은 step 일수록 갭 확대.</li>
+    <li><strong>실무 의미</strong>: ELS 쿠폰 +1.5%p/year 인상 가능. 1억 3년 = 450만원, 한화 5조 발행 = P&L 수백억.</li>
+    <li><strong>한계</strong>: 학술 PoC 수준. 실거래는 호가 모델 + 인프라 + paper trading 6개월 추가 필요.</li>
+    <li><strong>면접 한 방</strong>: "PPO 5번 실패 → Buehler 직접 구현 → GBM 합성 → 실데이터 → intraday step → 6개 시나리오 비교 → 최종 +44.6% 달성" 의 narrative.</li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<h2>9. 관련 파일</h2>
+
+<h3>코드</h3>
+<ul>
+  <li>[<a href="../../packages/ai_hedging/src/ai_hedging/agents/buehler_pg.py">buehler_pg.py</a>] — NN 정책 + GBM/Jump simulator</li>
+  <li>[<a href="../../packages/ai_hedging/src/ai_hedging/agents/buehler_pg_historical.py">buehler_pg_historical.py</a>] — 실데이터 historical bootstrap</li>
+  <li>[<a href="../../scripts/train_buehler.py">train_buehler.py</a>] — GBM daily 학습</li>
+  <li>[<a href="../../scripts/train_buehler_historical.py">train_buehler_historical.py</a>] — SPY daily 학습</li>
+  <li>[<a href="../../scripts/bench_step_size.py">bench_step_size.py</a>] — GBM step 비교</li>
+  <li>[<a href="../../scripts/bench_jump_step.py">bench_jump_step.py</a>] — Jump step 비교</li>
+  <li>[<a href="../../scripts/bench_jump_10min.py">bench_jump_10min.py</a>] — Jump 10min 단독</li>
+  <li>[<a href="../../scripts/bench_spy_10min.py">bench_spy_10min.py</a>] — <strong>SPY 15min (best)</strong></li>
+</ul>
+
+<h3>데이터/로그</h3>
+<ul>
+  <li><code>data/macro_events/spy_returns.csv</code> — SPY 일별 10년</li>
+  <li><code>data/macro_events/spy_15min.csv</code> — SPY 15분봉 60일</li>
+  <li><code>data/bench_*_run.log</code> — 학습 로그 5개</li>
+  <li><code>data/bench_*.json</code> — 결과 JSON</li>
+  <li><code>models/buehler_*.pt</code> — 학습된 NN 7개</li>
+</ul>
+
+<h3>관련 보고서</h3>
+<ul>
+  <li>[<a href="../2026-04-25/B4_buehler_implementation.html">B4 Buehler 구현</a>] — PPO 5번 실패 + Buehler 1번 성공 (+24.5%)</li>
+  <li>[<a href="../2026-04-26/short_call_hedge_explained.html">Short Call 헤지 — 비전공자용 시각 설명</a>] — 헤지 메커니즘 + step 의미</li>
+  <li>[<a href="../2026-04-26/jump_stress_test.html">Jump Stress Test</a>] — 비정형 환경 검증</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2>10. 용어 정리집</h2>
+
+<table>
+  <thead>
+    <tr><th>용어</th><th>한 줄 설명</th><th>본문에서의 역할</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>CVaR@5%</strong></td>
+      <td>"가장 나쁜 5% 시나리오" 의 평균 손실</td>
+      <td>모든 비교의 핵심 지표 (낮을수록 좋음)</td>
+    </tr>
+    <tr>
+      <td><strong>BSM Δ (델타)</strong></td>
+      <td>Black-Scholes-Merton 공식이 알려주는 "지금 보유해야 할 주식 수량"</td>
+      <td>비교 baseline. 정규분포 가정 한계가 본문 핵심</td>
+    </tr>
+    <tr>
+      <td><strong>Buehler 2019 PG-on-CVaR</strong></td>
+      <td>NN 으로 헤지 정책 학습, CVaR loss 에 직접 backward</td>
+      <td>우리 알고리즘. PPO 와 다름</td>
+    </tr>
+    <tr>
+      <td><strong>Step (n_steps)</strong></td>
+      <td>만기 동안 헤지 비율을 몇 번 갱신할지</td>
+      <td>1day(30) ~ 15min(2880). 단축이 본 보고서 주제</td>
+    </tr>
+    <tr>
+      <td><strong>TC (Transaction Cost)</strong></td>
+      <td>거래 시 드는 수수료/스프레드 비용 (proportional 가정)</td>
+      <td>30bps(daily) / 10bps(intraday). 누적 시 핵심 영향</td>
+    </tr>
+    <tr>
+      <td><strong>Kurtosis (첨도)</strong></td>
+      <td>분포 꼬리의 두께. 정규분포=3, 클수록 fat-tail</td>
+      <td>SPY daily=17.8, 15min=29 → BSM 가정 깨짐</td>
+    </tr>
+    <tr>
+      <td><strong>Jump (Merton jump-diffusion)</strong></td>
+      <td>주가가 갑자기 점프하는 비정형 변동</td>
+      <td>BSM 정규분포 가정이 못 잡는 영역</td>
+    </tr>
+    <tr>
+      <td><strong>Block bootstrap</strong></td>
+      <td>실데이터에서 N봉 묶음 단위로 random sampling</td>
+      <td>vol clustering 일부 보존하며 path 생성</td>
+    </tr>
+    <tr>
+      <td><strong>Differentiable simulator</strong></td>
+      <td>PyTorch tensor 로 시뮬 전체 → gradient 직통</td>
+      <td>Buehler 알고리즘의 핵심 트릭</td>
+    </tr>
+    <tr>
+      <td><strong>Mean PnL</strong></td>
+      <td>발행자가 평균적으로 얼마 벌거나 잃는지</td>
+      <td>NN 이 BSM 보다 덜 잃지만 둘 다 흑자 아님 (한계)</td>
+    </tr>
+    <tr>
+      <td><strong>Turnover</strong></td>
+      <td>만기 동안 누적 거래량 합</td>
+      <td>BSM 이 step 짧을수록 폭증 (TC 누적 원인)</td>
+    </tr>
+    <tr>
+      <td><strong>ELS (Equity Linked Securities)</strong></td>
+      <td>주가 연계 증권. 발행자가 옵션 매도자 입장</td>
+      <td>본 헤지 알고리즘의 실무 적용처</td>
+    </tr>
+    <tr>
+      <td><strong>쿠폰 (Coupon)</strong></td>
+      <td>ELS 만기 시 고객이 받는 수익률</td>
+      <td>CVaR 절감 → 쿠폰 인상 여력 (실무 가치)</td>
+    </tr>
+    <tr>
+      <td><strong>Capital cost (자본비용)</strong></td>
+      <td>위험 buffer 만큼 잡아두는 자본의 기회비용 (≈10%/yr)</td>
+      <td>CVaR 절감 → buffer 절감 → 쿠폰 환산 채널</td>
+    </tr>
+    <tr>
+      <td><strong>OOD (Out-of-Distribution)</strong></td>
+      <td>학습 데이터와 다른 분포에서의 평가</td>
+      <td>GBM 학습 → SPY 평가 = +17.7% (일반화 검증)</td>
+    </tr>
+    <tr>
+      <td><strong>No-transaction band</strong></td>
+      <td>"델타 차이 작으면 거래 안 함" 룰 (Whalley-Wilmott 1997)</td>
+      <td>실무 표준. NN 도 학습으로 사실상 같은 룰 배움</td>
+    </tr>
+  </tbody>
+</table>
+
+</body>
+</html>

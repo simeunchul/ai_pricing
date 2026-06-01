@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>ETF iNAV 차익전략 — 공격적 사이징 + 인버스 ETF 합성 short</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+         max-width: 920px; margin: 24px auto; padding: 0 20px; color: #222; line-height: 1.55; }
+  h1 { border-bottom: 2px solid #333; padding-bottom: 8px; }
+  h2 { margin-top: 36px; border-left: 4px solid #2c5fa8; padding-left: 10px; }
+  h3 { margin-top: 24px; color: #2c5fa8; }
+  .callout { background: #eef5ff; border-left: 5px solid #2c5fa8; padding: 12px 16px;
+             border-radius: 4px; margin: 16px 0; }
+  .warn { background: #fff5e6; border-left: 5px solid #d97706; padding: 12px 16px;
+          border-radius: 4px; margin: 16px 0; }
+  .ok { background: #e9f7ef; border-left: 5px solid #1e7e34; padding: 12px 16px;
+        border-radius: 4px; margin: 16px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px 10px; text-align: left; }
+  th { background: #f3f4f6; }
+  code { background: #f3f4f6; padding: 1px 6px; border-radius: 3px; font-size: 0.92em; }
+  pre { background: #1f2937; color: #f9fafb; padding: 14px; border-radius: 6px;
+        overflow-x: auto; font-size: 0.88em; }
+  .small { font-size: 0.88em; color: #555; }
+  svg { display: block; margin: 16px auto; max-width: 100%; }
+  .ascii-box { font-family: Consolas, monospace; white-space: pre; background: #f8fafc;
+               border: 1px solid #cbd5e1; padding: 12px; border-radius: 4px; font-size: 0.86em; }
+</style>
+</head>
+<body>
+
+<h1>ETF iNAV 차익전략 — 공격적 사이징 + 인버스 ETF 합성 short</h1>
+<p class="small">2026-04-28 · packages/autotrader · 작성: Claude (자동 생성 보고서)</p>
+
+<div class="callout">
+  <strong>한 줄 결과.</strong>
+  ETF 가격 vs iNAV 괴리(deviation)에 비례해 매매 수량을 5/10/15… 주로 키우고
+  (기존 1주 고정), 개인이 직접 공매도가 막힌 상황을 우회하기 위해
+  KOSPI 200 인버스 ETF (252670) 매수로 합성 short 포지션을 잡도록 라우팅을 추가.
+  <br><strong>테스트 24/24 통과.</strong>
+</div>
+
+<h2>1. 무엇을 시도했는가 — 배경 + 접근</h2>
+
+<p><b>배경.</b> 자동매매 봇이 ETF 1주 단위로만 사고 팔고 있었음. 한국 KOSPI 200 ETF
+(KODEX 200, 069500)가 iNAV 대비 30bps(0.3%) 이상 괴리되면 BUY/SELL 시그널을
+내지만 항상 1주만 거래 → 큰 괴리에서도 작은 포지션. 사용자 요청: <em>"괴리가
+크면 더 많이 사라. 그리고 공매도 못 한다고 했지만 어떻게든 short도 가능하게."</em></p>
+
+<p><b>접근.</b> 두 가지를 분리해서 다뤘다.</p>
+<ol>
+  <li><b>사이즈 사다리(qty ladder)</b> — 30bps 단위로 5주씩 누적. 30bps→5주, 60bps→10주,
+      90bps→15주 … 최대 50주(=10단계)까지 cap. 기존 1주의 5배 공격성.</li>
+  <li><b>인버스 ETF 라우팅</b> — ETF가 비쌀 때(deviation 양수) 일반 SELL 대신
+      KODEX 200 인버스 (252670)를 BUY. 인버스 ETF는 KOSPI 200을 음의 베타로
+      추종하므로 매수 = 사실상 short.</li>
+</ol>
+
+<h2>2. 무엇이 한계였나 — 변경 전 상태</h2>
+
+<table>
+  <tr><th>구분</th><th>변경 전</th><th>이유</th></tr>
+  <tr><td>매매 수량</td><td>항상 1주</td><td>MVP 단순화 (qty=1 하드코딩)</td></tr>
+  <tr><td>최대 포지션</td><td>±10주</td><td>위험 한도 보수적 설정</td></tr>
+  <tr><td>SELL 처리 (flat 상태)</td><td>position을 -1로 떨어뜨리지만 실제 주문 안 들어감</td><td>개인 계정에선 공매도 불가</td></tr>
+  <tr><td>피라미딩(추가 진입)</td><td>없음 — 한 번에 1주 사고 끝</td><td>고정 사이즈라 의미 없음</td></tr>
+</table>
+
+<div class="warn">
+  <b>특히 문제였던 부분.</b> <code>decide()</code>가 음수 position을 반환할 수 있는
+  코드 경로가 있었지만, 실제 KIS 모의투자 API에선 short 주문이 거부되어
+  "신호는 SELL인데 체결은 안 되는" 데드 코드 상태였다. 이번 PR에서 인버스 ETF
+  라우팅으로 그 갭을 메움.
+</div>
+
+<h3>이전 의사결정 흐름 (1주 고정)</h3>
+
+<div class="ascii-box">  deviation 측정
+       │
+       ├─ dev < -30bps  ──► BUY 1주 (069500)
+       │
+       ├─ dev > +30bps  ──► SELL 1주 (체결 안 됨, 보유 0이면)
+       │
+       └─ |dev| < 5bps  ──► position 청산 (1주)
+</div>
+
+<h2>3. 어떻게 해결했는가 — 코드</h2>
+
+<h3>3-1. 사이즈 사다리</h3>
+
+<pre><code>def _qty_for(self, deviation: float) -> int:
+    # 1e-9 epsilon: 0.009 / 0.003 → IEEE-754에서 2.9999... 로 떨어져
+    # int()가 3을 2로 잘라먹는 문제 흡수
+    steps = int(abs(deviation) / self.enter_threshold + 1e-9)
+    if steps &lt;= 0:
+        return 0
+    return min(steps * self.qty_per_step, self.max_position)</code></pre>
+
+<h3>3-2. 새 의사결정 함수 — decide_aggressive</h3>
+
+<p>(signal, qty, use_inverse) 3-튜플을 반환. <code>use_inverse=True</code>면 runner가
+인버스 ETF 종목코드로 주문을 라우팅한다.</p>
+
+<pre><code>def decide_aggressive(self, deviation: float) -&gt; tuple[Signal, int, bool]:
+    target_qty = self._qty_for(deviation)
+
+    if self.position &gt; 0:               # 기존 long ETF
+        if deviation &gt; -self.exit_threshold:
+            return Signal.SELL, self.position, False    # 전량 청산
+        if deviation &lt; -self.enter_threshold:
+            extra = min(max(0, target_qty - self.position),
+                        self.max_position - self.position)
+            if extra &gt; 0:
+                return Signal.BUY, extra, False           # 피라미드
+        return Signal.HOLD, 0, False
+
+    if self.inverse_position &gt; 0:        # 기존 합성 short
+        if deviation &lt; self.exit_threshold:
+            return Signal.SELL, self.inverse_position, True
+        if deviation &gt; self.enter_threshold:
+            extra = min(max(0, target_qty - self.inverse_position),
+                        self.max_position - self.inverse_position)
+            if extra &gt; 0:
+                return Signal.BUY, extra, True
+        return Signal.HOLD, 0, False
+
+    # flat — 신규 진입
+    if deviation &lt; -self.enter_threshold:
+        return Signal.BUY, target_qty, False             # 069500 매수
+    if deviation &gt; self.enter_threshold:
+        return Signal.BUY, target_qty, True              # 252670 매수 = synthetic short
+    return Signal.HOLD, 0, False</code></pre>
+
+<h3>3-3. runner 라우팅</h3>
+
+<pre><code>INVERSE_MAP = {
+    "069500": "252670",   # KODEX 200 → KODEX 200 인버스
+}
+
+# 매 틱:
+signal, qty, use_inverse = strategy.decide_aggressive(dev)
+if signal != Signal.HOLD and qty &gt; 0:
+    target_symbol = inverse_symbol if use_inverse else symbol
+    client.order(target_symbol, qty=qty, side=signal.value.lower())
+    strategy.apply_aggressive(signal, qty, use_inverse)</code></pre>
+
+<h2>4. 최종 결과 — 차트와 비교표</h2>
+
+<h3>4-1. 사다리 곡선 (변경 전 vs 변경 후)</h3>
+
+<svg viewBox="0 0 600 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="qty ladder chart">
+  <!-- axes -->
+  <line x1="60" y1="280" x2="580" y2="280" stroke="#333" stroke-width="1.5"/>
+  <line x1="60" y1="20"  x2="60"  y2="280" stroke="#333" stroke-width="1.5"/>
+  <text x="300" y="310" text-anchor="middle" font-size="13">|deviation| (bps)</text>
+  <text x="20"  y="150" text-anchor="middle" font-size="13" transform="rotate(-90 20 150)">매매 수량 (주)</text>
+
+  <!-- y-axis ticks 0,10,20,30,40,50 -->
+  <g font-size="11" fill="#333">
+    <text x="50" y="284" text-anchor="end">0</text>
+    <text x="50" y="232" text-anchor="end">10</text>
+    <text x="50" y="180" text-anchor="end">20</text>
+    <text x="50" y="128" text-anchor="end">30</text>
+    <text x="50" y="76"  text-anchor="end">40</text>
+    <text x="50" y="24"  text-anchor="end">50</text>
+  </g>
+  <g stroke="#e5e7eb" stroke-dasharray="3,3">
+    <line x1="60" y1="232" x2="580" y2="232"/>
+    <line x1="60" y1="180" x2="580" y2="180"/>
+    <line x1="60" y1="128" x2="580" y2="128"/>
+    <line x1="60" y1="76"  x2="580" y2="76"/>
+    <line x1="60" y1="24"  x2="580" y2="24"/>
+  </g>
+
+  <!-- x-axis ticks 0, 30, 60, 90, ..., 330 -->
+  <g font-size="11" fill="#333">
+    <text x="60"  y="296" text-anchor="middle">0</text>
+    <text x="107" y="296" text-anchor="middle">30</text>
+    <text x="154" y="296" text-anchor="middle">60</text>
+    <text x="201" y="296" text-anchor="middle">90</text>
+    <text x="248" y="296" text-anchor="middle">120</text>
+    <text x="295" y="296" text-anchor="middle">150</text>
+    <text x="342" y="296" text-anchor="middle">180</text>
+    <text x="389" y="296" text-anchor="middle">210</text>
+    <text x="436" y="296" text-anchor="middle">240</text>
+    <text x="483" y="296" text-anchor="middle">270</text>
+    <text x="530" y="296" text-anchor="middle">300</text>
+  </g>
+
+  <!-- threshold 30bps 기준선 -->
+  <line x1="107" y1="20" x2="107" y2="280" stroke="#9ca3af" stroke-dasharray="4,3"/>
+  <text x="110" y="35" font-size="11" fill="#6b7280">30bps = enter</text>
+
+  <!-- 변경 전: 항상 1주 (cap 10), step at 30bps to 1주 -->
+  <!-- y for 1주 = 280 - (1/50)*260 = 274.8 -->
+  <polyline points="60,280 107,280 107,275 580,275" fill="none" stroke="#ef4444" stroke-width="2"/>
+  <text x="540" y="270" font-size="11" fill="#ef4444">기존 (1주 fixed)</text>
+
+  <!-- 변경 후 사다리: 30→5, 60→10, 90→15, ..., 300→50 (cap) -->
+  <!-- y = 280 - (qty/50)*260 -->
+  <!-- 5주 → 254, 10주 → 228, 15주 → 202, 20주 → 176, 25주 → 150, 30주 → 124, 35주 → 98, 40주 → 72, 45주 → 46, 50주 → 20 -->
+  <polyline points="60,280 107,280 107,254 154,254 154,228 201,228 201,202 248,202 248,176 295,176 295,150 342,150 342,124 389,124 389,98 436,98 436,72 483,72 483,46 530,46 530,20 580,20"
+            fill="none" stroke="#2c5fa8" stroke-width="2.5"/>
+  <text x="380" y="58" font-size="12" fill="#2c5fa8" font-weight="600">신규 (5주 step, cap 50)</text>
+
+  <!-- target line: max_position cap -->
+  <line x1="60" y1="20" x2="580" y2="20" stroke="#1e7e34" stroke-dasharray="2,4" stroke-width="1"/>
+  <text x="450" y="14" font-size="10" fill="#1e7e34">max_position cap = 50</text>
+</svg>
+
+<p class="small">x축은 절댓값 deviation (bps) — 양수면 ETF가 비싸 인버스 매수, 음수면 ETF가
+싸 ETF 매수. y축은 한 번의 의사결정에서 발주되는 수량. 기존 빨간 선은 30bps 이상에서 항상 1주.
+파란 신규 사다리는 30bps마다 5주씩 가산, 300bps에서 50주에 도달 후 cap.</p>
+
+<h3>4-2. 의사결정 흐름 (신규)</h3>
+
+<div class="ascii-box">  iNAV 측정
+       │
+       ▼
+  deviation = (ETF − iNAV) / iNAV
+       │
+       ├─ position(ETF) > 0 ────┐
+       │      dev > -5bps   ──► SELL position 전량 (069500)
+       │      dev < -30bps  ──► BUY 추가분 (피라미드, cap 50)
+       │
+       ├─ inverse_position > 0 ─┐
+       │      dev < +5bps   ──► SELL inverse 전량 (252670)
+       │      dev > +30bps  ──► BUY 추가분 (피라미드, cap 50)
+       │
+       └─ flat ─────────────────┐
+              dev < -30bps  ──► BUY ETF (069500), qty = ladder
+              dev > +30bps  ──► BUY 인버스 (252670), qty = ladder  ← 합성 short
+              그 외           ──► HOLD
+</div>
+
+<h3>4-3. 비교표</h3>
+
+<table>
+  <tr><th>항목</th><th>변경 전</th><th>변경 후</th></tr>
+  <tr><td>매매 수량</td><td>1주 고정</td><td>5/10/15/…/50주 (deviation 비례)</td></tr>
+  <tr><td>최대 포지션</td><td>±10주</td><td>롱 50주 + 합성 short 50주</td></tr>
+  <tr><td>피라미딩</td><td>없음</td><td>괴리가 더 벌어지면 추가 진입 (cap 내)</td></tr>
+  <tr><td>SHORT 노출</td><td>불가 (시그널만 발생, 체결 X)</td><td>인버스 ETF 매수로 우회 가능</td></tr>
+  <tr><td>API 시그니처</td><td><code>decide(dev) → Signal</code></td><td><code>decide_aggressive(dev) → (Signal, qty, use_inverse)</code></td></tr>
+  <tr><td>Tests</td><td>2건</td><td>11건 (기존 2 + 신규 9)</td></tr>
+</table>
+
+<h2>5. 위험 경고 — 반드시 읽을 것</h2>
+
+<div class="warn">
+  <b>실전에서 마이너스 가능성이 농후한 구간이 있다.</b>
+  <ul>
+    <li>30bps 진입 임계값은 KIS 모의투자(수수료 0)에선 양의 기대값을 줄 수 있지만,
+        실계좌에선 ETF 거래수수료 + 매도 시 거래세 (ETF는 면제, 인버스 ETF도 면제) +
+        호가 슬리피지를 합치면 30bps로는 거의 break-even 수준이다.</li>
+    <li>iNAV 자체가 5종목 외삽 모델이라 추적 오차(tracking error)가 있다.
+        진짜 괴리가 아닌 모델 노이즈를 보고 거래할 위험.</li>
+    <li>인버스 ETF는 일별 리밸런싱 구조라 며칠 보유 시 음의 복리(negative
+        compounding)가 누적된다. 이 전략은 인트라데이 청산이 전제.</li>
+    <li>피라미딩이 들어가서 deviation이 더 벌어지는 동안 포지션이 누적된다.
+        평균회귀(mean reversion) 가정이 깨지면(예: 시장 충격 후 미수렴) 손실이 비례 확대.</li>
+  </ul>
+  <b>권장.</b> 처음에는 KIS 모의투자에서 며칠 돌려 PnL 분포를 확인하고,
+  실거래 전환 시엔 max_position을 50 → 10으로 일시 축소해서 시작.
+</div>
+
+<h2>6. 비전공자용 요약 (TL;DR)</h2>
+
+<p><b>"ETF가 진짜 가치보다 0.3% 싸게 거래되면 사고, 0.3% 비싸게 거래되면 (직접 못 파니까)
+인버스 ETF를 사서 사실상 공매도 효과를 낸다. 차이가 클수록 더 많이 산다."</b></p>
+<ul>
+  <li>기존: 차이가 0.3%든 1%든 항상 1주만 사고 팔았음 → 너무 소극적.</li>
+  <li>신규: 0.3%마다 5주씩, 최대 50주까지 비례해서 키움. 차이가 더 벌어지면 추가 매수도 함.</li>
+  <li>한국 개인은 ETF 공매도가 안 됨 → "내려가는 데 베팅하는 ETF (인버스)"를 사면 같은 효과.</li>
+</ul>
+
+<h2>7. 관련 파일 / 커밋</h2>
+
+<ul>
+  <li><a href="../../packages/autotrader/src/autotrader/strategies/etf_inav_arb.py">packages/autotrader/src/autotrader/strategies/etf_inav_arb.py</a> —
+      <code>decide_aggressive()</code>, <code>apply_aggressive()</code>, <code>_qty_for()</code> 추가</li>
+  <li><a href="../../packages/autotrader/src/autotrader/runner.py">packages/autotrader/src/autotrader/runner.py</a> —
+      <code>INVERSE_MAP</code> 추가, 메인 루프 라우팅 변경</li>
+  <li><a href="../../packages/autotrader/tests/test_strategies.py">packages/autotrader/tests/test_strategies.py</a> —
+      신규 테스트 9건</li>
+</ul>
+
+<div class="ok">
+  <b>Test status.</b> <code>pytest packages/autotrader/tests/test_strategies.py -v</code> →
+  24 passed in 0.03s.
+</div>
+
+<h2>용어 정리집</h2>
+
+<table>
+  <tr><th>용어</th><th>한 줄 설명</th><th>본문에서의 역할</th></tr>
+  <tr><td>iNAV</td>
+      <td>Indicative Net Asset Value, ETF가 담고 있는 기초자산 묶음의 실시간 이론 가치</td>
+      <td>"ETF가 진짜 얼마짜리인지" 판단하는 기준 — 시장 가격과의 차이가 시그널</td></tr>
+  <tr><td>deviation</td>
+      <td>ETF 시장가와 iNAV 차이를 비율(보통 bps)로 표현한 값</td>
+      <td>이 값의 절댓값으로 매매 수량을 결정 (사다리)</td></tr>
+  <tr><td>bps</td>
+      <td>basis point, 0.01% (= 1만분의 1). 30bps = 0.3%</td>
+      <td>임계값과 사다리 단위가 모두 bps로 정의됨</td></tr>
+  <tr><td>인버스 ETF</td>
+      <td>기초지수가 1% 떨어지면 +1% 수익을 내도록 설계된 ETF</td>
+      <td>개인이 공매도 못 하는 KOSPI 200을 사실상 short 하는 우회 수단</td></tr>
+  <tr><td>합성 short (synthetic short)</td>
+      <td>실제 차입·매도 없이 다른 도구로 동일한 손익 노출을 구성하는 것</td>
+      <td>이번 작업의 핵심: 인버스 ETF 매수 = KOSPI 200 short</td></tr>
+  <tr><td>피라미딩 (pyramiding)</td>
+      <td>이미 가진 포지션이 유리한 방향으로 더 움직일 때 추가로 진입하는 것</td>
+      <td>괴리가 30bps→90bps로 더 벌어지면 5주에서 15주까지 늘림</td></tr>
+  <tr><td>max_position cap</td>
+      <td>한 종목/방향에 보유 가능한 최대 수량 한도</td>
+      <td>피라미딩 폭주 방지 — 50주에서 강제 정지</td></tr>
+  <tr><td>tracking error</td>
+      <td>ETF 가격과 기초지수 추종 정확도의 차이</td>
+      <td>iNAV 모델이 5종목 외삽이라 발생 — 노이즈를 시그널로 오인할 위험</td></tr>
+  <tr><td>대주거래 / 공매도</td>
+      <td>주식을 빌려서 먼저 팔고 나중에 사서 갚는 거래. 한국 개인은 매우 제한적</td>
+      <td>이걸 못 해서 인버스 ETF로 우회한 동기</td></tr>
+  <tr><td>음의 복리 (negative compounding)</td>
+      <td>레버리지/인버스 ETF가 일별 리밸런싱 때문에 며칠 보유 시 누적되는 가치 감소</td>
+      <td>인버스 라우팅을 인트라데이 청산 전제로 운영해야 하는 이유</td></tr>
+  <tr><td>KODEX 200 / 252670</td>
+      <td>069500은 KOSPI 200 추종 ETF, 252670은 그 인버스 ETF (삼성자산운용)</td>
+      <td>이번 라우팅 매핑의 양 끝</td></tr>
+</table>
+
+</body>
+</html>

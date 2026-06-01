@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>Phase A 검증 — Fair-value 모델 negative finding (정직한 실패)</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+         max-width: 980px; margin: 24px auto; padding: 0 20px; color: #222; line-height: 1.55; }
+  h1 { border-bottom: 2px solid #333; padding-bottom: 8px; }
+  h2 { margin-top: 36px; border-left: 4px solid #2c5fa8; padding-left: 10px; }
+  h3 { margin-top: 24px; color: #2c5fa8; }
+  .callout { background: #eef5ff; border-left: 5px solid #2c5fa8; padding: 12px 16px;
+             border-radius: 4px; margin: 16px 0; }
+  .warn { background: #fff5e6; border-left: 5px solid #d97706; padding: 12px 16px;
+          border-radius: 4px; margin: 16px 0; }
+  .ok { background: #e9f7ef; border-left: 5px solid #1e7e34; padding: 12px 16px;
+        border-radius: 4px; margin: 16px 0; }
+  .bad { background: #fdecea; border-left: 5px solid #c0392b; padding: 12px 16px;
+         border-radius: 4px; margin: 16px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.94em; }
+  th, td { border: 1px solid #ccc; padding: 7px 9px; text-align: left; }
+  th { background: #f3f4f6; }
+  code { background: #f3f4f6; padding: 1px 6px; border-radius: 3px; font-size: 0.92em; }
+  pre { background: #1f2937; color: #f9fafb; padding: 14px; border-radius: 6px;
+        overflow-x: auto; font-size: 0.85em; }
+  .small { font-size: 0.88em; color: #555; }
+  svg { display: block; margin: 16px auto; max-width: 100%; }
+  .ascii-box { font-family: Consolas, monospace; white-space: pre; background: #f8fafc;
+               border: 1px solid #cbd5e1; padding: 12px; border-radius: 4px; font-size: 0.85em; }
+  .num { font-variant-numeric: tabular-nums; text-align: right; }
+</style>
+</head>
+<body>
+
+<h1>Phase A 검증 — Fair-value ML 모델 negative finding</h1>
+<p class="small">2026-04-28 · ai_pricing/autotrader · Phase A 의 정직한 마무리</p>
+
+<div class="bad">
+  <strong>한 줄 결과.</strong>
+  Phase A2-D 에서 R² +0.037 으로 "약한 알파" 처럼 보였던 모델을 사용자 의심으로
+  검증한 결과, <b>walk-forward 에선 R² −0.025 ~ −0.355</b> 으로 baseline 못 이김.
+  데이터를 30일 → <b>6개월 + DART 공시</b> 로 늘려도 결과 동일 (R² 더 음수).
+  <b>현재 features 로는 fundamental no-signal</b> 결론. 모델 prod 연결 영구 보류.
+  <b>이 검증이 거짓 알파를 prod 에 들이는 사고를 막았다 — 가장 큰 가치</b>.
+</div>
+
+<h2>1. 무엇을 시도했는가 — 검증의 동기</h2>
+
+<p>이전 보고서 (<a href="Phase_A2_D_pre_news_features.html">Phase_A2_D_pre_news_features.html</a>)
+에서 LightGBM 모델이 <b>Test R² +0.037, baseline 대비 RMSE 4.5% 개선</b> 이라는
+"약하지만 양수" 결과를 얻음. 이걸로 봇 hook 인터페이스까지 구축하고 prod 연결 단계.</p>
+
+<p><b>사용자 핵심 질문:</b></p>
+
+<div class="callout">
+  <i>"근데 이게 뉴스 이후의 30분뒤 시장가격을 본거잖음? 근데 이걸로 어떻게 추론함?
+  뉴스야 말로 진짜 랜덤인데"</i>
+</div>
+
+<p>이 질문이 정확히 검증의 출발점. R² +0.037 은 정말 정보적 가치가 있나, 아니면
+random split 의 우연인가? 시계열 데이터에선 random split = 거짓말 가능성 매우 큼.</p>
+
+<h2>2. 1차 검증 — 3가지 실험</h2>
+
+<table>
+  <tr><th>실험</th><th>가설</th><th>결과 (Test R²)</th><th>판정</th></tr>
+  <tr><td><b>원래 모델</b> (random split)</td><td>baseline 이김</td><td class="num">+0.037</td><td>거짓 양성</td></tr>
+  <tr><td>Exp 1 — random non-news 시점</td><td>모델이 단순 momentum 만 학습?</td><td class="num">+0.001</td><td>알파 거의 0</td></tr>
+  <tr><td>Exp 2 — walk-forward (4/13 → 4/20)</td><td>진짜 미래 예측 가능?</td><td class="num"><b>−0.008</b></td><td><b>baseline 못 이김</b></td></tr>
+  <tr><td>Exp 2 — walk-forward (4/20 → 4/27)</td><td>진짜 미래 예측 가능?</td><td class="num"><b>−0.011</b></td><td><b>baseline 못 이김</b></td></tr>
+  <tr><td>Exp 3 — news-content only</td><td>뉴스 텍스트만으론 알파?</td><td class="num">−0.017</td><td>뉴스만으론 0</td></tr>
+</table>
+
+<h3>핵심 교훈 — Random split 의 함정</h3>
+
+<div class="warn">
+  <b>시계열 데이터에서 random train/test split 은 거짓말한다.</b><br>
+  데이터가 시간 순으로 섞이면 train 에 미래 정보가 들어가서 test 정확도가 부풀려짐.
+  반드시 <b>walk-forward (시간 순 분할)</b> 로 검증해야 진짜 일반화 능력 확인 가능.
+</div>
+
+<svg viewBox="0 0 700 230" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="random vs walk-forward">
+  <text x="350" y="20" text-anchor="middle" font-size="13" font-weight="600">
+    Random split (잘못) vs Walk-forward (정확)
+  </text>
+
+  <!-- Random split timeline -->
+  <text x="20" y="60" font-size="12" font-weight="600">Random split:</text>
+  <text x="120" y="60" font-size="11" fill="#666">3/30 .................................... 4/27</text>
+  <g font-size="10">
+    <!-- 80% train (T) and 20% test (R) randomly distributed -->
+    <rect x="120" y="68" width="20" height="14" fill="#2c5aa0"/>
+    <rect x="140" y="68" width="20" height="14" fill="#2c5aa0"/>
+    <rect x="160" y="68" width="20" height="14" fill="#c0392b"/>
+    <rect x="180" y="68" width="20" height="14" fill="#2c5aa0"/>
+    <rect x="200" y="68" width="20" height="14" fill="#c0392b"/>
+    <rect x="220" y="68" width="20" height="14" fill="#2c5aa0"/>
+    <rect x="240" y="68" width="20" height="14" fill="#2c5aa0"/>
+    <rect x="260" y="68" width="20" height="14" fill="#c0392b"/>
+    <rect x="280" y="68" width="20" height="14" fill="#2c5aa0"/>
+    <rect x="300" y="68" width="20" height="14" fill="#2c5aa0"/>
+    <rect x="320" y="68" width="20" height="14" fill="#2c5aa0"/>
+    <rect x="340" y="68" width="20" height="14" fill="#c0392b"/>
+    <rect x="360" y="68" width="20" height="14" fill="#2c5aa0"/>
+    <rect x="380" y="68" width="20" height="14" fill="#2c5aa0"/>
+    <rect x="400" y="68" width="20" height="14" fill="#c0392b"/>
+    <rect x="420" y="68" width="20" height="14" fill="#2c5aa0"/>
+    <rect x="440" y="68" width="20" height="14" fill="#2c5aa0"/>
+    <rect x="460" y="68" width="20" height="14" fill="#c0392b"/>
+    <rect x="480" y="68" width="20" height="14" fill="#2c5aa0"/>
+    <rect x="500" y="68" width="20" height="14" fill="#2c5aa0"/>
+  </g>
+  <text x="120" y="100" font-size="10" fill="#c0392b">↑ test (R) 가 train (T) 사이사이에 섞임 → 미래 정보 누설</text>
+  <text x="120" y="115" font-size="10" fill="#c0392b">  결과 R² +0.037 (가짜 양성)</text>
+
+  <!-- Walk-forward timeline -->
+  <text x="20" y="160" font-size="12" font-weight="600">Walk-forward:</text>
+  <text x="120" y="160" font-size="11" fill="#666">3/30 ........... 4/13 || 4/14 ............. 4/27</text>
+  <g>
+    <!-- All train left, all test right -->
+    <rect x="120" y="168" width="200" height="14" fill="#2c5aa0"/>
+    <text x="220" y="178" text-anchor="middle" font-size="10" fill="white">train</text>
+    <line x1="320" y1="166" x2="320" y2="184" stroke="#000" stroke-width="2"/>
+    <rect x="320" y="168" width="200" height="14" fill="#c0392b"/>
+    <text x="420" y="178" text-anchor="middle" font-size="10" fill="white">test (진짜 미래)</text>
+  </g>
+  <text x="120" y="200" font-size="10" fill="#1e7e34">↑ test 는 train 시점 이후만 → 진짜 미래 예측 검증</text>
+  <text x="120" y="215" font-size="10" fill="#1e7e34">  결과 R² −0.011 (baseline 못 이김 = 알파 없음)</text>
+</svg>
+
+<h2>3. 2차 검증 — 데이터 더 모아도 같음</h2>
+
+<p>1차 결과를 받아들이지 못하고 — "<b>데이터가 부족해서 그런가?</b> 6개월치 + DART 공시
+까지 합치면 다를까?" 시도. 결과는 더 명확하게 부정적.</p>
+
+<h3>3-1. 데이터 확장 — Phase C</h3>
+
+<table>
+  <tr><th>요소</th><th>이전 (v1)</th><th>신규 (v2 = C)</th></tr>
+  <tr><td>Bar interval</td><td>5분봉</td><td><b>1시간봉</b></td></tr>
+  <tr><td>History</td><td>30일 (Naver 한계)</td><td><b>6개월</b></td></tr>
+  <tr><td>Event source</td><td>Naver 뉴스 헤드라인</td><td><b>DART 공시 (정부 공시 시스템)</b></td></tr>
+  <tr><td>Tickers</td><td>15</td><td><b>18 (전 종목 포함)</b></td></tr>
+  <tr><td>Total events</td><td>4,852</td><td><b>2,957 (DART 만)</b></td></tr>
+  <tr><td>날짜 범위</td><td>3/30 ~ 4/28</td><td><b>2025-10-30 ~ 2026-04-28</b></td></tr>
+</table>
+
+<h3>3-2. Walk-forward 8 cutoffs — R² 가 데이터 늘수록 더 음수</h3>
+
+<svg viewBox="0 0 700 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="walk-forward results">
+  <line x1="60" y1="220" x2="680" y2="220" stroke="#333"/>
+  <line x1="60" y1="20" x2="60" y2="220" stroke="#333"/>
+
+  <!-- y axis -->
+  <text x="55" y="224" text-anchor="end" font-size="10">−1.2</text>
+  <text x="55" y="180" text-anchor="end" font-size="10">−0.8</text>
+  <text x="55" y="150" text-anchor="end" font-size="10">−0.4</text>
+  <text x="55" y="120" text-anchor="end" font-size="10">0.0</text>
+  <line x1="60" y1="120" x2="680" y2="120" stroke="#999" stroke-dasharray="3,3"/>
+
+  <!-- y-axis label -->
+  <text x="20" y="120" text-anchor="middle" font-size="11" transform="rotate(-90 20 120)">Test R²</text>
+
+  <!-- bars: 8 cutoffs -->
+  <!-- y mapping: 0 → 120, +0.06 → 116, -1.18 → 220 (rough scaling) -->
+  <!-- bars: cutoff 12/29 +0.058, 1/12 0, 1/26 +0.01, 2/9 -0.08, 2/23 -0.12, 3/9 -0.10, 3/23 -0.58, 4/6 -1.18 -->
+  <g font-size="9">
+    <rect x="80" y="116" width="55" height="4" fill="#1e7e34"/>
+    <text x="107" y="232" text-anchor="middle">12/29</text>
+    <text x="107" y="112" text-anchor="middle" fill="#1e7e34">+0.06</text>
+
+    <rect x="160" y="119" width="55" height="1" fill="#1e7e34"/>
+    <text x="187" y="232" text-anchor="middle">1/12</text>
+    <text x="187" y="115" text-anchor="middle" fill="#1e7e34">+0.00</text>
+
+    <rect x="240" y="119" width="55" height="1" fill="#1e7e34"/>
+    <text x="267" y="232" text-anchor="middle">1/26</text>
+    <text x="267" y="115" text-anchor="middle" fill="#1e7e34">+0.01</text>
+
+    <rect x="320" y="120" width="55" height="6" fill="#c0392b"/>
+    <text x="347" y="232" text-anchor="middle">2/9</text>
+    <text x="347" y="138" text-anchor="middle" fill="#c0392b">-0.08</text>
+
+    <rect x="400" y="120" width="55" height="9" fill="#c0392b"/>
+    <text x="427" y="232" text-anchor="middle">2/23</text>
+    <text x="427" y="141" text-anchor="middle" fill="#c0392b">-0.12</text>
+
+    <rect x="480" y="120" width="55" height="8" fill="#c0392b"/>
+    <text x="507" y="232" text-anchor="middle">3/9</text>
+    <text x="507" y="140" text-anchor="middle" fill="#c0392b">-0.10</text>
+
+    <rect x="560" y="120" width="55" height="44" fill="#c0392b"/>
+    <text x="587" y="232" text-anchor="middle">3/23</text>
+    <text x="587" y="178" text-anchor="middle" fill="#c0392b">-0.58</text>
+
+    <rect x="630" y="120" width="40" height="88" fill="#c0392b"/>
+    <text x="650" y="232" text-anchor="middle">4/6</text>
+    <text x="650" y="218" text-anchor="middle" fill="#c0392b">-1.18</text>
+  </g>
+
+  <text x="370" y="14" text-anchor="middle" font-size="13" font-weight="600">
+    Walk-forward Test R² — 후반 cutoffs 일수록 더 음수
+  </text>
+  <text x="370" y="270" text-anchor="middle" font-size="11" fill="#666">
+    R² mean = −0.248, std = 0.40, 양수 3/8 (모두 초기 = 우연)
+  </text>
+</svg>
+
+<h3>3-3. 결정적 패턴 — overfit 가속</h3>
+
+<div class="bad">
+  <b>학습 데이터 늘어날수록 R² 더 음수.</b> 12월 cutoff (n_train=546) 에선 +0.058,
+  4월 cutoff (n_train=2,657) 에선 −1.18.<br>
+  → <b>모델이 외우는 능력만 늘어남, 일반화는 더 나빠짐</b>. Concept drift 또는
+  regime change 에 무력.
+</div>
+
+<h2>4. 정직한 결론</h2>
+
+<table>
+  <tr><th>가설</th><th>결과</th></tr>
+  <tr><td>R² +0.037 은 진짜 알파</td><td>❌ random split 의 거짓 양성</td></tr>
+  <tr><td>데이터 더 모으면 일반화 됨</td><td>❌ 6개월 → 더 나빠짐</td></tr>
+  <tr><td>DART 공시 (high-quality event) 면 다를 것</td><td>❌ 동일하게 음수 R²</td></tr>
+  <tr><td>1시간봉 (longer horizon) 이면 더 안정</td><td>❌ 동일하게 음수 R²</td></tr>
+  <tr><td>이 features 로 fair-value 모델 가능?</td><td>❌ <b>fundamental no-signal</b></td></tr>
+</table>
+
+<div class="warn">
+  <b>왜 안 되는가:</b><br>
+  1. 한국 주식시장이 short-term 에서 매우 efficient — pre-event momentum 도 이미 가격에 반영됨<br>
+  2. Retail 5분 lag = HFT 가 이미 잡은 알파<br>
+  3. DART 공시가 신뢰도 높지만 시각이 정확치 않아 (rcept_dt = 일자만) 효과 X<br>
+  4. 키워드 sentiment lexicon 은 너무 sparse — 실제 뉴스 의미 파악 X<br>
+  5. 12 features 만으론 1시간 후 stock return 의 분산을 설명할 수 없음 (정보량 부족)
+</div>
+
+<h2>5. 이 검증의 진짜 가치</h2>
+
+<div class="ok">
+  <b>거짓 알파를 prod 에 들이지 않은 것</b>이 가장 큰 가치.<br>
+  R² +0.037 만 보고 봇에 hook 했다면, 모델이 baseline 보다 나쁜 시그널을 봇 결정에
+  30% 가중해서 손실 발생했을 것. <b>사용자가 의심하지 않았다면 그대로 진행됐을 것</b>.<br>
+  <br>
+  Quant 학습의 가장 중요한 교훈 3가지를 명확히 확인:
+  <ol>
+    <li>시계열 데이터에서 random train/test split = 거짓말</li>
+    <li>R² 의 작은 양수도 walk-forward 거치면 음수 가능</li>
+    <li>"데이터 더 모으면 될 것" 도 가설일 뿐, 검증해야 함</li>
+  </ol>
+</div>
+
+<h2>6. 비전공자용 요약 (TL;DR)</h2>
+
+<ul>
+  <li>모델이 학습 데이터에서 baseline 약간 이긴다고 봤는데 (R² +0.037), 그게 <b>학습/테스트 데이터를 시간 순서 무시하고 섞어서 생긴 거짓 양성</b>이었음.</li>
+  <li>제대로 시간 순서대로 (과거로 학습, 미래로 테스트) 검증하니 모델이 baseline (= 항상 0% 예측) 보다 나쁨.</li>
+  <li>"데이터 부족 때문일까?" 6개월치 + 정부 공시 데이터 까지 모아도 결과 동일. 더 나빠짐.</li>
+  <li>결론: <b>현재 features (사전 가격 움직임, 시간, 종목, 단순 키워드 감성) 로는 1시간 후 주가 예측 불가능</b>. 한국 주식시장이 너무 efficient.</li>
+  <li>봇은 fair-value 모델 hook 안 함. <b>차익 봇만 단독 운영 (Phase B 의 sweet spot 파라미터)</b>.</li>
+  <li>가장 큰 수확은 <b>거짓 알파를 prod 에 안 들임</b> — 사용자가 의심한 덕분.</li>
+</ul>
+
+<h2>7. 다음 단계 (현실적 우선순위)</h2>
+
+<ol>
+  <li><b>차익 봇 sweet spot 일주일 검증</b> — Phase B 의 enter=10/exit=1/qty=50 파라미터로 운영, 매일 PnL 누적</li>
+  <li><b>장투 시스템 설계</b> — 자산배분 + DCA + 리밸런싱. retail 강점 활용 영역 (이전 대화에서 거론)</li>
+  <li><b>옵션 / ELS 가격책정 강화</b> — 이미 codebase 에 있는 영역, 직무 관련성 높음</li>
+  <li><b>Fair-value ML 모델은 영구 보류</b> — 다음 시도 시엔 sentence embedding (KR-SBERT) 또는 다른 features (펀더멘털, 호가) 부터. 그 전엔 안 함.</li>
+</ol>
+
+<h2>8. 관련 파일</h2>
+
+<h3>이번 검증 스크립트</h3>
+<ul>
+  <li><a href="../../scripts/validate_news_model.py">scripts/validate_news_model.py</a> — 1차 검증 (3 실험)</li>
+  <li><a href="../../scripts/walk_forward_dense.py">scripts/walk_forward_dense.py</a> — 30일 dense walk-forward</li>
+  <li><a href="../../scripts/train_v2_dart_1h.py">scripts/train_v2_dart_1h.py</a> — 6개월 1h-bar + DART 학습</li>
+  <li><a href="../../packages/autotrader/src/autotrader/news_signal/historical_v2.py">packages/.../news_signal/historical_v2.py</a> — v2 ETL</li>
+</ul>
+
+<h3>저장된 결과</h3>
+<ul>
+  <li><code>data/validate_news_model.json</code> — 1차 3 실험 결과</li>
+  <li><code>data/walk_forward_dense.json</code> — dense walk-forward (5 cutoffs)</li>
+  <li><code>data/fair_model_v2_dart_1h.json</code> — Phase C 6개월 walk-forward (8 cutoffs)</li>
+</ul>
+
+<h3>이전 보고서 (수정 필요)</h3>
+<ul>
+  <li><a href="Phase_A2_D_pre_news_features.html">Phase_A2_D_pre_news_features.html</a> — R² +0.037 결론은 <b>거짓 양성</b>으로 정정</li>
+</ul>
+
+<h2>용어 정리집</h2>
+
+<table>
+  <tr><th>용어</th><th>한 줄 설명</th><th>본문에서의 역할</th></tr>
+  <tr><td>R² (결정계수)</td><td>모델이 분산의 몇 % 설명. 양수=학습, 0=baseline, 음수=baseline 못 이김</td><td>이번의 핵심 지표. mean −0.248 = 모델 무력</td></tr>
+  <tr><td>baseline (always-zero)</td><td>모델 없이 항상 0% 예측. 시장 efficient 가정</td><td>모델이 이걸 이겨야 가치 있음 — 못 이김</td></tr>
+  <tr><td>random train/test split</td><td>데이터를 무작위로 80/20 으로 나눠 학습/평가</td><td>시계열에선 미래 정보 누설 — <b>거짓 양성 만듦</b></td></tr>
+  <tr><td>walk-forward validation</td><td>train: 시점 t 이전, test: 시점 t 이후. rolling 으로 여러 t</td><td>quant 표준. 진짜 일반화 능력 검증</td></tr>
+  <tr><td>data leakage</td><td>train 에 미래 정보가 새 들어감 → 비현실적 정확도</td><td>random split 이 만든 +0.037 의 정체</td></tr>
+  <tr><td>concept drift</td><td>시간이 지나면서 데이터 분포가 변하는 현상</td><td>R² 가 후반 cutoff 에서 더 음수인 이유</td></tr>
+  <tr><td>regime change</td><td>시장 환경 (금리, 변동성, 뉴스 사이클) 의 거대 변화</td><td>모델이 학습한 시기 ≠ 평가 시기일 때 무력</td></tr>
+  <tr><td>overfitting</td><td>train 잘 맞추고 test 망함</td><td>R² 가 train 양수 / test 음수일 때 의심</td></tr>
+  <tr><td>DART 공시</td><td>한국 금융감독원의 기업 공시 시스템 (opendart.fss.or.kr)</td><td>뉴스보다 신뢰도 높은 event source 후보</td></tr>
+  <tr><td>1h-bar (1시간봉)</td><td>1시간 단위 OHLCV 가격 데이터</td><td>5분봉 60일 한계를 넘어 6개월~2년 가능</td></tr>
+  <tr><td>pre-event momentum</td><td>이벤트 발생 전 N분/시간 가격 변화율</td><td>v1/v2 양쪽 다 top feature 였지만 walk-forward 에선 무력</td></tr>
+  <tr><td>fundamental no-signal</td><td>아무리 데이터 늘려도 정보 자체가 없는 상태</td><td>이번 결론. features 자체가 weak</td></tr>
+  <tr><td>HFT (High-frequency trading)</td><td>ms 단위 매매하는 기관</td><td>retail 5분 lag 환경에선 알파 거의 못 잡음</td></tr>
+  <tr><td>negative finding</td><td>"안 된다" 가 결론인 결과</td><td>이번 보고서 자체. 학습 가치 큼</td></tr>
+  <tr><td>거짓 양성 (false positive)</td><td>정보 없는데 있다고 판단</td><td>R² +0.037 의 정체</td></tr>
+  <tr><td>cutoff (분할 시점)</td><td>walk-forward 에서 train/test 경계 시간</td><td>여러 cutoff 결과 평균 = 진짜 R² 추정</td></tr>
+</table>
+
+</body>
+</html>

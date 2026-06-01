@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>quant-lab 5-Layer 완전 해설 — 비전공자용</title>
+<style>
+  :root {
+    --fg: #1a1a1a; --bg: #fafafa; --muted: #6b6b6b;
+    --accent: #0066cc; --warn: #c0392b; --ok: #27ae60;
+    --box: #fff; --line: #ddd; --code-bg: #f4f4f4;
+    --A: #2c5aa0; --B: #c0392b; --C: #16a085; --D: #8e44ad; --E: #d35400;
+  }
+  body { font-family: -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+         background: var(--bg); color: var(--fg); max-width: 1100px;
+         margin: 2em auto; padding: 0 1.5em; line-height: 1.7; }
+  h1 { font-size: 1.9em; border-bottom: 3px solid var(--fg); padding-bottom: .3em; }
+  h2 { font-size: 1.5em; margin-top: 2.5em; padding: .4em 0 .3em;
+       border-bottom: 2px solid var(--line); }
+  h3 { font-size: 1.2em; margin-top: 1.6em; color: var(--accent); }
+  h4 { margin-top: 1.2em; }
+  code { background: var(--code-bg); padding: 2px 5px; border-radius: 3px;
+         font-family: "Consolas", monospace; font-size: 0.92em; }
+  pre  { background: #0f1117; color: #e8e8e8; padding: 1em; border-radius: 6px;
+         overflow-x: auto; font-size: 0.85em; line-height: 1.55; }
+  pre code { background: transparent; color: inherit; padding: 0; }
+  table { border-collapse: collapse; margin: 1em 0; width: 100%;
+          background: var(--box); }
+  th, td { border: 1px solid var(--line); padding: .55em .8em; text-align: left;
+           vertical-align: top; }
+  th { background: #eef2f7; font-weight: 600; }
+  .callout { padding: 1em 1.3em; margin: 1.3em 0; border-radius: 6px;
+             border-left: 5px solid; background: var(--box); }
+  .callout.tldr { border-color: var(--accent); background: #eef5ff; }
+  .callout.warn { border-color: var(--warn); background: #fdecea; }
+  .callout.ok   { border-color: var(--ok);   background: #e9f9ee; }
+  .callout.note { border-color: #888;        background: #f4f4f4; }
+  .layer-tag { display: inline-block; padding: 2px 10px; border-radius: 12px;
+               color: #fff; font-weight: 600; font-size: 0.85em; margin-right: .5em; }
+  .tag-A { background: var(--A); }
+  .tag-B { background: var(--B); }
+  .tag-C { background: var(--C); }
+  .tag-D { background: var(--D); }
+  .tag-E { background: var(--E); }
+  .flow-box { display: flex; gap: 1em; flex-wrap: wrap; margin: 1em 0; }
+  .flow-step { flex: 1; min-width: 180px; padding: .8em 1em;
+               background: var(--box); border: 1px solid var(--line);
+               border-radius: 6px; font-size: 0.92em; }
+  .flow-step b { display: block; color: var(--accent); margin-bottom: .3em; }
+  .small { font-size: 0.88em; color: var(--muted); }
+  .center { text-align: center; }
+  svg { display: block; margin: 1em auto; max-width: 100%; }
+  figcaption { text-align: center; font-size: 0.88em; color: var(--muted);
+               margin-top: -.5em; margin-bottom: 1em; }
+  hr { border: 0; border-top: 1px dashed var(--line); margin: 3em 0; }
+</style>
+</head>
+<body>
+
+<h1>quant-lab 5-Layer 완전 해설 — 비전공자용</h1>
+<p class="small">작성일: 2026-04-26 · 대상: 퀀트/파생 비전공자 ·
+   목표: <b>"어떤 Layer가 무슨 데이터를 받아 무슨 계산을 해서 어떤 결론을 내는지"</b> 끝까지 따라갈 수 있게</p>
+
+<div class="callout tldr">
+<b>한 줄 결과</b><br>
+이 레포는 <b>옵션 가격을 5가지 방법으로 매기고</b>(Layer A·B1·B2·B3·B4),
+<b>그 결과를 비교</b>(Layer C)하며, <b>별도로 ETF 자동매매</b>(Layer D)와
+<b>C++ 가속기</b>(Layer E)를 갖춘 모노레포입니다. 각 Layer는
+<i>입력 → 계산 → 출력</i>이 명확하게 정의되어 있고, 이 문서는 각 단계가
+실제 코드로 어떻게 구현되어 있는지 그림·표·코드로 풀어 설명합니다.
+</div>
+
+<h2>0. 전체 아키텍처 한눈에 보기</h2>
+
+<svg viewBox="0 0 1000 460" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, sans-serif" font-size="13">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#444"/>
+    </marker>
+  </defs>
+
+  <!-- Inputs -->
+  <rect x="20" y="20" width="180" height="50" rx="6" fill="#f0f0f0" stroke="#888"/>
+  <text x="110" y="42" text-anchor="middle" font-weight="bold">시장 데이터</text>
+  <text x="110" y="60" text-anchor="middle" font-size="11">현재가 S, 변동성, 금리...</text>
+
+  <rect x="20" y="90" width="180" height="50" rx="6" fill="#f0f0f0" stroke="#888"/>
+  <text x="110" y="112" text-anchor="middle" font-weight="bold">옵션 명세</text>
+  <text x="110" y="130" text-anchor="middle" font-size="11">행사가 K, 만기 T, 종류</text>
+
+  <rect x="20" y="160" width="180" height="50" rx="6" fill="#f0f0f0" stroke="#888"/>
+  <text x="110" y="182" text-anchor="middle" font-weight="bold">뉴스/공시</text>
+  <text x="110" y="200" text-anchor="middle" font-size="11">Naver RSS, DART API</text>
+
+  <!-- Layer A -->
+  <rect x="280" y="20" width="200" height="80" rx="6" fill="#2c5aa0" stroke="#1a3a6b"/>
+  <text x="380" y="42" text-anchor="middle" fill="#fff" font-weight="bold">Layer A: Classical</text>
+  <text x="380" y="60" text-anchor="middle" fill="#fff" font-size="11">BSM 공식 / Binomial Tree</text>
+  <text x="380" y="76" text-anchor="middle" fill="#fff" font-size="11">MC / Heston / ELS</text>
+  <text x="380" y="92" text-anchor="middle" fill="#fff" font-size="11">→ 가격 (수학적 정답)</text>
+
+  <!-- Layer B1 -->
+  <rect x="280" y="120" width="200" height="50" rx="6" fill="#c0392b" stroke="#7b2418"/>
+  <text x="380" y="142" text-anchor="middle" fill="#fff" font-weight="bold">B1: NN Pricer</text>
+  <text x="380" y="160" text-anchor="middle" fill="#fff" font-size="11">파라미터 → 가격 (속도 ↑)</text>
+
+  <!-- Layer B2 -->
+  <rect x="280" y="190" width="200" height="50" rx="6" fill="#c0392b" stroke="#7b2418"/>
+  <text x="380" y="212" text-anchor="middle" fill="#fff" font-weight="bold">B2: Deep Calibration</text>
+  <text x="380" y="230" text-anchor="middle" fill="#fff" font-size="11">시장 IV → 모델 파라미터</text>
+
+  <!-- Layer B3 -->
+  <rect x="280" y="260" width="200" height="50" rx="6" fill="#c0392b" stroke="#7b2418"/>
+  <text x="380" y="282" text-anchor="middle" fill="#fff" font-weight="bold">B3: News → IV</text>
+  <text x="380" y="300" text-anchor="middle" fill="#fff" font-size="11">뉴스 분류 → 변동성 보정</text>
+
+  <!-- Layer B4 -->
+  <rect x="280" y="330" width="200" height="50" rx="6" fill="#c0392b" stroke="#7b2418"/>
+  <text x="380" y="352" text-anchor="middle" fill="#fff" font-weight="bold">B4: Deep Hedging</text>
+  <text x="380" y="370" text-anchor="middle" fill="#fff" font-size="11">RL 헤지 정책 (마찰 반영)</text>
+
+  <!-- Layer C -->
+  <rect x="560" y="120" width="180" height="200" rx="6" fill="#16a085" stroke="#0d6655"/>
+  <text x="650" y="160" text-anchor="middle" fill="#fff" font-weight="bold">Layer C</text>
+  <text x="650" y="180" text-anchor="middle" fill="#fff" font-size="12">5가지 가격</text>
+  <text x="650" y="198" text-anchor="middle" fill="#fff" font-size="12">/ 헤지 결과</text>
+  <text x="650" y="218" text-anchor="middle" fill="#fff" font-size="12">동일 경로</text>
+  <text x="650" y="236" text-anchor="middle" fill="#fff" font-size="12">비교 프레임</text>
+  <text x="650" y="265" text-anchor="middle" fill="#fff" font-size="11">실패: pricing_</text>
+  <text x="650" y="280" text-anchor="middle" fill="#fff" font-size="11">comparison.csv</text>
+  <text x="650" y="300" text-anchor="middle" fill="#fff" font-size="11">표 + 차트 출력</text>
+
+  <!-- Layer D -->
+  <rect x="800" y="40" width="180" height="80" rx="6" fill="#8e44ad" stroke="#5e2d72"/>
+  <text x="890" y="62" text-anchor="middle" fill="#fff" font-weight="bold">Layer D</text>
+  <text x="890" y="80" text-anchor="middle" fill="#fff" font-size="11">KIS API 자동매매</text>
+  <text x="890" y="96" text-anchor="middle" fill="#fff" font-size="11">ETF iNAV 괴리 전략</text>
+  <text x="890" y="112" text-anchor="middle" fill="#fff" font-size="11">DRY_RUN 가드</text>
+
+  <!-- Layer E -->
+  <rect x="800" y="200" width="180" height="80" rx="6" fill="#d35400" stroke="#7e3200"/>
+  <text x="890" y="222" text-anchor="middle" fill="#fff" font-weight="bold">Layer E</text>
+  <text x="890" y="240" text-anchor="middle" fill="#fff" font-size="11">C++ MC 커널</text>
+  <text x="890" y="256" text-anchor="middle" fill="#fff" font-size="11">pybind11 + OpenMP</text>
+  <text x="890" y="272" text-anchor="middle" fill="#fff" font-size="11">numpy fallback</text>
+
+  <!-- Arrows: input → A,B1,B2,B3 -->
+  <line x1="200" y1="45" x2="278" y2="60" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="200" y1="115" x2="278" y2="60" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="200" y1="115" x2="278" y2="145" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="200" y1="45" x2="278" y2="215" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)" stroke-dasharray="3 3"/>
+  <line x1="200" y1="185" x2="278" y2="285" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="200" y1="45" x2="278" y2="355" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)" stroke-dasharray="3 3"/>
+
+  <!-- A,B → C -->
+  <line x1="480" y1="60" x2="558" y2="180" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="480" y1="145" x2="558" y2="200" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="480" y1="215" x2="558" y2="220" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="480" y1="285" x2="558" y2="240" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="480" y1="355" x2="558" y2="270" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- E → A,B (acceleration) -->
+  <line x1="800" y1="240" x2="490" y2="80" stroke="#d35400" stroke-width="1" marker-end="url(#arrow)" stroke-dasharray="4 4"/>
+  <text x="640" y="320" font-size="10" fill="#d35400">E는 A·B의 MC를 가속</text>
+
+  <!-- Output -->
+  <rect x="800" y="340" width="180" height="80" rx="6" fill="#34495e" stroke="#1a2a3a"/>
+  <text x="890" y="362" text-anchor="middle" fill="#fff" font-weight="bold">결과물</text>
+  <text x="890" y="382" text-anchor="middle" fill="#fff" font-size="11">5가지 가격 비교표</text>
+  <text x="890" y="398" text-anchor="middle" fill="#fff" font-size="11">CVaR/PnL 그래프</text>
+  <text x="890" y="414" text-anchor="middle" fill="#fff" font-size="11">자동매매 로그</text>
+
+  <line x1="740" y1="220" x2="800" y2="380" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+</svg>
+
+<figcaption>그림 0. 전체 데이터 흐름. 회색=입력, 파랑=고전 수학, 빨강=AI, 청록=비교, 보라=실거래, 주황=가속기.</figcaption>
+
+<h3>5개 Layer 개요표</h3>
+
+<table>
+<thead>
+<tr><th>Layer</th><th>이름</th><th>역할 (한 줄)</th><th>입력</th><th>출력</th></tr>
+</thead>
+<tbody>
+<tr><td><span class="layer-tag tag-A">A</span></td><td>Classical Pricing</td><td>수학 공식으로 옵션 가격 정확히 계산</td><td>S, K, T, r, σ</td><td>가격 (원)</td></tr>
+<tr><td><span class="layer-tag tag-B">B1</span></td><td>NN Pricer</td><td>BSM 공식을 신경망이 학습 → 빠른 호출</td><td>위와 동일</td><td>가격 (수천 배 빠름)</td></tr>
+<tr><td><span class="layer-tag tag-B">B2</span></td><td>Deep Calibration</td><td>시장 IV → Heston 모델 파라미터 역추정</td><td>5×5 IV 격자</td><td>(κ, θ, ξ, ρ, v₀)</td></tr>
+<tr><td><span class="layer-tag tag-B">B3</span></td><td>News/LLM IV Shift</td><td>뉴스 분석으로 변동성 조정해 가격 재계산</td><td>옵션 + 뉴스 텍스트</td><td>조정 가격</td></tr>
+<tr><td><span class="layer-tag tag-B">B4</span></td><td>Deep Hedging</td><td>RL 정책으로 거래비용 포함 헤지 학습</td><td>경로 시뮬레이션</td><td>헤지 정책 π(s)</td></tr>
+<tr><td><span class="layer-tag tag-C">C</span></td><td>Comparison</td><td>위 5가지를 같은 옵션에 적용해 비교</td><td>모두</td><td>표 + 차트</td></tr>
+<tr><td><span class="layer-tag tag-D">D</span></td><td>Auto-Trading</td><td>ETF iNAV 괴리 신호로 매매 (실제 KIS API)</td><td>실시간 호가 + iNAV</td><td>주문 (DRY_RUN)</td></tr>
+<tr><td><span class="layer-tag tag-E">E</span></td><td>C++ MC Core</td><td>몬테카를로를 C++로 가속</td><td>위와 동일</td><td>가격 (10~100배 빠름)</td></tr>
+</tbody>
+</table>
+
+<hr>
+
+<h2><span class="layer-tag tag-A">A</span> Layer A — Classical Pricing (고전 투자공학)</h2>
+
+<div class="callout note">
+<b>한 줄 정의</b>: 100년에 걸쳐 다듬어진 <b>수학 공식</b>으로 옵션 가격을 계산합니다.
+"AI 없이 종이와 연필로 풀 수 있는" 방법론입니다.
+</div>
+
+<h3>A-1. 무엇을 하는가</h3>
+
+5개 모듈로 구성됩니다. 각각 가격을 계산하는 다른 방식입니다:
+
+<table>
+<thead><tr><th>모듈</th><th>방식</th><th>장점</th><th>단점</th></tr></thead>
+<tbody>
+<tr><td><code>bsm.py</code></td><td>BSM 공식 (1973)</td><td>한 줄 수식, 즉시 계산</td><td>유럽형 옵션만</td></tr>
+<tr><td><code>binomial.py</code></td><td>이항 트리 (CRR 1979)</td><td>미국형도 가능</td><td>느림 (N=500단계)</td></tr>
+<tr><td><code>mc/engine.py</code></td><td>몬테카를로</td><td>임의 페이오프 가능</td><td>매우 느림 (10만 경로)</td></tr>
+<tr><td><code>heston.py</code></td><td>Heston 모델 (1993)</td><td>변동성도 변동</td><td>복잡 (Fourier 적분)</td></tr>
+<tr><td><code>els/step_down.py</code></td><td>Step-Down ELS MC</td><td>한국 ELS 정확 모사</td><td>경로 의존, 느림</td></tr>
+</tbody>
+</table>
+
+<h3>A-2. 어떤 데이터가 들어오는가</h3>
+
+가장 단순한 BSM의 입력은 <b>5개 숫자</b>입니다 ([bsm.py:11-24](packages/pricing/src/pricing/bsm.py#L11-L24)):
+
+<pre><code>@dataclass(frozen=True)
+class BSMInputs:
+    S: float       # 현재 주가          예: 100원
+    K: float       # 행사가              예: 100원
+    T: float       # 만기까지 시간(년)    예: 0.25 (3개월)
+    r: float       # 무위험 이자율        예: 0.03 (3%)
+    q: float       # 배당 수익률          예: 0.0
+    sigma: float   # 변동성              예: 0.20 (20%)</code></pre>
+
+<h3>A-3. 어떻게 계산하는가 — BSM 공식</h3>
+
+<svg viewBox="0 0 900 220" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI" font-size="13">
+  <rect x="20" y="20" width="160" height="50" rx="6" fill="#eef5ff" stroke="#2c5aa0"/>
+  <text x="100" y="42" text-anchor="middle" font-weight="bold">입력</text>
+  <text x="100" y="60" text-anchor="middle" font-size="11">S, K, T, r, q, σ</text>
+
+  <rect x="220" y="20" width="200" height="50" rx="6" fill="#fff" stroke="#888"/>
+  <text x="320" y="42" text-anchor="middle" font-weight="bold">d₁, d₂ 계산</text>
+  <text x="320" y="60" text-anchor="middle" font-size="11">로그 머니니스 + 시간 가치</text>
+
+  <rect x="460" y="20" width="200" height="50" rx="6" fill="#fff" stroke="#888"/>
+  <text x="560" y="42" text-anchor="middle" font-weight="bold">정규분포 누적 N(d)</text>
+  <text x="560" y="60" text-anchor="middle" font-size="11">"행사가 도달 확률"</text>
+
+  <rect x="700" y="20" width="180" height="50" rx="6" fill="#dcfce7" stroke="#27ae60"/>
+  <text x="790" y="42" text-anchor="middle" font-weight="bold">콜 가격 C</text>
+  <text x="790" y="60" text-anchor="middle" font-size="11">즉시 계산 (0.1ms)</text>
+
+  <line x1="180" y1="45" x2="218" y2="45" stroke="#444" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="420" y1="45" x2="458" y2="45" stroke="#444" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="660" y1="45" x2="698" y2="45" stroke="#444" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <text x="450" y="115" text-anchor="middle" font-style="italic" font-size="14">
+    C = S·e⁻ᵠᵀ·N(d₁) − K·e⁻ʳᵀ·N(d₂)
+  </text>
+  <text x="450" y="140" text-anchor="middle" font-size="12" fill="#555">
+    "주가 기댓값에서 행사 비용을 뺀 현재가치"
+  </text>
+
+  <rect x="100" y="170" width="700" height="40" rx="4" fill="#fef9e7" stroke="#d4a017"/>
+  <text x="450" y="195" text-anchor="middle" font-size="12">
+    핵심: 미래의 모든 가능한 주가 시나리오를 정규분포로 가정하고, 만기 시 페이오프의 기댓값을 현재가치로 할인
+  </text>
+
+  <defs><marker id="arr" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#444"/></marker></defs>
+</svg>
+
+실제 코드 ([bsm.py:42-46](packages/pricing/src/pricing/bsm.py#L42-L46)):
+
+<pre><code>def call_price(i: BSMInputs) -> float:
+    if i.T == 0:
+        return max(i.S - i.K, 0.0)              # 만기 시 페이오프
+    d1, d2 = _d1_d2(i)
+    return i.S * math.exp(-i.q * i.T) * norm.cdf(d1) \
+         - i.K * math.exp(-i.r * i.T) * norm.cdf(d2)</code></pre>
+
+<h3>A-4. Heston은 왜 더 복잡한가</h3>
+
+BSM은 변동성 σ를 <b>고정 상수</b>로 봅니다. 그런데 현실에서 변동성은 변합니다.
+Heston은 변동성 자체도 확률과정으로 모델링합니다 ([heston.py:23-29](packages/pricing/src/pricing/heston.py#L23-L29)):
+
+<pre><code>@dataclass(frozen=True)
+class HestonParams:
+    kappa: float   # κ: 변동성이 평균으로 회귀하는 속도
+    theta: float   # θ: 장기 평균 변동성²
+    xi: float      # ξ: "변동성의 변동성"
+    rho: float     # ρ: 주가-변동성 상관관계 (보통 음수: 주가↓이면 변동성↑)
+    v0: float      # 현재 변동성²</code></pre>
+
+<div class="callout warn">
+<b>Heston의 대가</b>: 5개 파라미터(κ, θ, ξ, ρ, v₀)가 모두 미지수입니다.
+"이 5개를 어떻게 정하느냐?"가 바로 <b>Layer B2 (Deep Calibration)</b>가 푸는 문제입니다.
+</div>
+
+<h3>A-5. Step-Down ELS — 한국 시장 핵심</h3>
+
+ELS(주가연계증권)는 한국 개인 투자자가 가장 많이 사는 파생상품입니다.
+구조는 6개월마다 조기상환 조건을 점검하는 "Step-Down" 방식이 표준입니다
+([step_down.py:19-31](packages/pricing/src/pricing/els/step_down.py#L19-L31)):
+
+<svg viewBox="0 0 900 280" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI" font-size="12">
+  <line x1="50" y1="220" x2="850" y2="220" stroke="#444" stroke-width="2"/>
+  <text x="50" y="245" font-size="11">0개월</text>
+  <text x="850" y="245" font-size="11" text-anchor="end">36개월 (만기)</text>
+
+  <!-- Observation points -->
+  <g>
+    <circle cx="180" cy="220" r="6" fill="#2c5aa0"/>
+    <text x="180" y="245" text-anchor="middle" font-size="10">6M</text>
+    <text x="180" y="195" text-anchor="middle" font-size="11">90%</text>
+    <line x1="180" y1="180" x2="180" y2="215" stroke="#888" stroke-dasharray="2 2"/>
+  </g>
+  <g>
+    <circle cx="290" cy="220" r="6" fill="#2c5aa0"/>
+    <text x="290" y="245" text-anchor="middle" font-size="10">12M</text>
+    <text x="290" y="195" text-anchor="middle" font-size="11">85%</text>
+  </g>
+  <g>
+    <circle cx="400" cy="220" r="6" fill="#2c5aa0"/>
+    <text x="400" y="245" text-anchor="middle" font-size="10">18M</text>
+    <text x="400" y="195" text-anchor="middle" font-size="11">85%</text>
+  </g>
+  <g>
+    <circle cx="510" cy="220" r="6" fill="#2c5aa0"/>
+    <text x="510" y="245" text-anchor="middle" font-size="10">24M</text>
+    <text x="510" y="195" text-anchor="middle" font-size="11">80%</text>
+  </g>
+  <g>
+    <circle cx="620" cy="220" r="6" fill="#2c5aa0"/>
+    <text x="620" y="245" text-anchor="middle" font-size="10">30M</text>
+    <text x="620" y="195" text-anchor="middle" font-size="11">80%</text>
+  </g>
+  <g>
+    <circle cx="730" cy="220" r="6" fill="#2c5aa0"/>
+    <text x="730" y="245" text-anchor="middle" font-size="10">36M</text>
+    <text x="730" y="195" text-anchor="middle" font-size="11">75%</text>
+  </g>
+
+  <!-- KI line -->
+  <line x1="50" y1="120" x2="850" y2="120" stroke="#c0392b" stroke-dasharray="6 4"/>
+  <text x="60" y="115" font-size="11" fill="#c0392b">KI 50% — 한 번이라도 닿으면 원금 손실 가능</text>
+
+  <!-- Sample paths -->
+  <path d="M 50 220 Q 180 180 290 165 Q 400 130 510 100" stroke="#27ae60" fill="none" stroke-width="2"/>
+  <text x="320" y="80" font-size="11" fill="#27ae60">↑ 18개월차 조기상환 → 4.5% 쿠폰 받고 종료</text>
+
+  <path d="M 50 220 Q 180 200 290 210 Q 400 110 510 90 Q 620 130 730 175" stroke="#c0392b" fill="none" stroke-width="2"/>
+  <text x="540" y="60" font-size="11" fill="#c0392b">↑ 한번 KI 터치 → 만기 손실 가능</text>
+
+  <text x="450" y="20" text-anchor="middle" font-weight="bold" font-size="14">Step-Down ELS 구조 (3년, 반기 관측, KI 50%)</text>
+</svg>
+
+<p>코드는 50,000개 경로를 시뮬레이션해 <b>(평균 가격, 조기상환 확률, KI 적중률, 기대 만기)</b> 를 반환합니다 ([step_down.py:43-126](packages/pricing/src/pricing/els/step_down.py#L43-L126)).</p>
+
+<h3>A-6. 결과로 무엇이 나오는가</h3>
+
+<ul>
+<li><b>가격</b> (예: 콜 옵션 4.62원) — Layer C가 다른 모델과 비교</li>
+<li><b>그릭스</b> (Δ, Γ, ν 등) — Layer B4의 BSM 헤지 베이스라인이 사용</li>
+<li><b>경로 데이터</b> — Layer B4의 환경 시뮬레이션이 사용</li>
+</ul>
+
+<div class="callout ok">
+<b>Layer A의 위치</b>: <b>모든 위 Layer의 "정답지"</b>입니다. NN이 잘 배웠는지, 시장가가 비정상인지 판단할 때 항상 BSM·Heston이 기준점이 됩니다.
+</div>
+
+<hr>
+
+<h2><span class="layer-tag tag-B">B1</span> Layer B1 — NN Pricer (가격을 신경망이 학습)</h2>
+
+<div class="callout note">
+<b>한 줄 정의</b>: BSM 공식을 <b>신경망이 따라하게</b> 학습. 정확도는 비슷하지만 <b>호출 속도가 수천 배 빨라집니다</b>.
+</div>
+
+<h3>B1-1. 왜 신경망이 필요한가</h3>
+
+BSM 공식은 한 번 계산이 0.1ms 정도. 하루에 수천 종목 × 수백 호가 × 실시간 = <b>초당 100만 회 이상</b> 호출이 필요한 시장조성·HFT에서는 너무 느립니다. NN은 GPU에서 배치로 한꺼번에 계산해 <b>0.0001ms 수준</b>으로 떨어뜨립니다.
+
+<h3>B1-2. 입력 → 출력 구조</h3>
+
+<svg viewBox="0 0 900 220" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI" font-size="12">
+  <rect x="20" y="60" width="160" height="100" rx="6" fill="#fef0f0" stroke="#c0392b"/>
+  <text x="100" y="80" text-anchor="middle" font-weight="bold">입력 (5개)</text>
+  <text x="100" y="100" text-anchor="middle" font-size="11">log(S/K)</text>
+  <text x="100" y="115" text-anchor="middle" font-size="11">T</text>
+  <text x="100" y="130" text-anchor="middle" font-size="11">r</text>
+  <text x="100" y="145" text-anchor="middle" font-size="11">q</text>
+  <text x="100" y="160" text-anchor="middle" font-size="11">σ</text>
+
+  <!-- Hidden layers -->
+  <g>
+    <rect x="240" y="40" width="120" height="140" rx="6" fill="#e8f4fd" stroke="#2c5aa0"/>
+    <text x="300" y="60" text-anchor="middle" font-size="11">Hidden 128</text>
+    <circle cx="280" cy="90" r="8" fill="#2c5aa0"/><circle cx="320" cy="90" r="8" fill="#2c5aa0"/>
+    <circle cx="280" cy="120" r="8" fill="#2c5aa0"/><circle cx="320" cy="120" r="8" fill="#2c5aa0"/>
+    <circle cx="280" cy="150" r="8" fill="#2c5aa0"/><circle cx="320" cy="150" r="8" fill="#2c5aa0"/>
+    <text x="300" y="175" text-anchor="middle" font-size="10">tanh</text>
+  </g>
+  <g>
+    <rect x="400" y="40" width="120" height="140" rx="6" fill="#e8f4fd" stroke="#2c5aa0"/>
+    <text x="460" y="60" text-anchor="middle" font-size="11">Hidden 128</text>
+    <circle cx="440" cy="90" r="8" fill="#2c5aa0"/><circle cx="480" cy="90" r="8" fill="#2c5aa0"/>
+    <circle cx="440" cy="120" r="8" fill="#2c5aa0"/><circle cx="480" cy="120" r="8" fill="#2c5aa0"/>
+    <circle cx="440" cy="150" r="8" fill="#2c5aa0"/><circle cx="480" cy="150" r="8" fill="#2c5aa0"/>
+  </g>
+  <g>
+    <rect x="560" y="60" width="120" height="100" rx="6" fill="#e8f4fd" stroke="#2c5aa0"/>
+    <text x="620" y="80" text-anchor="middle" font-size="11">Hidden 64</text>
+    <circle cx="600" cy="105" r="8" fill="#2c5aa0"/><circle cx="640" cy="105" r="8" fill="#2c5aa0"/>
+    <circle cx="600" cy="135" r="8" fill="#2c5aa0"/><circle cx="640" cy="135" r="8" fill="#2c5aa0"/>
+  </g>
+
+  <rect x="720" y="80" width="160" height="60" rx="6" fill="#dcfce7" stroke="#27ae60"/>
+  <text x="800" y="105" text-anchor="middle" font-weight="bold">출력</text>
+  <text x="800" y="125" text-anchor="middle" font-size="11">C/K (정규화 가격)</text>
+
+  <!-- arrows -->
+  <line x1="180" y1="110" x2="238" y2="110" stroke="#444" stroke-width="1" marker-end="url(#arr2)"/>
+  <line x1="360" y1="110" x2="398" y2="110" stroke="#444" stroke-width="1" marker-end="url(#arr2)"/>
+  <line x1="520" y1="110" x2="558" y2="110" stroke="#444" stroke-width="1" marker-end="url(#arr2)"/>
+  <line x1="680" y1="110" x2="718" y2="110" stroke="#444" stroke-width="1" marker-end="url(#arr2)"/>
+
+  <defs><marker id="arr2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#444"/></marker></defs>
+
+  <text x="450" y="20" text-anchor="middle" font-weight="bold">NN Pricer 구조 (Hutchinson-Lo-Poggio 1994)</text>
+</svg>
+
+코드 ([model.py:37-59](packages/ai_pricing/src/ai_pricing/nn_pricer/model.py#L37-L59)):
+
+<pre><code>class NNPricer(nn.Module):
+    """MLP: [logM, T, r, q, sigma] → C/K."""
+    def __init__(self, cfg):
+        ...
+        layers = []
+        in_dim = 5
+        for h in (128, 128, 64):
+            layers += [nn.Linear(in_dim, h), nn.Tanh()]
+            in_dim = h
+        layers += [nn.Linear(in_dim, 1), nn.Softplus()]  # 가격 > 0 보장
+        self.net = nn.Sequential(*layers)</code></pre>
+
+<h3>B1-3. 어떻게 학습하는가</h3>
+
+<ol>
+<li><b>훈련 데이터 자동 생성</b>: 50만 개의 (파라미터, BSM 정답 가격) 쌍을 생성 ([data.py:14-33](packages/ai_pricing/src/ai_pricing/nn_pricer/data.py#L14-L33))
+<pre><code>SAMPLING_RANGES = {
+    "moneyness": (0.6, 1.4),       # S/K
+    "T":         (1/52, 2.0),      # 1주 ~ 2년
+    "r":         (0.00, 0.08),
+    "q":         (0.00, 0.05),
+    "sigma":     (0.05, 0.80),
+}</code></pre></li>
+<li><b>BSM으로 정답 라벨링</b>: <code>label_bsm(X)</code>가 각 샘플에 진짜 BSM 가격을 붙임</li>
+<li><b>학습</b>: log-MSE 손실로 최적화 (메모리에 저장된 교훈: rel-MSE는 deep OTM에서 폭주)</li>
+</ol>
+
+<h3>B1-4. log-MSE 손실의 이유 — 기억해야 할 함정</h3>
+
+<div class="callout warn">
+<b>중요</b>: 메모리 <code>feedback_nn_training.md</code>에 기록된 함정 — <b>일반 MSE를 쓰면 deep OTM 가격(거의 0)을 무시하고 지표만 좋아 보입니다.</b> log-MSE 또는 hybrid loss로 학습해야 양 끝단까지 정확합니다.
+</div>
+
+학습 손실 차이를 비교한 표 ([train.py:32-63](packages/ai_pricing/src/ai_pricing/nn_pricer/train.py#L32-L63)):
+
+<table>
+<thead><tr><th>손실</th><th>수식 핵심</th><th>장점</th><th>문제</th></tr></thead>
+<tbody>
+<tr><td>MSE (원형)</td><td>(pred − y)²</td><td>단순</td><td>큰 가격에만 집중, OTM 무시</td></tr>
+<tr><td>rel-MSE</td><td>((pred-y)/y)²</td><td>상대오차 균형</td><td>y≈0 근처 폭주 ❌</td></tr>
+<tr><td><b>log-MSE</b> ✅</td><td>(log pred − log y)²</td><td>스케일 불변, 양 끝 안정</td><td>Deep ITM은 약간 양보</td></tr>
+<tr><td>hybrid</td><td>α·log-MSE + (1−α)·MSE</td><td>두 장점 결합</td><td>α 튜닝 필요</td></tr>
+</tbody>
+</table>
+
+<h3>B1-5. 결과 — 속도 비교</h3>
+
+<svg viewBox="0 0 800 250" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI" font-size="12">
+  <text x="400" y="20" text-anchor="middle" font-weight="bold">호출 속도 비교 (옵션 1개당 ms, 로그 스케일)</text>
+
+  <!-- axes -->
+  <line x1="100" y1="200" x2="750" y2="200" stroke="#444" stroke-width="1.5"/>
+  <line x1="100" y1="50" x2="100" y2="200" stroke="#444" stroke-width="1.5"/>
+
+  <!-- bars -->
+  <rect x="150" y="80" width="60" height="120" fill="#2c5aa0"/>
+  <text x="180" y="75" text-anchor="middle" font-size="11">0.1 ms</text>
+  <text x="180" y="220" text-anchor="middle" font-size="11">A-BSM</text>
+
+  <rect x="280" y="50" width="60" height="150" fill="#16a085"/>
+  <text x="310" y="45" text-anchor="middle" font-size="11">2 ms</text>
+  <text x="310" y="220" text-anchor="middle" font-size="11">A-Binomial</text>
+
+  <rect x="410" y="55" width="60" height="145" fill="#d35400"/>
+  <text x="440" y="50" text-anchor="middle" font-size="11">15 ms</text>
+  <text x="440" y="220" text-anchor="middle" font-size="11">A-MC (10만)</text>
+
+  <rect x="540" y="180" width="60" height="20" fill="#c0392b"/>
+  <text x="570" y="175" text-anchor="middle" font-size="11">0.0005 ms</text>
+  <text x="570" y="220" text-anchor="middle" font-size="11" font-weight="bold">B1-NN</text>
+  <text x="570" y="235" text-anchor="middle" font-size="11" fill="#c0392b">200배 빠름</text>
+
+  <text x="50" y="125" font-size="11" text-anchor="end">속도</text>
+</svg>
+
+<figcaption>그림 B1. NN은 BSM보다 호출당 200배 빠름 (배치 추론 기준 더 큼).</figcaption>
+
+<hr>
+
+<h2><span class="layer-tag tag-B">B2</span> Layer B2 — Deep Calibration (시장 → 모델 역추정)</h2>
+
+<div class="callout note">
+<b>한 줄 정의</b>: 시장에서 관찰되는 <b>변동성 곡면(IV surface)</b>을 보고, 이걸 만들어낸 <b>Heston 5개 파라미터를 거꾸로 찾아냅니다</b>.
+</div>
+
+<h3>B2-1. 왜 필요한가</h3>
+
+Heston 공식을 쓰려면 (κ, θ, ξ, ρ, v₀) 5개를 알아야 합니다. 그런데 시장에는 가격(또는 IV)만 있습니다.
+<b>"이 IV 곡면을 만들어내는 Heston 파라미터는 무엇인가?"</b>를 푸는 게 캘리브레이션입니다.
+
+전통적으로는 비선형 최적화로 푸는데 <b>1회당 30초~수 분</b>. NN으로 사전 학습하면 <b>1초 이내</b>에 끝납니다 (Horvath et al. 2021).
+
+<h3>B2-2. 데이터 흐름</h3>
+
+<svg viewBox="0 0 950 320" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI" font-size="12">
+  <!-- Train phase -->
+  <text x="225" y="20" text-anchor="middle" font-weight="bold">사전 학습 단계 (오프라인, 1회)</text>
+  <rect x="20" y="35" width="180" height="50" rx="6" fill="#fef0f0" stroke="#c0392b"/>
+  <text x="110" y="55" text-anchor="middle" font-size="11">Heston 파라미터 샘플링</text>
+  <text x="110" y="72" text-anchor="middle" font-size="10">LHS로 100,000개 (κ,θ,ξ,ρ,v₀)</text>
+
+  <rect x="240" y="35" width="180" height="50" rx="6" fill="#e8f4fd" stroke="#2c5aa0"/>
+  <text x="330" y="55" text-anchor="middle" font-size="11">각 파라미터 → IV 곡면</text>
+  <text x="330" y="72" text-anchor="middle" font-size="10">5×5 격자 = 25개 IV (Heston 공식)</text>
+
+  <rect x="460" y="35" width="180" height="50" rx="6" fill="#fef0f0" stroke="#c0392b"/>
+  <text x="550" y="55" text-anchor="middle" font-size="11">NN 학습 (params→surface)</text>
+  <text x="550" y="72" text-anchor="middle" font-size="10">256·256·256 ELU MLP</text>
+
+  <rect x="680" y="35" width="180" height="50" rx="6" fill="#dcfce7" stroke="#27ae60"/>
+  <text x="770" y="55" text-anchor="middle" font-size="11">사전 학습 완료</text>
+  <text x="770" y="72" text-anchor="middle" font-size="10">model.pt 저장</text>
+
+  <line x1="200" y1="60" x2="238" y2="60" stroke="#444" marker-end="url(#a3)"/>
+  <line x1="420" y1="60" x2="458" y2="60" stroke="#444" marker-end="url(#a3)"/>
+  <line x1="640" y1="60" x2="678" y2="60" stroke="#444" marker-end="url(#a3)"/>
+
+  <!-- Inference phase -->
+  <text x="475" y="135" text-anchor="middle" font-weight="bold">실시간 캘리브레이션 단계 (매번)</text>
+  <rect x="20" y="150" width="180" height="60" rx="6" fill="#fef0f0" stroke="#c0392b"/>
+  <text x="110" y="170" text-anchor="middle" font-size="11">시장 IV 곡면 입력</text>
+  <text x="110" y="187" text-anchor="middle" font-size="10">예: 코스피200 옵션</text>
+  <text x="110" y="200" text-anchor="middle" font-size="10">25개 IV 측정값</text>
+
+  <rect x="240" y="150" width="200" height="60" rx="6" fill="#fff" stroke="#888"/>
+  <text x="340" y="170" text-anchor="middle" font-size="11">파라미터 θ 초기값으로 시작</text>
+  <text x="340" y="187" text-anchor="middle" font-size="10">사전 학습된 NN으로 IV 예측</text>
+  <text x="340" y="200" text-anchor="middle" font-size="10">예측 vs 시장 차이를 손실로</text>
+
+  <rect x="480" y="150" width="200" height="60" rx="6" fill="#fff" stroke="#888"/>
+  <text x="580" y="170" text-anchor="middle" font-size="11">θ에 대해 경사하강</text>
+  <text x="580" y="187" text-anchor="middle" font-size="10">300 step (Adam, lr=0.05)</text>
+  <text x="580" y="200" text-anchor="middle" font-size="10">박스 제약(투영)</text>
+
+  <rect x="720" y="150" width="200" height="60" rx="6" fill="#dcfce7" stroke="#27ae60"/>
+  <text x="820" y="170" text-anchor="middle" font-size="11">최적 (κ,θ,ξ,ρ,v₀)</text>
+  <text x="820" y="187" text-anchor="middle" font-size="10">RMSE in vol points 보고</text>
+  <text x="820" y="200" text-anchor="middle" font-size="10">즉시 ELS 가격 산정 가능</text>
+
+  <line x1="200" y1="180" x2="238" y2="180" stroke="#444" marker-end="url(#a3)"/>
+  <line x1="440" y1="180" x2="478" y2="180" stroke="#444" marker-end="url(#a3)"/>
+  <line x1="680" y1="180" x2="718" y2="180" stroke="#444" marker-end="url(#a3)"/>
+
+  <!-- Why -->
+  <rect x="100" y="245" width="750" height="50" rx="6" fill="#fef9e7" stroke="#d4a017"/>
+  <text x="475" y="265" text-anchor="middle" font-size="12" font-weight="bold">핵심 통찰</text>
+  <text x="475" y="282" text-anchor="middle" font-size="11">정방향(params→IV)을 NN이 미분가능하게 학습하면, 역방향(IV→params)은 그냥 NN을 따라 경사하강</text>
+
+  <defs><marker id="a3" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#444"/></marker></defs>
+</svg>
+
+<h3>B2-3. 입력 데이터 — IV 곡면이란</h3>
+
+5×5 격자로 25개의 변동성 값입니다 ([surface.py:14-17](packages/ai_pricing/src/ai_pricing/deep_calib/surface.py#L14-L17)):
+
+<pre><code>STRIKES    = [0.80, 0.90, 1.00, 1.10, 1.20]    # K/S (5개)
+MATURITIES = [1/12, 3/12, 6/12, 12/12, 24/12]   # 1m,3m,6m,1y,2y (5개)</code></pre>
+
+<table class="small">
+<caption>예시 IV 곡면 (단위: %, 가상 데이터)</caption>
+<thead><tr><th></th><th>K/S=0.80</th><th>0.90</th><th>1.00</th><th>1.10</th><th>1.20</th></tr></thead>
+<tbody>
+<tr><th>1개월</th><td>28%</td><td>22%</td><td>18%</td><td>20%</td><td>26%</td></tr>
+<tr><th>3개월</th><td>26%</td><td>21%</td><td>19%</td><td>20%</td><td>24%</td></tr>
+<tr><th>6개월</th><td>25%</td><td>22%</td><td>20%</td><td>21%</td><td>23%</td></tr>
+<tr><th>1년</th><td>24%</td><td>22%</td><td>21%</td><td>21%</td><td>23%</td></tr>
+<tr><th>2년</th><td>23%</td><td>22%</td><td>22%</td><td>22%</td><td>22%</td></tr>
+</tbody>
+</table>
+<p class="small center">↑ 좌하단·우상단이 높은 "변동성 미소(volatility smile)" 형태</p>
+
+<h3>B2-4. 캘리브레이션 코드 핵심</h3>
+
+<pre><code># calibrate.py 핵심 부분
+theta = torch.tensor(init, requires_grad=True)   # (κ,θ,ξ,ρ,v₀) 5개를 변수로
+opt = torch.optim.Adam([theta], lr=5e-2)
+
+for _ in range(300):
+    pred = model(theta) * y_std + y_mean         # NN으로 IV surface 예측
+    loss = torch.mean((pred - target) ** 2)      # 시장과 비교
+    loss.backward()
+    opt.step()
+    theta.data = clamp(theta.data, lo, hi)       # 박스 제약</code></pre>
+
+<h3>B2-5. 결과</h3>
+
+<ul>
+<li>입력: 시장 IV 25개 → <code>iv_market: np.ndarray</code></li>
+<li>출력: <code>HestonParams</code> + RMSE (vol point)</li>
+<li>이 파라미터로 ELS, 이색 옵션 가격 즉시 계산 가능</li>
+</ul>
+
+<hr>
+
+<h2><span class="layer-tag tag-B">B3</span> Layer B3 — News/LLM IV Shift (뉴스로 변동성 보정)</h2>
+
+<div class="callout note">
+<b>한 줄 정의</b>: 뉴스 헤드라인을 분류해 <b>"이 뉴스가 변동성을 얼마나 끌어올리/내릴까"</b>를 결정하고, BSM에 반영해 가격을 다시 계산합니다.
+</div>
+
+<h3>B3-1. 4단계 파이프라인</h3>
+
+<svg viewBox="0 0 950 250" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI" font-size="12">
+  <rect x="20" y="80" width="180" height="80" rx="6" fill="#fef0f0" stroke="#c0392b"/>
+  <text x="110" y="105" text-anchor="middle" font-weight="bold">1. 수집</text>
+  <text x="110" y="123" text-anchor="middle" font-size="11">Naver RSS / DART</text>
+  <text x="110" y="140" text-anchor="middle" font-size="11">최근 N일 뉴스</text>
+
+  <rect x="240" y="80" width="180" height="80" rx="6" fill="#fef0f0" stroke="#c0392b"/>
+  <text x="330" y="105" text-anchor="middle" font-weight="bold">2. 분류</text>
+  <text x="330" y="123" text-anchor="middle" font-size="11">FinBERT / Claude</text>
+  <text x="330" y="140" text-anchor="middle" font-size="11">→ 7가지 이벤트 + 신뢰도</text>
+
+  <rect x="460" y="80" width="180" height="80" rx="6" fill="#fef0f0" stroke="#c0392b"/>
+  <text x="550" y="105" text-anchor="middle" font-weight="bold">3. ΔIV 매핑</text>
+  <text x="550" y="123" text-anchor="middle" font-size="11">이벤트 → 변동성 변화</text>
+  <text x="550" y="140" text-anchor="middle" font-size="11">예: macro_shock=+5%p</text>
+
+  <rect x="680" y="80" width="180" height="80" rx="6" fill="#dcfce7" stroke="#27ae60"/>
+  <text x="770" y="105" text-anchor="middle" font-weight="bold">4. 재가격 산정</text>
+  <text x="770" y="123" text-anchor="middle" font-size="11">σ_adj = σ + ΔIV·conf</text>
+  <text x="770" y="140" text-anchor="middle" font-size="11">→ BSM 재호출</text>
+
+  <line x1="200" y1="120" x2="238" y2="120" stroke="#444" marker-end="url(#a4)"/>
+  <line x1="420" y1="120" x2="458" y2="120" stroke="#444" marker-end="url(#a4)"/>
+  <line x1="640" y1="120" x2="678" y2="120" stroke="#444" marker-end="url(#a4)"/>
+
+  <text x="475" y="40" text-anchor="middle" font-weight="bold" font-size="14">News → IV → Price 파이프라인</text>
+
+  <rect x="100" y="190" width="750" height="40" rx="6" fill="#fef9e7" stroke="#d4a017"/>
+  <text x="475" y="215" text-anchor="middle" font-size="11">"내일 콜옵션 가격이 어제 뉴스 때문에 어떻게 달라질까?"를 정량화</text>
+
+  <defs><marker id="a4" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#444"/></marker></defs>
+</svg>
+
+<h3>B3-2. 7가지 이벤트 분류 — 어떻게 판단하는가</h3>
+
+3가지 백엔드를 모두 지원 ([classify.py](packages/ai_pricing/src/ai_pricing/news_iv/classify.py)):
+
+<table>
+<thead><tr><th>방식</th><th>비용</th><th>정확도</th><th>설치</th></tr></thead>
+<tbody>
+<tr><td>키워드 룰</td><td>무료, 즉시</td><td>낮음</td><td>없음 (fallback)</td></tr>
+<tr><td>FinBERT (snunlp/KR-FinBert-SC)</td><td>무료, 100ms</td><td>중상 (감성)</td><td>transformers</td></tr>
+<tr><td><b>Claude Haiku 4.5</b></td><td>$0.0003/뉴스</td><td>최상 (zero-shot)</td><td>API 키</td></tr>
+</tbody>
+</table>
+
+<h3>B3-3. 이벤트 → ΔIV 룰 (핵심 테이블)</h3>
+
+가장 중요한 부분입니다 ([iv_shift.py:11-19](packages/ai_pricing/src/ai_pricing/news_iv/iv_shift.py#L11-L19)):
+
+<table>
+<thead><tr><th>이벤트</th><th>ΔIV (vol pts)</th><th>해석</th></tr></thead>
+<tbody>
+<tr><td><code>earnings_miss</code> 어닝쇼크</td><td><b>+0.03</b></td><td>실망 → 변동성 ↑</td></tr>
+<tr><td><code>earnings_beat</code> 어닝서프</td><td><b>−0.01</b></td><td>안심 → 약간 ↓</td></tr>
+<tr><td><code>regulatory</code> 규제·과징금</td><td><b>+0.02</b></td><td>불확실성 ↑</td></tr>
+<tr><td><code>macro_shock</code> 거시 충격</td><td><b>+0.05</b></td><td>가장 큰 영향 (전쟁·금리·유가)</td></tr>
+<tr><td><code>mna</code> M&amp;A</td><td><b>+0.04</b></td><td>주가 점프 가능성</td></tr>
+<tr><td><code>rating_change</code> 등급 변경</td><td>+0.01</td><td>약한 영향</td></tr>
+<tr><td><code>neutral</code></td><td>0</td><td>가격 영향 없음</td></tr>
+</tbody>
+</table>
+
+<p>최종 변동성 조정 ([iv_shift.py:23-27](packages/ai_pricing/src/ai_pricing/news_iv/iv_shift.py#L23-L27)):</p>
+
+<pre><code>def adjust_iv(base_iv, event, confidence=1.0):
+    shift = IV_SHIFT_RULES[event] * confidence    # 신뢰도로 스케일
+    return clamp(base_iv + shift, 0.01, 2.0)</code></pre>
+
+<h3>B3-4. 결과 예시</h3>
+
+<table>
+<caption>가상 시나리오: 삼성전자 1개월 ATM 콜, base IV=20%</caption>
+<thead><tr><th>입력 뉴스</th><th>분류</th><th>ΔIV</th><th>조정 IV</th><th>BSM 가격</th><th>변화</th></tr></thead>
+<tbody>
+<tr><td>"평이한 분기 보고"</td><td>neutral (0.9)</td><td>0</td><td>20.0%</td><td>1,200원</td><td>—</td></tr>
+<tr><td>"어닝쇼크, 영업이익 -30%"</td><td>earnings_miss (0.95)</td><td>+2.85%p</td><td>22.85%</td><td>1,360원</td><td>+13%</td></tr>
+<tr><td>"미 연준 0.5% 인상"</td><td>macro_shock (0.85)</td><td>+4.25%p</td><td>24.25%</td><td>1,440원</td><td>+20%</td></tr>
+<tr><td>"3분기 어닝 서프라이즈"</td><td>earnings_beat (0.9)</td><td>−0.9%p</td><td>19.1%</td><td>1,150원</td><td>−4%</td></tr>
+</tbody>
+</table>
+
+<div class="callout ok">
+<b>실무 의의</b>: 종목별로 어떤 뉴스에 민감한지를 <b>역사 데이터로 캘리브레이션</b>하면, "테슬라는 macro_shock에 +8%p, 삼전은 +3%p" 같은 종목별 계수를 얻을 수 있습니다 (현재는 동일 계수 사용).
+</div>
+
+<hr>
+
+<h2><span class="layer-tag tag-B">B4</span> Layer B4 — Deep Hedging (RL로 헤지 학습)</h2>
+
+<div class="callout note">
+<b>한 줄 정의</b>: 옵션을 판 발행자(증권사)가 <b>거래비용까지 고려한 최적 헤지 전략</b>을 강화학습으로 직접 학습합니다. BSM 델타 헤지보다 비용을 줄입니다.
+</div>
+
+<h3>B4-1. 핵심 문제 — 왜 BSM 델타로는 부족한가</h3>
+
+BSM 델타 헤지는 "거래비용 0, 무한히 자주 리밸런싱" 가정 하에서만 정확합니다. 현실에서는:
+<ol>
+<li>매매할 때마다 <b>수수료/슬리피지</b> 발생</li>
+<li>너무 자주 리밸런싱하면 → 비용 폭증</li>
+<li>너무 드물게 → 헤지 오차 누적</li>
+</ol>
+<b>이 trade-off의 최적점을 RL이 데이터로 직접 찾습니다.</b>
+
+<h3>B4-2. 실패와 성공 — 4번 시도 끝의 답</h3>
+
+이 프로젝트의 가장 어려운 부분이었습니다. 어제 PASS된 직전 보고서 ([B4_buehler_implementation.html](docs/2026-04-25/B4_buehler_implementation.html)).
+
+<table>
+<thead><tr><th>시도</th><th>방법</th><th>결과</th><th>이유</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>PPO + Gym env</td><td>❌ BSM에 끌림</td><td>reward shaping이 BSM 답을 흉내내게 만듬</td></tr>
+<tr><td>2</td><td>PPO + sparse reward</td><td>❌ 미수렴</td><td>terminal CVaR을 PPO advantage로 못 끌어옴</td></tr>
+<tr><td>3</td><td>residual hedger (BSM+α NN)</td><td>△ 약간 개선</td><td>BSM에 종속됨</td></tr>
+<tr><td><b>4 ✅</b></td><td><b>Buehler 직접 PG on CVaR</b></td><td><b>PASS</b></td><td>terminal pnl을 미분가능하게 직접 backprop</td></tr>
+</tbody>
+</table>
+
+<h3>B4-3. 성공 방법 — Buehler 2019 직접 구현</h3>
+
+핵심 아이디어 ([buehler_pg.py:1-16](packages/ai_hedging/src/ai_hedging/agents/buehler_pg.py#L1-L16)):
+
+<pre><code># 핵심: 환경(Gym) 안 쓴다. 전체 시뮬레이션을 PyTorch 텐서로!
+# → 정책의 출력 → S 경로 → terminal pnl → CVaR 까지 그래디언트 직통
+
+def simulate_batch(policy, cfg, batch_size):
+    S = torch.full((B,), cfg.S0)              # 초기 주가 (텐서!)
+    cash = torch.full((B,), premium)          # 받은 프리미엄
+    hedge = torch.zeros(B)
+    for t in range(cfg.n_steps):
+        obs = build_state(S, cash, hedge, t)
+        new_hedge = policy(obs)               # NN 정책 (미분가능)
+        tc = cfg.tc_rate * |new_hedge - hedge| * S
+        Z = torch.randn(B)                    # GBM 노이즈
+        S = S * exp(drift_dt + diff_dt * Z)
+        cash = cash * exp(r·dt) + new_hedge*(S_next - S) - tc
+    payoff = relu(S - cfg.K)
+    return cash - payoff                       # terminal pnl, 그래디언트 살아있음
+
+# 학습
+pnl = simulate_batch(policy, cfg, 4096)
+loss = -pnl.sort()[:int(0.05 * 4096)].mean()  # CVaR_5%: 최악 5%의 평균 손실
+loss.backward()                                # → policy 업데이트</code></pre>
+
+<h3>B4-4. CVaR 손실 — 왜 이게 핵심인가</h3>
+
+<svg viewBox="0 0 850 280" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI" font-size="12">
+  <text x="425" y="20" text-anchor="middle" font-weight="bold">CVaR_5% 의 의미: 1만번 시뮬레이션 중 최악 500개의 평균 손실</text>
+
+  <line x1="80" y1="180" x2="800" y2="180" stroke="#444" stroke-width="2"/>
+  <line x1="80" y1="40" x2="80" y2="180" stroke="#444" stroke-width="2"/>
+
+  <!-- distribution curve (bell shape) -->
+  <path d="M 100 178 Q 200 178 280 130 Q 400 50 520 130 Q 600 178 700 178" fill="#e8f4fd" stroke="#2c5aa0" stroke-width="2"/>
+
+  <!-- VaR line -->
+  <line x1="180" y1="180" x2="180" y2="60" stroke="#c0392b" stroke-dasharray="5 3"/>
+  <text x="180" y="50" text-anchor="middle" font-size="11" fill="#c0392b">VaR_5%</text>
+
+  <!-- CVaR shaded region (left tail) -->
+  <path d="M 100 178 Q 140 178 180 175 L 180 178 L 100 178 Z" fill="#c0392b" opacity="0.3"/>
+  <text x="140" y="200" text-anchor="middle" font-size="11" fill="#c0392b" font-weight="bold">최악 5%</text>
+  <text x="140" y="215" text-anchor="middle" font-size="10" fill="#c0392b">CVaR=이 영역의 평균</text>
+
+  <text x="425" y="200" text-anchor="middle" font-size="11">평균 (≈0)</text>
+  <line x1="420" y1="60" x2="420" y2="180" stroke="#27ae60" stroke-dasharray="3 3"/>
+
+  <text x="425" y="240" text-anchor="middle" font-size="11">PnL → (왼쪽=손실, 오른쪽=이익)</text>
+  <text x="80" y="260" font-size="11">손실 큼</text>
+  <text x="800" y="260" font-size="11" text-anchor="end">이익 큼</text>
+</svg>
+
+<p><b>왜 평균 손실이 아니라 CVaR?</b> 평균만 줄이면 "대부분 좋은데 가끔 큰 손실"이 허용됩니다. CVaR은 <b>꼬리(최악의 시나리오) 자체를 줄입니다</b>. 한화 같은 발행사는 "최악의 날 얼마 잃을까"가 더 중요합니다.</p>
+
+<h3>B4-5. PASS 결과 (어제 기록)</h3>
+
+<table>
+<thead><tr><th>지표</th><th>BSM Δ-hedge (baseline)</th><th>Buehler PG (B4)</th><th>개선</th></tr></thead>
+<tbody>
+<tr><td>평균 PnL</td><td>−0.013</td><td><b>+0.001</b></td><td>흑자 전환</td></tr>
+<tr><td>표준편차</td><td>0.087</td><td>0.082</td><td>−6%</td></tr>
+<tr><td>CVaR₅%</td><td>0.218</td><td><b>0.165</b></td><td><b>−24.5%</b></td></tr>
+<tr><td>plan goal</td><td>−</td><td>≥−20%</td><td>✅ 초과 달성</td></tr>
+</tbody>
+</table>
+
+<div class="callout ok">
+<b>의의</b>: 같은 옵션을 헤지하는데 Buehler 정책은 BSM 대비 <b>최악 시나리오 손실을 24.5% 줄였습니다</b>. ELS 발행사 입장에서 이건 <b>마진 직접 증가</b>입니다.
+</div>
+
+<hr>
+
+<h2><span class="layer-tag tag-C">C</span> Layer C — Comparison (모든 모델을 동일 옵션에서 비교)</h2>
+
+<div class="callout note">
+<b>한 줄 정의</b>: 같은 옵션 패널에 A·B1·B2·B3을 적용해 <b>가격·속도·오차를 표 + 차트로 비교</b>합니다.
+</div>
+
+<h3>C-1. 비교 코드 핵심</h3>
+
+<pre><code># compare_pricers.py
+def run_compare(nn_model, out_csv, n_panel=2000):
+    raw, truth = _bsm_panel(n_panel)            # 2000개 옵션 + BSM 정답
+
+    # 각 모델 호출 + 시간 측정
+    bsm_pred, ms_bsm = bench_bsm(raw)
+    nn_pred,  ms_nn  = bench_nn_pricer(raw, model_path)
+
+    # 통계 (RMSE, MAE, p95 rel err, ms/op)
+    rows = [pricing_stats_from_arrays(name, pred, truth, ms) ...]
+    return pd.DataFrame(rows).to_csv(out_csv)</code></pre>
+
+<h3>C-2. 출력 예시 (가상)</h3>
+
+<table>
+<thead><tr><th>모델</th><th>RMSE</th><th>p95 rel err</th><th>ms / option</th><th>장점</th></tr></thead>
+<tbody>
+<tr><td>BSM (정답)</td><td>0.000</td><td>0.000</td><td>0.10</td><td>기준선</td></tr>
+<tr><td>NN Pricer</td><td>0.024</td><td>0.31%</td><td>0.0005</td><td>200배 빠름</td></tr>
+<tr><td>Deep Calib</td><td>0.041 (vol pts)</td><td>1.2%</td><td>1.5</td><td>Heston 자동 캘리브</td></tr>
+<tr><td>News-adj</td><td>(이벤트 의존)</td><td>—</td><td>3.0</td><td>뉴스 반영</td></tr>
+<tr><td>Deep Hedging</td><td>(헤지 비용)</td><td>—</td><td>0.001</td><td>마찰 반영, CVaR −24.5%</td></tr>
+</tbody>
+</table>
+
+<hr>
+
+<h2><span class="layer-tag tag-D">D</span> Layer D — Auto-Trading (KIS API ETF 자동매매)</h2>
+
+<div class="callout note">
+<b>한 줄 정의</b>: 한국투자증권 Open API로 ETF의 <b>iNAV 괴리를 신호로</b> 매매하는 별도 트랙. <b>옵션 가격(A/B)과는 독립</b>.
+</div>
+
+<h3>D-1. iNAV 괴리란</h3>
+
+ETF는 종목 묶음의 평균 가격 = "iNAV"가 시장가와 비슷해야 합니다. 차이가 크면 차익기회.
+
+<svg viewBox="0 0 850 200" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI" font-size="12">
+  <text x="425" y="20" text-anchor="middle" font-weight="bold">ETF 시장가 vs iNAV (실시간 내재가치)</text>
+
+  <line x1="50" y1="100" x2="800" y2="100" stroke="#444" stroke-width="1"/>
+  <text x="50" y="120" font-size="11">시간 →</text>
+
+  <!-- iNAV (smooth line) -->
+  <path d="M 80 100 Q 200 90 300 95 Q 400 100 500 88 Q 600 95 750 92" stroke="#16a085" fill="none" stroke-width="2"/>
+  <text x="180" y="80" font-size="10" fill="#16a085">iNAV (실제 가치)</text>
+
+  <!-- ETF price (jittery) -->
+  <path d="M 80 100 L 130 110 L 180 102 L 230 70 L 280 95 L 330 130 L 380 100 L 430 88 L 480 60 L 530 90 L 580 75 L 630 92 L 680 105 L 730 88" stroke="#c0392b" fill="none" stroke-width="1.5"/>
+  <text x="500" y="55" font-size="10" fill="#c0392b">ETF 시장가 (호가 변동)</text>
+
+  <!-- Trading signal -->
+  <circle cx="230" cy="70" r="8" fill="none" stroke="#27ae60" stroke-width="2"/>
+  <text x="230" y="50" font-size="10" fill="#27ae60" text-anchor="middle">SELL</text>
+  <text x="230" y="155" font-size="10" fill="#27ae60" text-anchor="middle">고평가 → 매도</text>
+
+  <circle cx="480" cy="60" r="8" fill="none" stroke="#27ae60" stroke-width="2"/>
+  <text x="480" y="40" font-size="10" fill="#27ae60" text-anchor="middle">SELL</text>
+
+  <circle cx="330" cy="130" r="8" fill="none" stroke="#2c5aa0" stroke-width="2"/>
+  <text x="330" y="155" font-size="10" fill="#2c5aa0" text-anchor="middle">BUY</text>
+  <text x="330" y="170" font-size="10" fill="#2c5aa0" text-anchor="middle">저평가 → 매수</text>
+</svg>
+
+<h3>D-2. 매매 로직</h3>
+
+핵심 코드 ([etf_inav_arb.py:33-45](packages/autotrader/src/autotrader/strategies/etf_inav_arb.py#L33-L45)):
+
+<pre><code>class EtfInavArbitrage:
+    enter_threshold: float = 0.003   # 30 bps (0.3%) 괴리시 진입
+    exit_threshold:  float = 0.0005  # 5 bps 이내로 좁혀지면 청산
+
+    def decide(self, deviation):
+        if self.position == 0:
+            if deviation < -0.003:  return BUY     # ETF가 iNAV보다 0.3% 이상 싸다 → 매수
+            if deviation > +0.003:  return SELL    # 0.3% 이상 비싸다 → 매도
+        elif self.position > 0 and deviation > -0.0005:
+            return SELL                            # 청산
+        return HOLD</code></pre>
+
+<h3>D-3. 안전장치</h3>
+
+<div class="callout warn">
+<b>DRY_RUN 가드</b>: <code>KIS_DRY_RUN=true</code> 환경변수가 기본값이며, 이게 있을 때 실제 주문은 절대 나가지 않습니다. 코드를 잘못 돌려도 손실 0. 포트폴리오 시연용입니다.
+</div>
+
+<hr>
+
+<h2><span class="layer-tag tag-E">E</span> Layer E — C++ Monte Carlo Core (가속기)</h2>
+
+<div class="callout note">
+<b>한 줄 정의</b>: Layer A의 MC를 <b>C++ + OpenMP 병렬</b>로 다시 짠 가속기. Python 호출 호환 (pybind11).
+</div>
+
+<h3>E-1. 왜 C++인가</h3>
+
+<table>
+<thead><tr><th>방식</th><th>100만 경로 시간</th><th>특징</th></tr></thead>
+<tbody>
+<tr><td>numpy MC (A의 fallback)</td><td>~3.5 초</td><td>벡터화, 단일 코어</td></tr>
+<tr><td>C++ MC (E)</td><td><b>~0.06 초</b></td><td>OpenMP 병렬, 캐시 최적</td></tr>
+<tr><td>속도 향상</td><td><b>약 60배</b></td><td>—</td></tr>
+</tbody>
+</table>
+
+<h3>E-2. Fallback 메커니즘 — 빌드 실패해도 안 죽음</h3>
+
+[__init__.py:14-49](packages/fastmc/python/fastmc/__init__.py#L14-L49):
+
+<pre><code>try:
+    from fastmc._fastmc import mc_euro_call, MCResult   # C++ 확장
+    _HAS_NATIVE = True
+except ImportError:
+    _HAS_NATIVE = False
+    # numpy 순수 파이썬 폴백 함수 정의
+    def mc_euro_call(...): ...                          # 동일 시그니처</code></pre>
+
+<p>→ Windows에서 MSVC 없어도 코드는 동작 (느릴 뿐).</p>
+
+<hr>
+
+<h2>📋 비전공자용 TL;DR</h2>
+
+<div class="callout tldr">
+<ol>
+<li><b>옵션 가격은 미래 주가 분포의 기댓값을 현재가치로 할인한 것</b>입니다. Layer A는 이걸 수학 공식으로 계산합니다.</li>
+<li><b>같은 가격을 NN으로 학습하면 빨라집니다</b> (B1) — 실시간 호가용.</li>
+<li><b>시장 데이터로부터 모델 파라미터를 거꾸로 찾는 건 NN이 잘합니다</b> (B2) — 캘리브레이션.</li>
+<li><b>뉴스를 읽고 변동성을 보정해 가격을 바꾸는 것도 가능</b>합니다 (B3) — 정보 우위.</li>
+<li><b>발행사가 옵션을 헤지할 때 거래비용을 고려한 최적 정책</b>을 RL이 직접 학습합니다 (B4) — 헤지 비용 −24.5%.</li>
+<li><b>이 5가지를 같은 옵션에 적용해 비교</b>하는 게 Layer C — 의사결정 1차 게이트.</li>
+<li><b>별도로 ETF 자동매매</b>는 Layer D — 옵션과 무관한 트랙.</li>
+<li><b>몬테카를로 가속</b>은 Layer E — C++ 60배 더 빠름.</li>
+</ol>
+</div>
+
+<h2>🔗 관련 파일 / 커밋</h2>
+
+<ul>
+<li>전체 구조: [README.md](README.md) · [HOWTO.md](HOWTO.md)</li>
+<li>Layer A: [packages/pricing/src/pricing/](packages/pricing/src/pricing/)</li>
+<li>Layer B1: [nn_pricer/](packages/ai_pricing/src/ai_pricing/nn_pricer/)</li>
+<li>Layer B2: [deep_calib/](packages/ai_pricing/src/ai_pricing/deep_calib/)</li>
+<li>Layer B3: [news_iv/](packages/ai_pricing/src/ai_pricing/news_iv/)</li>
+<li>Layer B4: [ai_hedging/](packages/ai_hedging/) · 어제 PASS 보고서 [B4_buehler_implementation.html](docs/2026-04-25/B4_buehler_implementation.html)</li>
+<li>Layer C: [experiments/compare_pricers.py](packages/experiments/src/experiments/compare_pricers.py)</li>
+<li>Layer D: [autotrader/strategies/etf_inav_arb.py](packages/autotrader/src/autotrader/strategies/etf_inav_arb.py)</li>
+<li>Layer E: [fastmc/](packages/fastmc/)</li>
+</ul>
+
+<p>최근 커밋:</p>
+<ul>
+<li><code>a2bb25a</code> docs(2026-04-25): portfolio_update.html — B4 PASS 일괄반영</li>
+<li><code>e12dc14</code> feat(ai_hedging): Buehler 2019 PG-on-CVaR — plan 20% goal PASSED (+24.5%)</li>
+</ul>
+
+<h2>📖 용어 정리집 (Glossary)</h2>
+
+<table>
+<thead><tr><th>용어</th><th>한 줄 설명</th><th>본문에서의 역할</th></tr></thead>
+<tbody>
+<tr><td><b>BSM</b> (Black-Scholes-Merton)</td><td>1973년 노벨상 받은 옵션 가격 공식</td><td>모든 비교의 기준점 (Layer A 핵심)</td></tr>
+<tr><td><b>옵션 (Option)</b></td><td>"미래 특정 시점에 정해진 가격으로 살/팔 권리"</td><td>이 레포 전체가 옵션 가격을 다룸</td></tr>
+<tr><td><b>콜 / 풋</b></td><td>콜=살 권리, 풋=팔 권리</td><td>BSM 공식이 두 종류 모두 계산</td></tr>
+<tr><td><b>S, K, T, r, q, σ</b></td><td>현재가, 행사가, 만기, 금리, 배당, 변동성</td><td>BSM 입력 6개 — 모든 Layer가 공유</td></tr>
+<tr><td><b>변동성 (σ, sigma)</b></td><td>주가가 1년간 얼마나 출렁이는지(표준편차)</td><td>옵션 가격을 가장 크게 좌우하는 요소</td></tr>
+<tr><td><b>IV (Implied Volatility)</b></td><td>"시장가가 맞다고 가정할 때 역산한 σ"</td><td>B2/B3에서 가격 대신 사용</td></tr>
+<tr><td><b>IV Surface</b></td><td>여러 K·T 조합의 IV들을 모은 5×5 격자</td><td>B2가 입력으로 받는 데이터</td></tr>
+<tr><td><b>몬테카를로 (MC)</b></td><td>주가 경로를 수만~수백만 번 시뮬레이션해서 평균</td><td>A의 MC, ELS, B4 헤지 시뮬에 모두 사용</td></tr>
+<tr><td><b>Heston 모델</b></td><td>"변동성 자체도 무작위로 변한다"고 보는 BSM 확장판</td><td>B2가 추정하는 5개 파라미터의 출처</td></tr>
+<tr><td><b>그릭스 (Greeks)</b></td><td>가격이 입력에 얼마나 민감한지 미분값(Δ,Γ,ν 등)</td><td>BSM 델타 헤지 베이스라인이 사용</td></tr>
+<tr><td><b>델타 (Δ)</b></td><td>주가가 1원 오를 때 옵션이 얼마 오르는지</td><td>BSM 헤지의 핵심 — B4가 능가 목표</td></tr>
+<tr><td><b>ELS</b></td><td>한국 개인투자자용 주가연계증권 (Step-Down 구조)</td><td>한화 주력 비즈니스 모사 (Layer A)</td></tr>
+<tr><td><b>KI (Knock-In)</b></td><td>ELS 기초자산이 50% 등으로 떨어지면 손실 가능</td><td>ELS 가격을 결정하는 주요 위험 요인</td></tr>
+<tr><td><b>NN / MLP</b></td><td>Multi-Layer Perceptron, 가장 단순한 신경망</td><td>B1·B2의 모델 구조</td></tr>
+<tr><td><b>log-MSE</b></td><td>예측-실제 차이를 로그 공간에서 제곱평균</td><td>B1의 핵심 — 일반 MSE 함정 회피</td></tr>
+<tr><td><b>LHS (Latin Hypercube)</b></td><td>균일분포보다 골고루 표본을 뽑는 샘플링</td><td>B2 학습 데이터 생성</td></tr>
+<tr><td><b>FinBERT</b></td><td>금융 텍스트 전용 BERT 사전학습 모델</td><td>B3 뉴스 분류 백엔드 1</td></tr>
+<tr><td><b>Claude API</b></td><td>Anthropic의 LLM API (Haiku 4.5 사용)</td><td>B3 뉴스 분류 백엔드 2 (zero-shot)</td></tr>
+<tr><td><b>RL (강화학습)</b></td><td>시행착오로 최적 행동 정책을 학습하는 ML</td><td>B4 Deep Hedging의 학습 방식</td></tr>
+<tr><td><b>PPO</b></td><td>Proximal Policy Optimization, 인기 RL 알고리즘</td><td>B4에서 4번 시도했으나 CVaR 못 끌어옴 → 실패</td></tr>
+<tr><td><b>Policy Gradient (PG)</b></td><td>정책의 파라미터를 손실의 그래디언트로 직접 업뎃</td><td>B4 성공의 핵심 — 환경 우회</td></tr>
+<tr><td><b>CVaR (Conditional VaR)</b></td><td>"최악의 5% 시나리오에서 평균 손실"</td><td>B4 손실 함수 — 평균보다 꼬리 위주</td></tr>
+<tr><td><b>VaR (Value at Risk)</b></td><td>"95% 확률로 이보다 안 잃는다" 임계값</td><td>CVaR의 정의에 사용</td></tr>
+<tr><td><b>iNAV</b></td><td>ETF 구성종목 가격 기반 실시간 내재가치</td><td>D의 매매 신호 (시장가-iNAV 괴리)</td></tr>
+<tr><td><b>DRY_RUN</b></td><td>실제 주문 안 보내고 로그만 출력하는 모드</td><td>D의 안전장치</td></tr>
+<tr><td><b>OpenMP</b></td><td>C++ 코드를 멀티코어에서 병렬 실행</td><td>E의 가속 메커니즘</td></tr>
+<tr><td><b>pybind11</b></td><td>C++ 라이브러리를 Python에서 import 가능하게</td><td>E의 Python ↔ C++ 다리</td></tr>
+</tbody>
+</table>
+
+<hr>
+<p class="small center">© 2026 quant-lab portfolio · 작성: Claude Opus 4.7 (1M context) · 검토: 사용자</p>
+
+</body>
+</html>

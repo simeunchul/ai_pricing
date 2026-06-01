@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>Phase A2-D — pre-news momentum/sentiment features 로 R² 끌어올리기</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+         max-width: 980px; margin: 24px auto; padding: 0 20px; color: #222; line-height: 1.55; }
+  h1 { border-bottom: 2px solid #333; padding-bottom: 8px; }
+  h2 { margin-top: 36px; border-left: 4px solid #2c5fa8; padding-left: 10px; }
+  h3 { margin-top: 24px; color: #2c5fa8; }
+  .callout { background: #eef5ff; border-left: 5px solid #2c5fa8; padding: 12px 16px;
+             border-radius: 4px; margin: 16px 0; }
+  .warn { background: #fff5e6; border-left: 5px solid #d97706; padding: 12px 16px;
+          border-radius: 4px; margin: 16px 0; }
+  .ok { background: #e9f7ef; border-left: 5px solid #1e7e34; padding: 12px 16px;
+        border-radius: 4px; margin: 16px 0; }
+  .bad { background: #fdecea; border-left: 5px solid #c0392b; padding: 12px 16px;
+         border-radius: 4px; margin: 16px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.94em; }
+  th, td { border: 1px solid #ccc; padding: 7px 9px; text-align: left; }
+  th { background: #f3f4f6; }
+  code { background: #f3f4f6; padding: 1px 6px; border-radius: 3px; font-size: 0.92em; }
+  pre { background: #1f2937; color: #f9fafb; padding: 14px; border-radius: 6px;
+        overflow-x: auto; font-size: 0.85em; }
+  .small { font-size: 0.88em; color: #555; }
+  svg { display: block; margin: 16px auto; max-width: 100%; }
+  .ascii-box { font-family: Consolas, monospace; white-space: pre; background: #f8fafc;
+               border: 1px solid #cbd5e1; padding: 12px; border-radius: 4px; font-size: 0.85em; }
+  .num { font-variant-numeric: tabular-nums; text-align: right; }
+</style>
+</head>
+<body>
+
+<h1>Phase A2-D — pre-news momentum/sentiment features 로 R² 끌어올리기</h1>
+<p class="small">2026-04-28 · ai_pricing/autotrader · Phase A 2차 반복</p>
+
+<div class="callout">
+  <strong>한 줄 결과.</strong>
+  사용자 직감대로 historical 데이터로 LGBM 학습. 첫 시도 (event-only features) 는
+  Test R² ±0 — baseline 못 이김. <b>D 패키지 추가</b> (강화 sentiment lexicon +
+  뉴스 직전 5/15/30분 momentum/volume) 후 <b>Test R² +0.037, baseline 대비 RMSE
+  +4.5% 개선</b>. Feature importance top 2 가 <b>vol_30m, momentum_30m</b> —
+  뉴스 자체보다 "뉴스 직전 시장 반응" 이 더 informative. Hook + decide_with_fair
+  까지 인터페이스 완성, 31/31 test pass. Prod 연결은 walk-forward 검증 후.
+</div>
+
+<h2>1. 무엇을 시도했는가</h2>
+
+<p>Phase A2-historical 1차 결과: 9-ticker 2,468 rows 로 Test R² +0.06, baseline 약간 이김.
+종목 확장 (15-ticker 4,852 rows) 후 오히려 Test R² -0.06 으로 떨어짐 — features 가 너무 약해
+데이터 늘면 noise 증가 + signal 희석. 진짜 fix 는 <strong>features 강화</strong>.</p>
+
+<table>
+  <tr><th>iter</th><th>데이터</th><th>Features</th><th>Test R²</th><th>baseline 대비</th></tr>
+  <tr><td>1</td><td>9 ticker, 2,468 rows</td><td>event_id, ticker_id, time</td><td class="num">+0.060</td><td class="num">+3.45%</td></tr>
+  <tr><td>2</td><td>15 ticker, 4,852 rows</td><td>(동일)</td><td class="num">-0.056</td><td class="num">-0.00%</td></tr>
+  <tr><td><b>3 (D)</b></td><td>15 ticker, 4,852 rows</td><td><b>+ pre-news momentum/vol/sentiment</b></td><td class="num"><b>+0.037</b></td><td class="num"><b>+4.50%</b></td></tr>
+</table>
+
+<h2>2. D 패키지 — 무엇을 추가했나</h2>
+
+<h3>2-1. 강화 sentiment lexicon</h3>
+
+<p>기존 <code>classify_rule</code> 은 7-class one-hot (earnings_beat / mna / regulatory / ...) 만 출력.
+D 에선 <strong>긍정/부정 키워드 가중 산술합</strong>으로 [-1, +1] 연속값 sentiment_score 추가.</p>
+
+<pre><code>긍정 키워드 (가중치):
+  어닝서프라이즈 +1.0, 사상최대 +1.0, 신고가 +1.0, 폭등 +1.0
+  호조 +0.6, 상향 +0.6, 수주 +0.6, 매수 +0.6
+  반등/회복 +0.4, 성장/증가 +0.3 ...
+
+부정 키워드:
+  어닝쇼크 -1.0, 급락 -1.0, 폭락 -1.0, 적자전환 -1.0
+  부진 -0.6, 하향 -0.6, 매도 -0.6, 규제 -0.5
+  리콜/결함 -0.7, 과징금 -0.7, 전쟁 -0.8 ...
+
+sentiment_score = clamp(-1, +1, (Σpos - Σneg) / √n_words)</code></pre>
+
+<h3>2-2. Pre-news momentum / volume features</h3>
+
+<p>뉴스가 발생한 시점 직전 5/15/30분 시장 반응 — KIS 5분봉에서 추출.</p>
+
+<table>
+  <tr><th>Feature</th><th>의미</th></tr>
+  <tr><td><code>momentum_5m</code></td><td>직전 1 bar (5분) 가격 변화율</td></tr>
+  <tr><td><code>momentum_15m</code></td><td>직전 3 bars (15분) 가격 변화율</td></tr>
+  <tr><td><code>momentum_30m</code></td><td>직전 6 bars (30분) 가격 변화율</td></tr>
+  <tr><td><code>vol_30m</code></td><td>직전 30분 per-bar return 의 표준편차</td></tr>
+  <tr><td><code>volume_z</code></td><td>마지막 bar 거래량의 z-score (직전 5 bars 기준)</td></tr>
+  <tr><td><code>pre_n_bars</code></td><td>사용 가능 bars 수 (data quality marker)</td></tr>
+</table>
+
+<div class="ok">
+  <b>핵심 가정:</b> "뉴스 발표 전 시장이 이미 움직이고 있으면, 발표 후 1시간도 같은 방향" —
+  smart money 의 사전 정보 흡수. <b>look-ahead bias 가 아님</b> (뉴스 발생 시점 전 데이터만 사용).
+</div>
+
+<h2>3. 결과 — 무엇이 효과 있었나</h2>
+
+<h3>3-1. Feature Importance — pre-news 가 압승</h3>
+
+<svg viewBox="0 0 700 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="feature importance bar chart">
+  <line x1="180" y1="20" x2="180" y2="340" stroke="#333"/>
+  <line x1="180" y1="340" x2="680" y2="340" stroke="#333"/>
+  <text x="430" y="358" text-anchor="middle" font-size="12">importance (gain)</text>
+
+  <!-- Bars: rank by gain -->
+  <g font-size="11">
+    <!-- 1. vol_30m 0.2 (NEW) -->
+    <text x="175" y="38" text-anchor="end" fill="#1e7e34" font-weight="600">vol_30m ★</text>
+    <rect x="180" y="26" width="280" height="22" fill="#1e7e34"/>
+    <text x="465" y="42" font-size="10" fill="#1e7e34">0.20 (NEW D)</text>
+    <!-- 2. momentum_30m 0.2 (NEW) -->
+    <text x="175" y="68" text-anchor="end" fill="#1e7e34" font-weight="600">momentum_30m ★</text>
+    <rect x="180" y="56" width="280" height="22" fill="#1e7e34"/>
+    <text x="465" y="72" font-size="10" fill="#1e7e34">0.20 (NEW D)</text>
+    <!-- 3. weekday 0.2 -->
+    <text x="175" y="98" text-anchor="end" fill="#666">weekday</text>
+    <rect x="180" y="86" width="280" height="22" fill="#888"/>
+    <text x="465" y="102" font-size="10" fill="#666">0.20</text>
+    <!-- 4. minutes_since_open 0.1 -->
+    <text x="175" y="128" text-anchor="end" fill="#666">minutes_since_open</text>
+    <rect x="180" y="116" width="140" height="22" fill="#888"/>
+    <text x="325" y="132" font-size="10" fill="#666">0.10</text>
+    <!-- 5. ticker_id 0.1 -->
+    <text x="175" y="158" text-anchor="end" fill="#666">ticker_id</text>
+    <rect x="180" y="146" width="140" height="22" fill="#888"/>
+    <text x="325" y="162" font-size="10" fill="#666">0.10</text>
+    <!-- 6. momentum_5m 0.1 (NEW) -->
+    <text x="175" y="188" text-anchor="end" fill="#1e7e34" font-weight="600">momentum_5m ★</text>
+    <rect x="180" y="176" width="140" height="22" fill="#1e7e34"/>
+    <text x="325" y="192" font-size="10" fill="#1e7e34">0.10 (NEW D)</text>
+    <!-- 7. momentum_15m 0.0 -->
+    <text x="175" y="218" text-anchor="end" fill="#999">momentum_15m</text>
+    <rect x="180" y="206" width="20" height="22" fill="#bbb"/>
+    <text x="205" y="222" font-size="10" fill="#999">~0.0</text>
+    <!-- 8. volume_z 0.0 -->
+    <text x="175" y="248" text-anchor="end" fill="#999">volume_z</text>
+    <rect x="180" y="236" width="20" height="22" fill="#bbb"/>
+    <text x="205" y="252" font-size="10" fill="#999">~0.0</text>
+    <!-- 9. sent_score 0.0 -->
+    <text x="175" y="278" text-anchor="end" fill="#c0392b">sent_score (lexicon)</text>
+    <rect x="180" y="266" width="10" height="22" fill="#fbb"/>
+    <text x="195" y="282" font-size="10" fill="#c0392b">~0.0</text>
+    <!-- 10. event_id 0.0 -->
+    <text x="175" y="308" text-anchor="end" fill="#c0392b">event_id (rule classifier)</text>
+    <rect x="180" y="296" width="10" height="22" fill="#fbb"/>
+    <text x="195" y="312" font-size="10" fill="#c0392b">~0.0</text>
+  </g>
+
+  <text x="430" y="14" text-anchor="middle" font-size="13" font-weight="600">
+    Pre-news 시장 반응 (vol_30m, momentum_30m) 이 top features
+  </text>
+</svg>
+
+<h3>3-2. 학습 vs Baseline 비교 (RMSE)</h3>
+
+<svg viewBox="0 0 600 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="rmse comparison">
+  <line x1="60" y1="180" x2="540" y2="180" stroke="#333"/>
+  <line x1="60" y1="20" x2="60" y2="180" stroke="#333"/>
+
+  <g font-size="10" fill="#333">
+    <text x="55" y="184" text-anchor="end">0</text>
+    <text x="55" y="143" text-anchor="end">0.005</text>
+    <text x="55" y="103" text-anchor="end">0.010</text>
+    <text x="55" y="63" text-anchor="end">0.015</text>
+  </g>
+
+  <!-- Train RMSE 0.0058 -->
+  <rect x="120" y="135" width="80" height="45" fill="#1e7e34"/>
+  <text x="160" y="195" text-anchor="middle" font-size="12">train</text>
+  <text x="160" y="129" text-anchor="middle" font-size="10" fill="#1e7e34">0.0058</text>
+
+  <!-- Test RMSE 0.0112 -->
+  <rect x="240" y="93" width="80" height="87" fill="#2c5aa0"/>
+  <text x="280" y="195" text-anchor="middle" font-size="12">test (LGBM)</text>
+  <text x="280" y="87" text-anchor="middle" font-size="10" fill="#2c5aa0">0.0112</text>
+
+  <!-- Baseline RMSE 0.0117 -->
+  <rect x="360" y="89" width="80" height="91" fill="#888"/>
+  <text x="400" y="195" text-anchor="middle" font-size="12">baseline (zero)</text>
+  <text x="400" y="83" text-anchor="middle" font-size="10" fill="#666">0.0117</text>
+
+  <!-- 4.5% lift annotation -->
+  <line x1="320" y1="93" x2="360" y2="89" stroke="#1e7e34" stroke-width="2"/>
+  <text x="340" y="78" text-anchor="middle" font-size="11" fill="#1e7e34" font-weight="600">−4.5% RMSE</text>
+  <text x="340" y="14" text-anchor="middle" font-size="13" font-weight="600">
+    Test RMSE 가 baseline 보다 4.5% 작음 = 모델이 baseline 이김
+  </text>
+</svg>
+
+<h2>4. 정직한 한계</h2>
+
+<div class="warn">
+  <b>무엇이 효과 있었나</b>: pre-news momentum/vol 이 진짜 신호. 시장이 이미 반응 중일 때 1시간 후 방향 예측 가능.
+  <br><br>
+  <b>무엇이 효과 없었나</b>:
+  <ul>
+    <li><code>sent_score</code> (lexicon) 거의 importance 0 — 키워드 매칭이 너무 sparse, 의미 파악 X</li>
+    <li><code>event_id</code> (rule classifier 7-class) 도 importance 0 — 너무 coarse</li>
+    <li><b>FinBERT-Ko</b> 시도했으나 torch 보안 이슈로 로드 실패 (CVE-2025-32434)</li>
+  </ul>
+  <b>최종 R² +0.037</b> = 분산의 3.7% 만 설명. <b>매우 작은 알파</b>. 실거래 PnL 영향 미지수.
+  <b>이 모델 단독으로는 prod 운영 비추천</b>, basket-only 와 30:70 ensemble 권장.
+</div>
+
+<h3>005930 (삼성전자) 누락 문제</h3>
+
+<p>KOSPI 200 의 30% 비중인 삼성전자가 학습 데이터에서 빠짐. 원인:</p>
+
+<ul>
+  <li>Naver Search API <code>sort=date</code> 가 최근 1000+1000 = ~5일치만 줌</li>
+  <li>그 5일이 우연히 weekend 위주 (4/24~4/28 중 4/25토, 4/26일, 4/28월)</li>
+  <li>장중 거래일 뉴스가 0건 → backtest 0 trades</li>
+</ul>
+
+<p><b>차후 fix:</b> Naver API 의 <code>sort=sim</code> + 다양한 검색어 조합으로 더 긴 history 확보. 또는 다른 데이터 소스 (한경, 매경 RSS, DART 공시).</p>
+
+<h2>5. 봇 통합 인터페이스 (A4)</h2>
+
+<p>모델이 baseline 이김 → prod 통합 시그너처 정의. <b>실제 wiring 은 walk-forward 검증 통과 후</b>.</p>
+
+<div class="ascii-box">  Runner main loop (매 N분)
+       │
+       ▼
+  pricer.maybe_refresh(now,
+                        news_by_ticker,    # 종목별 최근 뉴스
+                        bars_by_ticker)    # 종목별 5-min bars
+       │  → 모델로 종목별 1-hour return 예측
+       ▼
+  per ETF symbol:
+    fair_dev = pricer.fair_dev(etf_sym)    # 비중 가중 합
+       │
+       ▼
+  strategy.decide_with_fair(
+       dev_basket=current_obs_dev,
+       fair_dev=fair_dev,
+       fair_blend=0.3,   # basket 70% + fair 30% ensemble
+  )  →  decide_aggressive(combined_dev) 호출
+       │
+       ▼
+  (Signal, qty, use_inverse) — 기존 매매 로직</div>
+
+<pre><code># strategies/etf_inav_arb.py 에 새로 추가
+def decide_with_fair(self, dev_basket, fair_dev, fair_blend=0.3):
+    combined = dev_basket * (1 - fair_blend) + fair_dev * fair_blend
+    return self.decide_aggressive(combined)</code></pre>
+
+<p class="small">테스트 31/31 통과. fair_blend=0 시 기존 동작과 100% 동일 (안전 fallback).</p>
+
+<h2>6. 비전공자용 요약 (TL;DR)</h2>
+
+<ul>
+  <li>지난번엔 데이터 부족으로 모델이 외워버렸음 (overfit). 그래서 <b>한 달치 historical 12K rows</b> 가져와서 다시 학습.</li>
+  <li>처음엔 features 가 약해서 (event 분류 + 시간만) 데이터 늘려도 모델이 baseline 못 이김.</li>
+  <li>"<b>뉴스 직전 시장이 어떻게 움직이고 있었나</b>" 추가하니 baseline 4.5% 이김. 모델이 진짜 뭔가 학습.</li>
+  <li>가장 중요한 feature: <b>vol_30m</b> (직전 30분 변동성), <b>momentum_30m</b> (직전 30분 가격 변화율). 즉 "smart money 가 이미 움직였으면 그쪽으로 가더라" 가설 확인.</li>
+  <li>Sentiment 키워드 사전은 효과 없음 — 단어 매칭 너무 약함. <b>FinBERT-Ko 또는 Claude API</b> 가 진짜 답인데 둘 다 이번엔 못 씀 (torch 보안 이슈/유료).</li>
+  <li>모델은 "약한 알파" — 봇 결정에 30% 가중으로 ensemble 가능, 단독 사용은 무리. <b>prod 연결은 walk-forward 검증 후</b>.</li>
+</ul>
+
+<h2>7. 관련 파일</h2>
+
+<h3>새/변경 파일</h3>
+<ul>
+  <li><a href="../../packages/autotrader/src/autotrader/news_signal/features.py">packages/.../news_signal/features.py</a> — sentiment_score + pre_news_features</li>
+  <li><a href="../../packages/autotrader/src/autotrader/news_signal/historical.py">packages/.../news_signal/historical.py</a> — D features 추가, dedupe keep="last"</li>
+  <li><a href="../../packages/autotrader/src/autotrader/news_signal/hook.py">packages/.../news_signal/hook.py</a> — FairValuePricer (historical model loader + ETF 비중 가중)</li>
+  <li><a href="../../packages/autotrader/src/autotrader/strategies/etf_inav_arb.py">packages/.../strategies/etf_inav_arb.py</a> — decide_with_fair 메서드 추가</li>
+  <li><a href="../../packages/autotrader/src/autotrader/backtest/news_intraday.py">packages/.../backtest/news_intraday.py</a> — D features 9개 컬럼 추가</li>
+  <li><a href="../../scripts/fetch_naver_news.py">scripts/fetch_naver_news.py</a> — DEFAULT_TICKERS 18개로 확장</li>
+  <li><a href="../../scripts/train_historical_news_model.py">scripts/train_historical_news_model.py</a> — historical 학습 CLI</li>
+  <li><a href="../../packages/autotrader/tests/test_strategies.py">packages/.../tests/test_strategies.py</a> — decide_with_fair 테스트 3건 추가</li>
+</ul>
+
+<h3>저장된 모델/데이터</h3>
+<ul>
+  <li><code>data/fair_model_historical.lgbm</code> — D features 학습 LGBM (Test R² +0.037)</li>
+  <li><code>data/fair_model_historical.metrics.json</code> — 학습 metrics</li>
+  <li><code>data/fair_model_historical.predictions.csv</code> — test set 예측</li>
+  <li><code>data/backtest_news_intraday_20260428_171404.parquet</code> — 18 ticker D features parquet (5,413 rows)</li>
+</ul>
+
+<h2>8. 다음 단계 (우선순위)</h2>
+
+<ol>
+  <li><b>FinBERT-Ko 정상화</b> (torch 업그레이드 또는 safetensors 모델로 전환) — sentiment 진짜 효과 검증</li>
+  <li><b>005930 누락 fix</b> — 더 긴 history 확보 (DART 공시 + 한경 RSS 추가)</li>
+  <li><b>Walk-forward validation</b> — 한 달 데이터를 일별 rolling 으로 검증 (overfit 진짜 아닌지)</li>
+  <li><b>봇 hook 연결</b> — fair_blend=0.1 부터 보수적으로 paper trading 시도, PnL 비교</li>
+  <li><b>5-min bucket level features 추가</b> — 종목별 dev_bps, ETF level 와 join</li>
+</ol>
+
+<h2>용어 정리집</h2>
+
+<table>
+  <tr><th>용어</th><th>한 줄 설명</th><th>본문에서의 역할</th></tr>
+  <tr><td>R² (결정계수)</td><td>모델이 분산의 몇 %를 설명하는지. 1=완벽, 0=baseline, 음수=baseline 못 이김</td><td>이번 핵심 지표. +0.037 = 약 4% 설명</td></tr>
+  <tr><td>RMSE</td><td>평균 오차 (root mean squared error)</td><td>baseline 대비 4.5% 작아짐 = 모델 이김</td></tr>
+  <tr><td>baseline (always-zero)</td><td>모델 없이 항상 0% 예측. 시장 efficient 가정</td><td>모델이 이걸 이겨야 정보적 가치 있음</td></tr>
+  <tr><td>Overfitting</td><td>train 잘 맞추고 test 망함</td><td>1차 시도에서 발생, D 적용 후 완화</td></tr>
+  <tr><td>Feature importance (gain)</td><td>각 feature 가 학습 split 에 기여한 정도</td><td>vol_30m, momentum_30m 이 top 2</td></tr>
+  <tr><td>pre-news momentum</td><td>뉴스 발표 전 N분 가격 변화율</td><td>D 의 핵심 새 feature, top importance</td></tr>
+  <tr><td>vol_30m</td><td>뉴스 직전 30분 per-bar return 의 표준편차</td><td>"smart money 가 흔들리고 있나" 측정</td></tr>
+  <tr><td>volume_z</td><td>마지막 bar 거래량의 z-score (vs 직전 평균)</td><td>비정상 거래량 = 정보 유출 신호 가능</td></tr>
+  <tr><td>sentiment lexicon</td><td>긍정/부정 키워드 사전 + 가중치</td><td>D 에서 추가했으나 importance 0</td></tr>
+  <tr><td>FinBERT-Ko</td><td>한국어 금융 BERT sentiment 모델</td><td>이번 시도 실패 (torch CVE)</td></tr>
+  <tr><td>walk-forward validation</td><td>day-1~5 학습 / day-6 테스트 ... rolling</td><td>quant 표준 검증, 다음 단계</td></tr>
+  <tr><td>fair_blend</td><td>basket dev vs fair dev 가중 비율</td><td>0.3 = basket 70%, fair 30% 보수적 ensemble</td></tr>
+  <tr><td>look-ahead bias</td><td>미래 정보로 과거 결정 — 학습 시 피해야 할 함정</td><td>pre-news momentum 은 bias 아님 (시점 전 데이터만)</td></tr>
+  <tr><td>FIFO (First-In-First-Out)</td><td>먼저 들어온 포지션부터 청산</td><td>backtest 의 trade-level PnL 산출 기준</td></tr>
+  <tr><td>Test R² 음수</td><td>모델이 baseline (평균만 예측) 보다 나쁘다</td><td>Iter 2 의 결과, features 약함을 의미</td></tr>
+  <tr><td>dedupe (drop_duplicates)</td><td>같은 데이터 중복 제거</td><td>parquet 합칠 때 keep="last" 로 새 row 우선</td></tr>
+</table>
+
+</body>
+</html>

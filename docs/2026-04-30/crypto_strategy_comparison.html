@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Crypto 8-Strategy Backtest Comparison — 2026-04-30</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;
+       max-width:1080px;margin:36px auto;padding:0 20px;line-height:1.65;color:#1a1a1a;}
+  h1{border-bottom:3px solid #2c5aa0;padding-bottom:8px;}
+  h2{margin-top:36px;color:#2c5aa0;border-left:4px solid #2c5aa0;padding-left:10px;}
+  h3{color:#444;margin-top:24px;}
+  code,pre{font-family:Consolas,Menlo,monospace;background:#f4f4f4;padding:2px 5px;border-radius:3px;}
+  pre{padding:12px;overflow:auto;border-left:3px solid #2c5aa0;}
+  table{border-collapse:collapse;width:100%;margin:14px 0;}
+  th,td{border:1px solid #ccc;padding:7px 10px;text-align:left;font-size:13px;}
+  th{background:#eef3fa;}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;}
+  td.win{color:#0b8043;font-weight:600;}
+  td.fail{color:#c0392b;font-weight:600;}
+  td.neutral{color:#888;}
+  .callout{padding:14px 18px;border-radius:6px;margin:18px 0;border-left:4px solid;}
+  .callout.win{background:#e7f6ed;border-color:#0b8043;}
+  .callout.warn{background:#fff5e6;border-color:#e08600;}
+  .callout.fail{background:#fdecea;border-color:#c0392b;}
+  .callout.info{background:#eaf2fb;border-color:#2c5aa0;}
+  .small{font-size:13px;color:#666;}
+  figure{margin:18px 0;text-align:center;}
+  figcaption{font-size:13px;color:#555;margin-top:6px;}
+  .ascii{background:#f4f4f4;padding:14px;border-radius:5px;font-family:Consolas,monospace;font-size:13px;white-space:pre;line-height:1.4;}
+</style>
+</head>
+<body>
+
+<h1>Crypto Multi-Strategy Backtest 비교</h1>
+<p class="small">2026-04-30 · ai_pricing 프로젝트 · Layer-E (Auto-Trading) — Crypto 확장</p>
+
+<div class="callout warn">
+  <strong>한 줄 결과.</strong> 8가지 룰 (Trend, Mean Reversion, Funding contrarian, Buy-and-hold 등) 을
+  5개 종목 (BTC, ETH, SOL, AVAX, BNB) × 21일 1h 봉으로 backtest 한 결과:
+  <strong>Buy-and-hold 가 평균 Sharpe +2.39, 거의 모든 종목에서 1위</strong>.
+  Trend following 모든 변형 (funding/L-S 필터 포함) 은 음수 Sharpe.
+  Mean Reversion 이 AVAX 에서 surprise winner (+17.6%, Sharpe 8.0).
+  학계의 "EMH + 단기 trend 전략 retail 한계" 통상 결론과 일치.
+</div>
+
+<h2>1. 무엇을 시도했는가</h2>
+
+<p>
+어제 KIS ETF iNAV 차익거래가 안 되는 것 검증 후 crypto 확장 시도.
+주식의 "외국인+기관 동시매수" 같은 institutional flow 신호의 crypto 등가물 (funding rate, L/S ratio)
+을 활용한 multi-factor strategy 가 trend 단독보다 우월할 것이라는 가설.
+</p>
+
+<h3>1.1 Backtest 설정</h3>
+<table>
+<thead><tr><th>항목</th><th>값</th><th>이유</th></tr></thead>
+<tbody>
+<tr><td>종목</td><td>BTCUSDT, ETHUSDT, SOLUSDT, AVAXUSDT, BNBUSDT</td><td>Binance Futures USDT-M perp</td></tr>
+<tr><td>기간</td><td>21일 (2026-04-09 ~ 2026-04-29)</td><td>L/S ratio history limit (Binance API 500 bars × 1h)</td></tr>
+<tr><td>봉</td><td>1시간</td><td>signal 시간 단위 align</td></tr>
+<tr><td>Bar 수</td><td>477 bars / 종목</td><td>signal NaN 제거 후</td></tr>
+<tr><td>거래비용</td><td>4 bps × 2 = 8 bps round-trip</td><td>Binance Futures taker fee</td></tr>
+<tr><td>1-bar lag</td><td>적용</td><td>look-ahead bias 회피</td></tr>
+</tbody>
+</table>
+
+<h3>1.2 8가지 strategy 비교</h3>
+<table>
+<thead><tr><th>코드</th><th>전략</th><th>핵심 룰</th></tr></thead>
+<tbody>
+<tr><td>A</td><td><strong>Buy-and-hold</strong></td><td>1주 매수 후 끝까지 보유 (baseline)</td></tr>
+<tr><td>B</td><td><strong>Trend long-short</strong></td><td>fast(6)>slow(24): LONG / fast<slow: SHORT</td></tr>
+<tr><td>C</td><td><strong>Trend long-only</strong></td><td>fast>slow: LONG / 그 외: FLAT (현재 운영 룰)</td></tr>
+<tr><td>D</td><td>Trend + Funding filter</td><td>trend AND funding 안 과밀 시만 매매</td></tr>
+<tr><td>E</td><td>Trend + L/S filter</td><td>trend AND long_pct < 70% 시만 LONG</td></tr>
+<tr><td>F</td><td>Trend + 3-factor</td><td>trend + funding + L/S 모두 일치 시만 매매</td></tr>
+<tr><td>G</td><td><strong>Bollinger Mean Revert</strong></td><td>price > MA+2σ: SHORT / < MA-2σ: LONG / 회귀 시 청산</td></tr>
+<tr><td>H</td><td>Funding Contrarian</td><td>funding > +0.05%: SHORT / < -0.05%: LONG</td></tr>
+</tbody>
+</table>
+
+<h2>2. 결과 — 평균 Strategy 순위</h2>
+
+<table>
+<thead><tr><th>Rank</th><th>Strategy</th><th>Avg Return</th><th>Avg Sharpe</th><th>Avg MaxDD</th><th>Flips</th></tr></thead>
+<tbody>
+<tr><td>1 <strong>★</strong></td><td><strong>A_buyhold</strong></td><td class="num win">+4.93%</td><td class="num win">+2.39</td><td class="num">-6.92%</td><td class="num">0</td></tr>
+<tr><td>2</td><td>G_bollinger_mr</td><td class="num win">+2.88%</td><td class="num win">+1.61</td><td class="num">-6.82%</td><td class="num">34</td></tr>
+<tr><td>3</td><td>C_trend_long_only</td><td class="num">-0.44%</td><td class="num neutral">-0.13</td><td class="num">-5.78%</td><td class="num">26</td></tr>
+<tr><td>4</td><td>D_trend+funding</td><td class="num fail">-4.92%</td><td class="num fail">-2.24</td><td class="num">-8.66%</td><td class="num">27</td></tr>
+<tr><td>5</td><td>B_trend (long-short)</td><td class="num fail">-5.92%</td><td class="num fail">-2.58</td><td class="num">-9.52%</td><td class="num">27</td></tr>
+<tr><td>6</td><td>E_trend+lsratio</td><td class="num fail">-4.56%</td><td class="num fail">-2.61</td><td class="num">-8.40%</td><td class="num">32</td></tr>
+<tr><td>7</td><td>F_trend+3factor</td><td class="num fail">-4.56%</td><td class="num fail">-2.61</td><td class="num">-8.40%</td><td class="num">32</td></tr>
+<tr><td>8</td><td>H_funding_contra</td><td class="num neutral">0% (signal 미발생)</td><td class="num">—</td><td class="num">0%</td><td class="num">0</td></tr>
+</tbody>
+</table>
+
+<div class="callout fail">
+  <strong>가장 충격적인 발견.</strong> 가설 ("multi-factor 가 trend 단독보다 우월") <strong>완전히 기각</strong>.
+  다음 두 가지 확인됨:
+  <ol>
+    <li>매매 자체가 손실 — buy-and-hold 가 7개 active strategy 모두 이김 (4종목 중 4)</li>
+    <li>"Smart filter" 가 오히려 더 나쁨: trend+funding+L/S 결합이 단순 trend 보다 못함</li>
+  </ol>
+  → 21일 데이터에서 적극 매매 전략은 의미 없음. <strong>가장 안전 + 효과적 = 가만히 들고 있기</strong>.
+</div>
+
+<h2>3. 종목별 결과 — Best Strategy by Sharpe</h2>
+
+<table>
+<thead><tr><th>종목</th><th>1위 strategy</th><th>Return</th><th>Sharpe</th><th>비고</th></tr></thead>
+<tbody>
+<tr><td>BTCUSDT</td><td><strong>A_buyhold</strong></td><td class="num win">+8.37%</td><td class="num win">+4.28</td><td>21일 강한 상승, 단순 보유 우월</td></tr>
+<tr><td>ETHUSDT</td><td><strong>A_buyhold</strong></td><td class="num win">+6.76%</td><td class="num win">+2.70</td><td>BTC 와 비슷 패턴</td></tr>
+<tr><td>SOLUSDT</td><td><strong>A_buyhold</strong></td><td class="num win">+3.17%</td><td class="num win">+1.45</td><td>변동성 큼, 다른 전략 다 음수</td></tr>
+<tr><td>BNBUSDT</td><td><strong>A_buyhold</strong></td><td class="num win">+3.86%</td><td class="num win">+2.44</td><td>같은 패턴</td></tr>
+<tr><td>AVAXUSDT</td><td><strong>G_bollinger_mr</strong> ★</td><td class="num win">+17.61%</td><td class="num win">+8.00</td><td><strong>Surprise winner</strong>: AVAX 의 횡보 + 변동성 큰 패턴이 mean revert 에 최적</td></tr>
+</tbody>
+</table>
+
+<h3>3.1 AVAX 의 surprise — 왜 mean revert 가 통했나</h3>
+<div class="callout info">
+  <p>AVAX 21일 가격 패턴:</p>
+  <ul>
+    <li>전체 +2.5% 상승 (buy-hold) — trend 약함</li>
+    <li>일별 변동성 평균 ~3-4% — 큰 swing 있음</li>
+    <li>주요 가격 수준 (예: $30 부근) 사이 oscillation</li>
+    <li>→ mean revert (±2σ band) 가 정확히 swing 의 양 끝을 잡음</li>
+    <li>→ 39 매매 × 평균 +0.45% 수익 = +17.6% 누적</li>
+  </ul>
+  <p><strong>주의</strong>: 단일 종목 + 21일 = 작은 sample. 다른 기간 / 종목에서 같은 효과 보장 X. <strong>Overfitting 의심 정당</strong>.</p>
+</div>
+
+<h2>4. Trend Following 의 실패 분석</h2>
+
+<h3>4.1 왜 trend (B, C, D, E, F) 모두 음수 Sharpe?</h3>
+
+<p>3가지 원인 추정:</p>
+
+<ol>
+<li><strong>21일 = 2 trend cycle 정도</strong> — sample size 작음. 한 trend 잡으면 다른 cycle 시작 시 whipsaw.</li>
+<li><strong>일중 변동성 vs 일간 trend</strong> — 1h 봉으로 보면 noise 가 signal 보다 큼. fast(6) slow(24) 가 너무 빠름.</li>
+<li><strong>거래비용 누적</strong> — 평균 27 flips × 8 bps = 2.16% — 이미 alpha 밖. 알파 < cost.</li>
+</ol>
+
+<h3>4.2 Funding/L-S 필터가 도움 안 된 이유</h3>
+
+<table>
+<thead><tr><th>필터 종류</th><th>예상 효과</th><th>실제 결과</th><th>왜?</th></tr></thead>
+<tbody>
+<tr>
+  <td>Funding filter</td>
+  <td>과밀 시 매매 회피 → whipsaw 감소</td>
+  <td>오히려 진입 적어져 trend 일부 놓침</td>
+  <td>Funding rate 평균 ±0.001% 수준, 0.05% 임계 도달이 드뭄 → 필터 거의 trigger 안 됨</td>
+</tr>
+<tr>
+  <td>L/S ratio filter</td>
+  <td>한쪽 쏠림 회피 → 반전 위험 감소</td>
+  <td>trend 와 동일 방향이라 효과 없음</td>
+  <td>L/S ratio 가 가격 trend 와 강한 상관 (당연한 결과 — 시장이 LONG 으로 쏠릴 때 trend 도 up)</td>
+</tr>
+<tr>
+  <td>3-factor</td>
+  <td>3가지 모두 일치 시만 매매 → 진짜 강한 신호만 잡음</td>
+  <td>너무 conservative — trend 신호 대부분 거름</td>
+  <td>2-factor 와 결과 동일 (L/S 와 trend 상관 때문에 추가 필터 무의미)</td>
+</tr>
+</tbody>
+</table>
+
+<h3>4.3 H_funding_contra 가 0% 인 이유</h3>
+<p>
+함계 0.05% / -0.05% 임계가 이번 21일 데이터에선 한 번도 도달 X (BTC 평균 funding -0.0015%).
+임계를 -0.005% / +0.005% 로 낮추면 신호 발생하지만 그건 별도 sweep 필요.
+</p>
+
+<h2>5. Buy-and-hold 가 이긴 진짜 이유</h2>
+
+<div class="callout info">
+  <strong>21일 = 강한 상승 trend + low cost</strong>. 이 환경에서 buy-hold 의 본질적 장점:
+  <ul>
+    <li><strong>Cost = 0</strong> (1회 매수만, 매도 없음) vs active 전략은 평균 -2% 비용 부담</li>
+    <li><strong>Full exposure</strong> — 24/7 시장에 노출, trend 의 모든 부분 잡음</li>
+    <li><strong>회피 없음</strong> — trend 이탈 두려움 없음. fast/slow MA 의 whipsaw 무관</li>
+    <li><strong>Tax-efficient</strong> (실거래 시) — 매매 횟수 적음 = 단기 양도세 회피 가능</li>
+  </ul>
+</div>
+
+<h3>5.1 Bogle / Buffett 의 인덱싱 논리 — Crypto 에서도 검증</h3>
+<p>
+"적극 매매 매니저의 90% 가 인덱스 밑돈다" 라는 학계 정설이 crypto 21일 backtest 에서도 재확인.
+crypto 시장은 효율적이지 않다는 통상 가정 (retail 이 있는 부분) 도 적어도 1h 1일 단위 trend following 에선 통하지 않음.
+</p>
+
+<h2>6. 한계 — 정직한 caveat</h2>
+
+<table>
+<thead><tr><th>한계</th><th>의미</th></tr></thead>
+<tbody>
+<tr><td><strong>21일 = 작은 sample</strong></td><td>한 시장 regime (상승). 폭락 / 횡보 / sideways 환경에선 결과 다를 수 있음</td></tr>
+<tr><td><strong>1h 봉 단위 한정</strong></td><td>5분 / 일 단위로 가면 다른 결과 가능</td></tr>
+<tr><td><strong>L/S ratio 21일 limit</strong></td><td>Binance API 500 bars × 1h 한계로 더 긴 backtest 불가</td></tr>
+<tr><td><strong>Strong upmarket bias</strong></td><td>BTC +8%, ETH +7%, BNB +4%, AVAX +2%, SOL +3% — 모두 양수. 약세장 같은 데이터로는 검증 안 됨</td></tr>
+<tr><td><strong>Survivor bias</strong></td><td>상위 5종목 만 — 안망한 코인. 알트 폭락 케이스 미반영</td></tr>
+<tr><td><strong>Backtest != live</strong></td><td>슬리피지, 호가 갭, partial fill 등 실거래 요소 미반영</td></tr>
+</tbody>
+</table>
+
+<h2>7. 의미 있는 학습</h2>
+
+<ol>
+<li><strong>"Smart filter" 가 항상 좋은 게 아님</strong>. 신호 추가가 noise 추가 가능. 단일 신호 (단순 trend) 가 multi-factor (3-factor) 보다 동등 or 우월. <a href="https://en.wikipedia.org/wiki/Bias%E2%80%93variance_tradeoff">Bias-variance tradeoff</a>.</li>
+<li><strong>21일은 너무 짧음</strong>. trend following 은 대상 trend 가 sample size 보다 많이 발생해야 alpha 누적. 21일은 길어야 2-3 trend cycle.</li>
+<li><strong>Mean reversion 이 횡보 + 변동성 자산에서 강함</strong>. AVAX 같은 종목에서는 trend 보다 우월. 종목별 전략 다름.</li>
+<li><strong>거래비용 = 진짜 적</strong>. 8 bps × 27 flips = 2.16% 알파 부담. retail 단위에서 trend following 하기엔 너무 큼.</li>
+<li><strong>가짜 정밀함의 함정</strong>. 우리가 만든 multi-factor 룰이 단순 buy-hold 보다 나을 거라는 가정이 데이터에 의해 기각.</li>
+</ol>
+
+<h2>8. 제안 — 다음 단계</h2>
+
+<h3>현재 운영 중인 long-short multi-asset 24h dry-run (오늘 14:02 시작)</h3>
+<p>
+이 backtest 결과 보면:
+</p>
+<ul>
+<li>현재 운영 중인 룰 = B_trend (long-short) → backtest 평균 Sharpe -2.58</li>
+<li>예상: 24h 만에도 음수 P&L 가능</li>
+<li>다만 24h 단편 데이터로 결과 단정 불가</li>
+</ul>
+
+<h3>다음 시도 후보</h3>
+<table>
+<thead><tr><th>방향</th><th>의미</th><th>작업량</th></tr></thead>
+<tbody>
+<tr><td>(A) Buy-and-hold + 변동성 헤지</td><td>BTC 50% LONG + Bollinger 단기 매매 50% — 안정 + 일부 alpha</td><td>1시간</td></tr>
+<tr><td>(B) Mean reversion 단독 (Bollinger)</td><td>AVAX 같은 종목 한정 운영</td><td>1시간</td></tr>
+<tr><td>(C) 더 긴 기간 backtest (60일+)</td><td>더 풍부한 sample. 다만 L/S ratio 데이터 부족</td><td>2시간 + 데이터 페치</td></tr>
+<tr><td>(D) ML 기반 (LightGBM)</td><td>다중 feature 학습. 우리 ETL 인프라 활용</td><td>4-8시간</td></tr>
+<tr><td>(E) 그냥 buy-and-hold</td><td>가장 심플 + 검증됨</td><td>0</td></tr>
+</tbody>
+</table>
+
+<h2>9. 비전공자용 요약 (TL;DR)</h2>
+
+<div class="callout info">
+  <p><strong>한 마디로</strong>: 8가지 자동매매 룰 비교에서 <strong>가만히 들고 있기 (buy-and-hold)</strong>가 가장 나았다.
+  뉴스/지표/기관 데이터 등 똑똑해 보이는 신호를 추가해도 결과가 나아지지 않았다 — 오히려 더 나빠진 경우가 많았다.</p>
+
+  <p><strong>왜?</strong> 매매할 때마다 수수료가 들고, 그 비용이 신호의 작은 우위를 다 갉아먹기 때문.
+  21일 동안 27번 매매한 전략은 평균 2.16% 의 비용 부담을 짊어졌고, 그 정도 알파 (수익 우위) 를 만들기는 어려움.</p>
+
+  <p><strong>Buffett 인용</strong>: "Lethargy bordering on sloth remains the cornerstone of our investment style." (게으름 직전의 무기력이 우리 투자 스타일의 초석이다)</p>
+
+  <p><strong>의미</strong>: retail 이 자동매매 봇 만들 때 가장 흔한 실수 = "더 정교한 룰 = 더 나은 수익" 가정.
+  실제로는 거의 모든 추가 정교함이 비용 추가 + 신호 노이즈 추가로 이어짐. <strong>가장 단순한 게 가장 나음</strong>이 자주.</p>
+</div>
+
+<h2>10. 관련 파일</h2>
+<ul>
+<li><code>packages/autotrader/src/autotrader/data/crypto_signals.py</code> — Funding/L-S ratio/OI fetcher (신규)</li>
+<li><code>packages/autotrader/src/autotrader/backtest/crypto_strategies.py</code> — 8개 strategy + backtest engine (신규)</li>
+<li><code>scripts/backtest_crypto_sweep.py</code> — sweep CLI (신규)</li>
+<li><code>data/crypto_signals/</code> — funding/L-S ratio parquet 캐시</li>
+<li><code>data/backtest_crypto_sweep_*.parquet</code> — 결과</li>
+<li><code>data/crypto_testnet_log_20260429_165309_LONGONLY.json</code> — 어제 long-only 24h dry-run 데이터</li>
+</ul>
+
+<h2>11. 용어 정리집</h2>
+<table>
+<thead><tr><th>용어</th><th>한 줄 설명</th><th>본문에서의 역할</th></tr></thead>
+<tbody>
+<tr><td><strong>Buy-and-hold</strong></td><td>1회 매수 후 매도 없이 끝까지 보유. 가장 단순한 baseline</td><td>이번 backtest 의 surprise winner. 모든 active strategy 이김</td></tr>
+<tr><td><strong>Trend following</strong></td><td>가격이 한 방향으로 움직일 때 그 방향에 베팅 (MA crossover 등)</td><td>전통 전략, 21일 backtest 에서 모두 음수 Sharpe</td></tr>
+<tr><td><strong>Mean Reversion</strong></td><td>가격이 평균에서 너무 벗어나면 다시 회귀할 거라 베팅</td><td>Bollinger Band 룰로 구현. AVAX 에서 surprise +17.6%</td></tr>
+<tr><td><strong>MA crossover</strong></td><td>fast(6h) MA 와 slow(24h) MA 의 교차로 신호</td><td>B/C strategy 의 핵심. 21일 데이터에서 fail</td></tr>
+<tr><td><strong>Funding rate</strong></td><td>Perpetual 시장의 8시간마다 정산되는 비용. 양수 = LONG 들이 SHORT 들에게 지급</td><td>D/F/H strategy 의 input. retail 의 institutional flow 등가물 시도</td></tr>
+<tr><td><strong>L/S ratio</strong></td><td>Top trader 의 LONG vs SHORT 비율 (Binance 발표)</td><td>E/F strategy 의 input. 시장 sentiment 측정</td></tr>
+<tr><td><strong>Sharpe ratio</strong></td><td>(평균 수익 - 무위험금리) / 수익 std. 위험 조정 수익률</td><td>1+ 좋음, 2+ 우수, 음수 = random 보다 못함. 우리 결과 buy-hold +2.39, trend -2.58</td></tr>
+<tr><td><strong>Max drawdown</strong></td><td>최고점 대비 최대 하락폭</td><td>위험 측정. 작을수록 안전. buy-hold -7%, trend -10%+ 가 보통</td></tr>
+<tr><td><strong>Whipsaw</strong></td><td>가격이 위/아래 빠르게 교차하며 trend 신호 자주 flip — 매매 비용 누적</td><td>21일 데이터에서 trend 전략 fail 의 주된 원인</td></tr>
+<tr><td><strong>Bollinger Band</strong></td><td>20-bar MA ± 2σ. 가격이 band 벗어나면 mean revert 신호</td><td>G_bollinger_mr 의 핵심 룰. AVAX 에서 통함</td></tr>
+<tr><td><strong>Bias-variance tradeoff</strong></td><td>모델 정교함 ↑ → variance ↑ (overfitting). 단순함 → bias ↑ but generalization ↑</td><td>3-factor 가 1-factor 보다 못한 이유 설명</td></tr>
+<tr><td><strong>Look-ahead bias</strong></td><td>backtest 시 미래 정보 사용 (cheating)</td><td>1-bar shift 로 회피</td></tr>
+<tr><td><strong>EMH</strong></td><td>Efficient Market Hypothesis — 시장이 효율적이면 모든 anomaly 가격에 반영됨</td><td>21일 backtest 가 EMH 와 일치 (active 전략 음수 알파)</td></tr>
+<tr><td><strong>Bogle / Buffett indexing argument</strong></td><td>"적극 매매 90% 가 인덱스 밑돈다" 학계 정설</td><td>이번 backtest 가 그 정설을 crypto 에서도 재확인</td></tr>
+</tbody>
+</table>
+
+<p class="small" style="margin-top:36px;border-top:1px solid #ccc;padding-top:14px;">
+  보고서 작성: 2026-04-30 16:00 KST · ai_pricing 5-Layer 모노레포 Layer-E + Layer-B3 ·
+  결론: 21일 데이터에서 buy-and-hold 가 모든 active 전략 이김. multi-factor 가 trend 단독보다 우월하다는 가설 기각.
+  retail 단기 매매의 본질적 한계 재확인. 다음 24h dry-run 결과와 비교 narrative 조성 예정.
+</p>
+
+</body>
+</html>

@@ -56,6 +56,14 @@ class BuehlerConfig:
     action_low: float = 0.0
     action_high: float = 1.0
 
+    # Merton jump-diffusion (optional). Defaults 0 → pure GBM, identical to legacy.
+    # Activated when jump_intensity > 0. Policy 입력에는 jump 신호가 안 들어가므로
+    # Buehler "예측 안 함" 철학은 보존된다 (환경만 비정형화).
+    jump_intensity: float = 0.0       # λ — Poisson jumps per year
+    jump_mean: float = 0.0            # μJ — log-normal jump mean (log scale)
+    jump_std: float = 0.0             # σJ — log-normal jump std
+    jump_compensator: bool = True     # subtract λκ dt from drift
+
 
 def _bsm_call_premium(S0, K, T, r, q, sigma):
     """BSM call closed-form (used for initial cash = sold premium)."""
@@ -111,8 +119,13 @@ def simulate_batch(policy: HedgingPolicy, cfg: BuehlerConfig,
     B = batch_size
     dt = cfg.T / cfg.n_steps
     drift_dt = (cfg.r - cfg.q - 0.5 * cfg.sigma ** 2) * dt
+    # Merton jump compensator (only when jump active; keeps risk-neutral drift)
+    if cfg.jump_intensity > 0.0 and cfg.jump_compensator:
+        kappa = math.exp(cfg.jump_mean + 0.5 * cfg.jump_std ** 2) - 1.0
+        drift_dt -= cfg.jump_intensity * kappa * dt
     diff_dt = cfg.sigma * math.sqrt(dt)
     exp_r_dt = math.exp(cfg.r * dt)
+    lam_dt = cfg.jump_intensity * dt  # Poisson rate per step (0 if disabled)
 
     # initial premium (sold short call, fixed scalar — same for all paths)
     premium = _bsm_call_premium(cfg.S0, cfg.K, cfg.T, cfg.r, cfg.q, cfg.sigma)
@@ -140,9 +153,20 @@ def simulate_batch(policy: HedgingPolicy, cfg: BuehlerConfig,
         cash = cash - tc
         hedge = new_hedge
 
-        # GBM step
+        # GBM step (+ optional Merton jump)
         Z = torch.randn(B, device=device, generator=gen)
-        S_next = S * torch.exp(drift_dt + diff_dt * Z)
+        if lam_dt > 0.0:
+            # Per-path Poisson(λdt) jump count, then sum of n iid Normal(μJ,σJ²)
+            # = Normal(n·μJ, n·σJ²). Vectorized, gradient-free path noise.
+            n_jumps = torch.poisson(
+                torch.full((B,), lam_dt, device=device), generator=gen
+            )
+            n_float = n_jumps
+            jump_Z = torch.randn(B, device=device, generator=gen)
+            log_jump = n_float * cfg.jump_mean + torch.sqrt(n_float) * cfg.jump_std * jump_Z
+            S_next = S * torch.exp(drift_dt + diff_dt * Z + log_jump)
+        else:
+            S_next = S * torch.exp(drift_dt + diff_dt * Z)
 
         # cash + hedge pnl
         hedge_pnl = hedge * (S_next - S)

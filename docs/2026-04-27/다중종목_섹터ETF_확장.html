@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>KIS 다중 종목 + 섹터 ETF 확장 — 2026-04-27</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;
+       max-width:980px;margin:36px auto;padding:0 20px;line-height:1.65;color:#1a1a1a;}
+  h1{border-bottom:3px solid #2c5aa0;padding-bottom:8px;}
+  h2{margin-top:36px;color:#2c5aa0;border-left:4px solid #2c5aa0;padding-left:10px;}
+  h3{color:#444;margin-top:24px;}
+  code,pre{font-family:Consolas,Menlo,monospace;background:#f4f4f4;padding:2px 5px;border-radius:3px;}
+  pre{padding:12px;overflow:auto;border-left:3px solid #2c5aa0;}
+  table{border-collapse:collapse;width:100%;margin:14px 0;}
+  th,td{border:1px solid #ccc;padding:8px 10px;text-align:left;font-size:14px;}
+  th{background:#eef3fa;}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;}
+  .callout{padding:14px 18px;border-radius:6px;margin:18px 0;border-left:4px solid;}
+  .callout.win{background:#e7f6ed;border-color:#0b8043;}
+  .callout.warn{background:#fff5e6;border-color:#e08600;}
+  .callout.fail{background:#fdecea;border-color:#c0392b;}
+  .callout.info{background:#eaf2fb;border-color:#2c5aa0;}
+  .small{font-size:13px;color:#666;}
+  figure{margin:18px 0;text-align:center;}
+  figcaption{font-size:13px;color:#555;margin-top:6px;}
+  .ascii{background:#f4f4f4;padding:14px;border-radius:5px;font-family:Consolas,monospace;font-size:13px;white-space:pre;line-height:1.4;}
+</style>
+</head>
+<body>
+
+<h1>KIS 다중 종목 + 섹터 ETF 확장</h1>
+<p class="small">2026-04-27 (월) · ai_pricing 프로젝트 · 5-Layer 모노레포 Layer-E (Auto-Trading)</p>
+
+<div class="callout win">
+  <strong>한 줄 결과.</strong> 단일 종목(KODEX 200)만 매매하던 KIS 모의투자 자동매매 봇을
+  <strong>5개 섹터 ETF 동시 운영</strong>으로 확장. 각 ETF 가 자기 바스켓을 가지도록 구조 리팩터,
+  바스켓 union 으로 quote 호출 1회만, 종목별 first-tick calibration 으로 절대 가격 차이 흡수.
+  내일 09:08 Windows 작업 스케줄러로 자동 시작 예약 완료.
+</div>
+
+<h2>1. 무엇을 시도했는지 — 배경 + 접근</h2>
+
+<h3>1.1 배경: 단일 종목의 한계</h3>
+<p>
+어제까지 모의투자 봇은 KOSPI 200 ETF 한 종목 (069500 KODEX 200) 만 매매했습니다.
+하루 종일 운영해본 결과, ETF 가격과 iNAV (이론가) 의 괴리가 ±2bps 안에서만
+움직여서 매매 신호가 거의 안 나왔습니다 (BUY 1회, SELL 1회 정도).
+"폭발적으로 매매가 일어나는 환경"을 만들려면 두 가지 옵션이 있었습니다:
+</p>
+<ul>
+  <li><strong>A.</strong> 같은 KOSPI 200 추종 ETF 5개 (KODEX/TIGER/KBSTAR/ARIRANG/KODEX 200TR) 동시 운영
+      — 같은 바스켓 공유. 운용사별 추적오차로 살짝 다른 dev 발생 기대.</li>
+  <li><strong>B.</strong> 다른 지수/섹터 추종 ETF 추가 (코스닥150, 반도체, 2차전지, 헬스케어)
+      — 바스켓이 ETF별로 달라짐. 코드 구조 변경 필요. 하지만 dev 변동 폭이 더 클 것으로 기대.</li>
+</ul>
+
+<h3>1.2 접근 순서</h3>
+<p>
+사용자가 "다양한 종목에서 기준이 만족하는지 테스트해보고 싶다" 고 해서 <strong>B</strong> 채택.
+기존 코드는 모든 ETF 가 동일한 KOSPI 200 바스켓을 공유한다는 가정으로 짜여 있어서
+ETF별 바스켓 dict 도입 + per-ETF 바스켓 페칭 로직 리팩터가 필요했습니다.
+</p>
+
+<h2>2. 무엇이 실패했고 왜 — 단일 바스켓 가정의 붕괴</h2>
+
+<table>
+  <thead>
+    <tr><th>이슈</th><th>왜 실패했나</th><th>증상</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>단일 바스켓 하드코딩</td>
+      <td><code>KOSPI200_BASKET_TOP10</code> 만 존재. 코스닥150 ETF 가 KOSPI 종목 (삼성전자) 으로 iNAV 계산</td>
+      <td>코스닥 ETF dev = 항상 0 (작동 X)</td>
+    </tr>
+    <tr>
+      <td>바스켓 페칭 중복</td>
+      <td>5개 ETF 가 모두 자기 바스켓 페칭 시 동일 종목 (예: 삼성전자) 5번 호출 가능</td>
+      <td>KIS quota (초당 거래건수) 초과 위험. EGW00201 에러</td>
+    </tr>
+    <tr>
+      <td>calibration factor 가정</td>
+      <td>모든 ETF 가 비슷한 가격대 (~100k원) 가정. KODEX 200TR 만 36k원 → 다른 factor 필요</td>
+      <td>이미 per-ETF factor 로 해결됨 (어제 작업)</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>2.1 변경 전 구조 (다이어그램)</h3>
+<pre class="ascii">
+   변경 전 ─ 단일 바스켓 공유
+
+   ┌──────────────────┐
+   │ KOSPI 200 바스켓 │  (삼성전자, SK하이닉스, ...)
+   └────────┬─────────┘
+            │ 모든 ETF 가 같은 바스켓 사용
+   ┌────────┼────────┬────────┐
+   ▼        ▼        ▼        ▼
+ 069500   102110   148020   152100   (전부 KOSPI 200 추종)
+ KODEX    TIGER    KBSTAR   ARIRANG
+
+ → 코스닥/반도체/배터리 추가 불가능. 바스켓이 안 맞음.
+</pre>
+
+<h2>3. 어떻게 해결했는지 — per-ETF basket 도입</h2>
+
+<h3>3.1 핵심 아이디어</h3>
+<div class="callout info">
+ETF 별로 바스켓을 분리하되, <strong>quote 호출은 union (합집합) 한 번만</strong> 한다.
+예: KODEX 200 의 삼성전자 + 반도체 ETF 의 삼성전자 = 같은 종목 → 1회 호출,
+양쪽 ETF 가 결과를 공유. tick 당 quote 수 = unique 종목 수.
+</div>
+
+<h3>3.2 코드 변경 — ETF_BASKETS dict</h3>
+<pre><code>ETF_BASKETS: dict[str, tuple[str, dict[str, float]]] = {
+    "069500": ("KODEX 200",        KOSPI200_BASKET_TOP10),
+    "229200": ("KODEX 코스닥150",   KOSDAQ150_BASKET_TOP10),
+    "091160": ("KODEX 반도체",      SEMICONDUCTOR_BASKET_TOP10),
+    "305720": ("KODEX 2차전지산업",  BATTERY_BASKET_TOP10),
+    "266420": ("KODEX 헬스케어",    HEALTHCARE_BASKET_TOP10),
+    ...
+}
+</code></pre>
+
+<h3>3.3 Main loop 의 union quote</h3>
+<pre><code># 모든 ETF 바스켓의 union — quote 1회만
+all_constituents: set[str] = set()
+for sym in symbols:
+    all_constituents.update(ETF_BASKETS[sym][1].keys())
+
+# 매 tick: union 만 페칭
+for csym in all_constituents:
+    sq = client.quote(csym)
+    constituents[csym] = float(sq.get("output", {}).get("stck_prpr", 0))
+
+# 종목별 sub-prices 추출 + 자기 바스켓 기준 calibration
+for sym in symbols:
+    own_basket = ETF_BASKETS[sym][1]
+    sub_prices = {k: constituents.get(k, 0.0) for k in own_basket}
+    inav = ss.inav_est.estimate(sub_prices)   # 자기 factor 적용
+</code></pre>
+
+<h3>3.4 변경 후 구조</h3>
+<pre class="ascii">
+   변경 후 ─ per-ETF 바스켓 + union quote
+
+   069500    229200    091160     305720     266420
+  KODEX200  코스닥150  반도체    2차전지    헬스케어
+     │         │         │          │          │
+     ▼         ▼         ▼          ▼          ▼
+  ┌────────┐┌────────┐┌────────┐┌────────┐┌────────┐
+  │KOSPI200││KOSDAQ150││반도체  ││배터리  ││헬스케어│
+  │basket  ││basket   ││basket  ││basket  ││basket  │
+  │10종목  ││10종목   ││10종목  ││10종목  ││10종목  │
+  └────┬───┘└────┬────┘└────┬───┘└────┬───┘└────┬───┘
+       │         │          │         │         │
+       └─────────┴──────────┴─────────┴─────────┘
+                       │
+              ┌────────▼─────────┐
+              │  union = 42 종목 │  (중복 제거 후)
+              │  per-tick fetch  │
+              └──────────────────┘
+
+  예: 삼성전자 (005930) — KOSPI 200 와 반도체 양쪽에 등장
+       → 페칭 1회, 양쪽 ETF 가 sub_prices[005930] 공유
+</pre>
+
+<h2>4. 최종 결과 — Smoke test 검증</h2>
+
+<h3>4.1 5개 섹터 ETF 모두 calibration 성공</h3>
+<table>
+  <thead>
+    <tr><th>ETF 코드</th><th>이름</th><th>가격대 (KRW)</th>
+        <th>calibration factor</th><th>n_legs (커버리지)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>069500</td><td>KODEX 200</td><td class="num">100,240</td><td class="num">0.2789</td><td class="num">8 / 10</td></tr>
+    <tr><td>229200</td><td>KODEX 코스닥150</td><td class="num">20,670</td><td class="num">0.1115</td><td class="num">8 / 10</td></tr>
+    <tr><td>091160</td><td>KODEX 반도체</td><td class="num">125,360</td><td class="num">0.5122</td><td class="num">9 / 10</td></tr>
+    <tr><td>305720</td><td>KODEX 2차전지산업</td><td class="num">20,855</td><td class="num">0.0655</td><td class="num">10 / 10</td></tr>
+    <tr><td>266420</td><td>KODEX 헬스케어</td><td class="num">22,180</td><td class="num">0.0435</td><td class="num">10 / 10</td></tr>
+  </tbody>
+</table>
+
+<p class="small">
+  <strong>factor 의 직관</strong>: ETF 가격 ÷ 바스켓 가중평균.
+  같은 KOSPI 200 추종 ETF 끼리는 factor 가 거의 같았지만 (KOSPI 200 0.27 ~ ARIRANG 200 0.28),
+  섹터별로는 factor 가 5배~10배 차이남. 이건 각 섹터 바스켓의 절대 가격 분포가 달라서 (예:
+  반도체는 삼성전자 25만원이 끌어올림 vs 헬스케어는 셀트리온 18만원만 비싸고 나머지는 작음).
+  factor 자체에는 의미 없음 — <em>변화율</em> 만 추적함.
+</p>
+
+<h3>4.2 차트 — ETF 가격 vs Calibration Factor</h3>
+<figure>
+<svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" style="border:1px solid #ddd;background:#fff;">
+  <!-- y-axis price -->
+  <line x1="80" y1="30" x2="80" y2="230" stroke="#333" stroke-width="1.5"/>
+  <line x1="80" y1="230" x2="680" y2="230" stroke="#333" stroke-width="1.5"/>
+  <!-- y axis ticks (price) -->
+  <text x="75" y="35" font-size="11" text-anchor="end">130k</text>
+  <line x1="78" y1="32" x2="80" y2="32" stroke="#333"/>
+  <text x="75" y="80" font-size="11" text-anchor="end">100k</text>
+  <line x1="78" y1="77" x2="80" y2="77" stroke="#333"/>
+  <text x="75" y="155" font-size="11" text-anchor="end">50k</text>
+  <line x1="78" y1="153" x2="80" y2="153" stroke="#333"/>
+  <text x="75" y="232" font-size="11" text-anchor="end">0</text>
+  <text x="20" y="130" font-size="12" fill="#2c5aa0" transform="rotate(-90 20 130)">ETF 가격 (KRW)</text>
+
+  <!-- right y-axis factor -->
+  <line x1="680" y1="30" x2="680" y2="230" stroke="#a6820d" stroke-width="1.5"/>
+  <text x="685" y="35" font-size="11" fill="#a6820d">0.6</text>
+  <text x="685" y="83" font-size="11" fill="#a6820d">0.4</text>
+  <text x="685" y="153" font-size="11" fill="#a6820d">0.2</text>
+  <text x="685" y="232" font-size="11" fill="#a6820d">0</text>
+  <text x="710" y="130" font-size="12" fill="#a6820d" transform="rotate(90 710 130)">factor</text>
+
+  <!-- bars: 5 ETFs, x positions 130, 240, 350, 460, 570 -->
+  <!-- 069500 KODEX 200: 100240 -> y=78 (height 152), factor 0.2789 -> y=137 (small marker) -->
+  <rect x="105" y="76" width="50" height="154" fill="#2c5aa0" opacity="0.85"/>
+  <text x="130" y="245" font-size="10" text-anchor="middle">069500</text>
+  <text x="130" y="258" font-size="10" text-anchor="middle">KODEX200</text>
+  <text x="130" y="71" font-size="10" text-anchor="middle">100,240</text>
+  <!-- factor marker (orange dot) for 0.2789 → y = 230 - (0.2789/0.6)*200 = 230 - 92.97 = 137 -->
+  <circle cx="155" cy="137" r="6" fill="#a6820d"/>
+  <text x="170" y="140" font-size="10" fill="#a6820d">0.279</text>
+
+  <!-- 229200 KODEX 코스닥150: 20670 → y=230 - (20670/130000)*200 = 198.2 -->
+  <rect x="215" y="198" width="50" height="32" fill="#6c3483" opacity="0.85"/>
+  <text x="240" y="245" font-size="10" text-anchor="middle">229200</text>
+  <text x="240" y="258" font-size="10" text-anchor="middle">코스닥150</text>
+  <text x="240" y="193" font-size="10" text-anchor="middle">20,670</text>
+  <!-- factor 0.1115 → y = 230 - (0.1115/0.6)*200 = 192.83 -->
+  <circle cx="265" cy="193" r="6" fill="#a6820d"/>
+  <text x="280" y="196" font-size="10" fill="#a6820d">0.112</text>
+
+  <!-- 091160 KODEX 반도체: 125360 → y=230 - (125360/130000)*200 = 37.1 -->
+  <rect x="325" y="37" width="50" height="193" fill="#0b8043" opacity="0.85"/>
+  <text x="350" y="245" font-size="10" text-anchor="middle">091160</text>
+  <text x="350" y="258" font-size="10" text-anchor="middle">반도체</text>
+  <text x="350" y="32" font-size="10" text-anchor="middle">125,360</text>
+  <!-- factor 0.5122 → y = 230 - (0.5122/0.6)*200 = 59.27 -->
+  <circle cx="375" cy="59" r="6" fill="#a6820d"/>
+  <text x="390" y="62" font-size="10" fill="#a6820d">0.512</text>
+
+  <!-- 305720 KODEX 2차전지: 20855 → y=230 - (20855/130000)*200 = 197.9 -->
+  <rect x="435" y="198" width="50" height="32" fill="#c0392b" opacity="0.85"/>
+  <text x="460" y="245" font-size="10" text-anchor="middle">305720</text>
+  <text x="460" y="258" font-size="10" text-anchor="middle">2차전지</text>
+  <text x="460" y="193" font-size="10" text-anchor="middle">20,855</text>
+  <!-- factor 0.0655 → y = 230 - (0.0655/0.6)*200 = 208.17 -->
+  <circle cx="485" cy="208" r="6" fill="#a6820d"/>
+  <text x="500" y="211" font-size="10" fill="#a6820d">0.066</text>
+
+  <!-- 266420 KODEX 헬스케어: 22180 → y=230 - (22180/130000)*200 = 195.9 -->
+  <rect x="545" y="196" width="50" height="34" fill="#e08600" opacity="0.85"/>
+  <text x="570" y="245" font-size="10" text-anchor="middle">266420</text>
+  <text x="570" y="258" font-size="10" text-anchor="middle">헬스케어</text>
+  <text x="570" y="191" font-size="10" text-anchor="middle">22,180</text>
+  <!-- factor 0.0435 → y = 230 - (0.0435/0.6)*200 = 215.5 -->
+  <circle cx="595" cy="215" r="6" fill="#a6820d"/>
+  <text x="610" y="218" font-size="10" fill="#a6820d">0.044</text>
+
+  <!-- legend -->
+  <rect x="100" y="5" width="14" height="14" fill="#2c5aa0" opacity="0.85"/>
+  <text x="120" y="16" font-size="11">ETF 가격</text>
+  <circle cx="200" cy="12" r="5" fill="#a6820d"/>
+  <text x="210" y="16" font-size="11">calibration factor</text>
+  <text x="320" y="16" font-size="11" fill="#666">(섹터별 바스켓 가격대 차이로 factor 0.04~0.51 까지 분산)</text>
+</svg>
+<figcaption>5개 섹터 ETF 의 가격(좌축, 막대) vs calibration factor (우축, 점). 코스닥150/2차전지/헬스케어는 ETF 가격이 2만원대로 비슷해도 factor 는 바스켓 종목의 절대 가격 분포에 따라 다름.</figcaption>
+</figure>
+
+<h3>4.3 union basket 효과</h3>
+<table>
+  <thead>
+    <tr><th>구성</th><th>ETF 개수</th><th>중복 제거 전 quote 수</th><th>union 후 quote 수</th><th>tick 시간 (0.7s sleep)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>변경 전 (KOSPI 200 5개)</td><td class="num">5</td><td class="num">5 + 10 = 15</td><td class="num">15</td><td class="num">~10s</td></tr>
+    <tr><td>변경 후 (섹터 5개)</td><td class="num">5</td><td class="num">5 + 50 = 55</td><td class="num">5 + 42 = 47</td><td class="num">~33s</td></tr>
+    <tr><td>변경 후 (5개 섹터 + KOSPI 200 2개)</td><td class="num">7</td><td class="num">7 + 70 = 77</td><td class="num">7 + 52 = 59</td><td class="num">~41s</td></tr>
+  </tbody>
+</table>
+
+<div class="callout warn">
+  <strong>주의 — KIS 500 에러 빈발.</strong> Smoke test 동안 random 한 KIS vts 서버 500 에러가
+  10~20% quote 에서 발생. cache fallback (이전 tick 의 가격 사용) 으로 흡수됨. 단, calibration
+  도달 전 (첫 tick) 에는 70% 커버리지 못 채우면 calibration 지연됨. 5개 섹터 모두 첫~두번째 tick 에
+  calibration 완료. 정상.
+</div>
+
+<h2>5. 비전공자용 요약 (TL;DR)</h2>
+
+<div class="callout info">
+  <p><strong>한 마디로:</strong> "한 종목만 매매하던 자동매매 봇이 5개 섹터 ETF 를 동시에 매매하게 됐다.
+  각 섹터마다 가격 측정 방식이 달라서 코드 구조를 바꿔야 했고, 그 과정에서 중복 호출을 제거해 효율도 올렸다."</p>
+
+  <p><strong>왜 중요한가:</strong> 하나의 ETF 만 매매하면 그 ETF 의 가격이 안 움직일 때 자동매매 봇이 할 일이 없다.
+  섹터를 다양화하면 어느 섹터가 흔들리든 매매 기회가 생긴다. "하나의 시장만 보지 말고 여러 시장을 동시에"
+  라는 단순한 원리.</p>
+
+  <p><strong>비유:</strong> 한 종류의 음식만 파는 식당 vs. 여러 메뉴를 파는 식당. 손님 취향이 그날그날 달라도
+  뭐든 팔린다. 다만 메뉴 늘리는 데 비용 (재료 = quote 호출) 이 들어서, 같은 재료가 여러 메뉴에 쓰이면
+  한 번만 사두는 (= union basket) 절약 트릭이 필요했다.</p>
+</div>
+
+<h3>5.1 다음 단계 (예고)</h3>
+<p>
+사용자가 후속으로 던진 질문: <strong>"전 종목의 공정가치를 계산해서 임계점 기준으로 매수/매도하면 안 되나?"</strong>
+이게 바로 quant value / statistical arbitrage 라고 불리는 본격 fundamental 전략 패러다임. 지금 코드는
+ETF 의 iNAV 만 알지 개별 주식의 공정가치는 모름. 별도 모듈 (DCF or peer-relative or factor model)
+로 확장 필요. 9주 스프린트 후반에 추가 보고서로 다룰 예정.
+</p>
+
+<h2>6. 관련 파일 / 커밋</h2>
+<ul>
+  <li><code>scripts/run_kis_paper_trading.py</code> — ETF_BASKETS dict 도입, per-ETF basket, union quote</li>
+  <li><code>scripts/dashboard.py</code> — 종목 selector, 전 종목 현황 표, 종목별 차트</li>
+  <li><code>scripts/start_kis_runner.bat</code> — Windows 스케줄러용 .bat (신규)</li>
+  <li><code>packages/autotrader/src/autotrader/market/inav.py</code> — partial coverage renormalization (어제 작업)</li>
+  <li><code>packages/autotrader/src/autotrader/strategies/etf_inav_arb.py</code> — bidirectional decide (기존)</li>
+</ul>
+
+<h2>7. 용어 정리집 (Glossary)</h2>
+<table>
+  <thead>
+    <tr><th>용어</th><th>한 줄 설명</th><th>본문에서의 역할</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>ETF</td><td>Exchange Traded Fund. 주식처럼 거래소에서 사고팔 수 있는 펀드. 특정 지수나 섹터를 추종</td>
+        <td>이 보고서의 매매 대상. KODEX 200 / 코스닥 150 / 반도체 등.</td></tr>
+    <tr><td>iNAV</td><td>indicative Net Asset Value. ETF 가 보유한 종목들의 가중평균 가격 = "이론가"</td>
+        <td>ETF 시장가가 iNAV 보다 싸면 BUY, 비싸면 SELL 하는 차익거래 신호의 기준</td></tr>
+    <tr><td>바스켓 (basket)</td><td>ETF 가 추종하기 위해 보유하는 구성 종목 + 가중치 묶음</td>
+        <td>iNAV 계산의 입력. 이전엔 KOSPI 200 하나만, 이번에 ETF별로 분리</td></tr>
+    <tr><td>calibration factor</td><td>"바스켓 가중평균 × factor = ETF 가격" 이 되도록 첫 tick 에서 정하는 보정 상수</td>
+        <td>ETF별 절대 가격 차이 (예: 100k원 vs 20k원) 를 흡수해서 dev 측정을 0 에서 시작</td></tr>
+    <tr><td>dev (deviation)</td><td>(ETF 시장가 − iNAV) ÷ iNAV. ETF 가 이론가보다 얼마나 비싸/싸졌는지의 비율</td>
+        <td>매매 신호 임계 (±1bps 등) 의 단위. dev 가 음수면 ETF 저평가 → BUY</td></tr>
+    <tr><td>bps (basis point)</td><td>1bps = 0.01% = 0.0001. 금융에서 작은 비율 표시할 때 쓰는 단위</td>
+        <td>매매 임계 (enter=1bps = ETF 가 iNAV 대비 0.01% 어긋나면 진입)</td></tr>
+    <tr><td>union basket</td><td>여러 ETF 의 바스켓을 합집합으로 합쳐 중복 종목은 한 번만 페칭하는 최적화</td>
+        <td>tick 당 KIS quote 호출 수를 55 → 47 로 줄임 (vts quota 보호)</td></tr>
+    <tr><td>EGW00201</td><td>KIS API 가 초당 거래건수 (rate limit) 초과 시 반환하는 에러 코드</td>
+        <td>이를 피하려고 quote 사이 0.7s sleep + union 으로 호출 수 최소화</td></tr>
+    <tr><td>SAFE_OPEN / SAFE_CLOSE</td><td>장 시작/마감 직후 10분 매매 차단 시간 (09:10~15:20 만 매매 허용)</td>
+        <td>변동성 폭증 구간에서 잘못된 calibration 으로 손실 방지</td></tr>
+    <tr><td>cron</td><td>Unix 의 시간 기반 작업 스케줄러. "M H DoM Mon DoW" 5필드 표현식 사용</td>
+        <td>Claude Code 의 자동 실행 예약 메커니즘. Windows 작업 스케줄러와 비교됨</td></tr>
+    <tr><td>섹터 ETF</td><td>특정 산업 (반도체, 배터리, 헬스케어 등) 종목들만 묶은 ETF</td>
+        <td>KOSPI 200 (지수 추종) 보다 변동성 ↑ → dev 가 더 자주 임계 돌파 기대</td></tr>
+    <tr><td>cross-sectional value</td><td>여러 종목을 동시에 비교해 저평가된 걸 사고 고평가된 걸 파는 quant 전략</td>
+        <td>다음 확장 단계 (현 보고서 끝부분에서 언급한 "전 종목 공정가치" 질문의 정식 명칭)</td></tr>
+  </tbody>
+</table>
+
+<p class="small" style="margin-top:36px;border-top:1px solid #ccc;padding-top:14px;">
+  보고서 작성: 2026-04-27 16:30 KST · ai_pricing 5-Layer 모노레포 Layer-E (Auto-Trading) ·
+  내일 (4/28 화) 09:08 자동 시작 후 실제 dev 분포 / 매매 빈도 검증 예정.
+</p>
+
+</body>
+</html>

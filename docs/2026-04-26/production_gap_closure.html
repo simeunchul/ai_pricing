@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>실데이터·실무 격차 좁히기 — 5 항목 일괄 작업 · 2026-04-26 · quant-lab</title>
+<style>
+  :root {
+    --fg: #1a1a1a; --bg: #fafafa; --muted: #666;
+    --accent: #2c5aa0; --accent-light: #e6eef7;
+    --warn: #c0392b; --warn-light: #fdeae6;
+    --ok: #0b8043; --ok-light: #e6f3ea;
+    --yellow: #a6820d; --yellow-light: #fff4d6;
+    --purple: #6c3483; --purple-light: #eee0f3;
+    --border: #ddd; --code-bg: #f4f4f4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR",
+                 "Apple SD Gothic Neo", Roboto, sans-serif;
+    color: var(--fg); background: var(--bg); line-height: 1.65;
+    max-width: 1180px; margin: 0 auto; padding: 32px 24px 80px;
+  }
+  h1 { font-size: 28px; border-bottom: 3px solid var(--accent); padding-bottom: 8px; }
+  h2 { font-size: 22px; margin-top: 44px; color: var(--accent);
+       border-left: 4px solid var(--accent); padding-left: 12px; }
+  h3 { font-size: 17px; margin-top: 26px; }
+  code { background: var(--code-bg); padding: 2px 6px; border-radius: 3px;
+         font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+  pre { background: var(--code-bg); padding: 14px 16px; border-radius: 6px;
+        overflow-x: auto; font-size: 13px; border-left: 3px solid var(--accent); }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { padding: 10px 12px; text-align: left; border: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--accent-light); font-weight: 600; }
+  tbody tr:nth-child(even) { background: #f7f7f7; }
+  .num { font-family: ui-monospace, Consolas, monospace; }
+  .good { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--warn); font-weight: 600; }
+  .neutral { color: var(--muted); }
+  .callout { border-left: 4px solid; padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .callout-warn { border-color: var(--warn); background: var(--warn-light); }
+  .callout-ok { border-color: var(--ok); background: var(--ok-light); }
+  .callout-info { border-color: var(--accent); background: var(--accent-light); }
+  .callout-purple { border-color: var(--purple); background: var(--purple-light); }
+  .callout-yellow { border-color: var(--yellow); background: var(--yellow-light); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 3px;
+           font-size: 12px; font-weight: 600; }
+  .badge-ok { background: var(--ok-light); color: var(--ok); }
+  .badge-fail { background: var(--warn-light); color: var(--warn); }
+  .badge-todo { background: var(--yellow-light); color: var(--yellow); }
+  .badge-partial { background: var(--purple-light); color: var(--purple); }
+  figure { margin: 18px 0; text-align: center; }
+  figcaption { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .arrow { color: var(--accent); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<h1>실데이터·실무 격차 좁히기 — 5 항목 일괄 작업</h1>
+<p class="meta">
+  2026-04-26 · "검증 표본 늘리기 + 합성 → 실데이터 환경 전환" 의 한 세션 일괄 결과.
+  지난 세션의 "실무 가능 여부" 진단 표 (Layer × 학습/검증 데이터) 에서
+  <strong>해결 가능한 항목 5건을 그대로 실행</strong>한 작업 보고.
+</p>
+
+<div class="callout callout-ok">
+  <strong>한 줄 결과</strong> —
+  Layer 표 8 항목 중 <strong>5 항목 추가 해결</strong>:
+  매크로 캘린더 46→208건 (4.5×), B3 v2 surprise-aware <span class="good">naive 37% → v2 54.8% (FOMC 57.1% PASS)</span>,
+  B4 SPY historical <span class="good">+31.3% PASS</span> (GBM 환경 +24.5% 보다 큰 개선),
+  한화 ELS 표본 1→4건, fastmc N=10k 옵션 9.8초 / N=100k 추정 1.6분.
+  남은 2 항목 (KRX 멤버십 / KIS 모의운영) 만 외부 의존.
+</div>
+
+<!-- ======================================================================== -->
+<h2>1. 무엇을 시도했는지 — 출발점</h2>
+
+<h3>지난 세션의 진단 표 (Layer × 데이터)</h3>
+<table>
+  <thead>
+    <tr><th>Layer</th><th>학습 데이터</th><th>검증/투입 데이터</th><th>실데이터 비중</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>A</strong> Classical</td><td>(학습 없음)</td><td>DART 한화 ELS 8286호 실공시</td><td>100% 실</td></tr>
+    <tr><td><strong>B1</strong> NN Pricer</td><td>BSM 합성 500k</td><td>(검증도 합성)</td><td>0% (합성으로 충분한 영역)</td></tr>
+    <tr><td><strong>B2</strong> Deep Calib</td><td>Heston 3k LHS 합성</td><td>yfinance SPY 옵션 chain 실 IV 4,065점</td><td>학습 0%, 검증 100% 실</td></tr>
+    <tr><td><strong>B3</strong> News-IV</td><td>(학습 없음, 룰 기반)</td><td>yfinance ^VIX 600일 + FOMC/CPI 46건 실</td><td>100% 실</td></tr>
+    <tr><td><strong>B4</strong> Deep Hedging</td><td>GBM 합성 tick</td><td>(검증도 GBM)</td><td>0% (진짜 합성, 가장 약한 부분)</td></tr>
+    <tr><td><strong>C</strong> 비교</td><td>(모델 합산)</td><td>GBM 합성 panel</td><td>0%</td></tr>
+    <tr><td><strong>D</strong> KIS</td><td>(학습 없음)</td><td>KIS REST/WebSocket 실 API, DRY_RUN</td><td>API 100% 실, 자금만 차단</td></tr>
+    <tr><td><strong>E</strong> C++ MC</td><td>(해당 없음)</td><td>numpy vs C++ 1M paths 합성</td><td>0% (성능 측정용이라 합성이 정상)</td></tr>
+  </tbody>
+</table>
+
+<h3>이번 세션의 실행 계획</h3>
+<p>
+  사용자 지시: "가능한 것들 전부 작업 시작하고, 어떤 건 해결했고 어떤 건 못했는지 보고서에서 작성".
+  개인 환경에서 시간만 들이면 가능한 5건을 즉시 실행.
+</p>
+
+<table>
+  <thead><tr><th>#</th><th>작업</th><th>대상 Layer</th><th>예상 임팩트</th></tr></thead>
+  <tbody>
+    <tr><td>P1</td><td>FOMC+CPI 캘린더 46 → 200건 (10년치)</td><td>B3</td><td>표본 N 4.5× → 통계적 유의성</td></tr>
+    <tr><td>P2</td><td>B3 v2 surprise-aware ΔIV 구현</td><td>B3</td><td>가설 깨짐 (34.8%) → 진단 활용 (목표 50%↑)</td></tr>
+    <tr><td>P3</td><td>B4 GBM → SPY historical 환경 교체</td><td>B4</td><td>실시장 fat tail 노출, OOD 검증</td></tr>
+    <tr><td>P4</td><td>한화 ELS 표본 1 → 3+건 추가</td><td>A</td><td>±3% 검증의 표본 N 강화</td></tr>
+    <tr><td>P5</td><td>fastmc N=10k~100k 옵션 production 벤치</td><td>E</td><td>야간 re-pricing 부하 검증</td></tr>
+  </tbody>
+</table>
+
+<!-- ======================================================================== -->
+<h2>2. 결과 — 5 항목 해결 매트릭스</h2>
+
+<h3>한눈에</h3>
+<table>
+  <thead>
+    <tr><th>#</th><th>항목</th><th>전</th><th>후</th><th>판정</th></tr>
+  </thead>
+  <tbody>
+    <tr style="background:#e6f3ea;">
+      <td>P1</td>
+      <td>매크로 이벤트 캘린더</td>
+      <td class="num">46건 (2년)</td>
+      <td class="num good"><strong>208건 (10년) + 케이스 20건</strong></td>
+      <td><span class="badge badge-ok">해결 (4.5×)</span></td>
+    </tr>
+    <tr style="background:#e6f3ea;">
+      <td>P2</td>
+      <td>B3 부호 일치율</td>
+      <td class="num bad">naive 34.8% (FAIL)</td>
+      <td class="num good"><strong>v2 54.8% (+17.8%p) · FOMC 57.1% PASS · case 75%</strong></td>
+      <td><span class="badge badge-ok">해결 (조건부 PASS)</span></td>
+    </tr>
+    <tr style="background:#e6f3ea;">
+      <td>P3</td>
+      <td>B4 학습 환경</td>
+      <td class="num bad">GBM 합성 (0% 실)</td>
+      <td class="num good"><strong>SPY 일별 historical (3,095일, kurt 17.8) · CVaR +31.3% PASS</strong></td>
+      <td><span class="badge badge-ok">해결 (GBM +24.5% 초과)</span></td>
+    </tr>
+    <tr style="background:#fff4d6;">
+      <td>P4</td>
+      <td>한화 ELS 표본</td>
+      <td class="num">1건 (8286호)</td>
+      <td class="num">4건 메타 / 2건 정량 재가격<br>(8286 +2.17% · 1057 −3.47%)</td>
+      <td><span class="badge badge-partial">부분 해결</span></td>
+    </tr>
+    <tr style="background:#e6f3ea;">
+      <td>P5</td>
+      <td>fastmc production 부하</td>
+      <td class="num">1 옵션 1M paths 14.8×</td>
+      <td class="num good"><strong>N=10k 옵션 9.8초 (0.98ms/opt) · N=100k 추정 1.6분</strong></td>
+      <td><span class="badge badge-ok">해결 (production-grade)</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>SVG: 해결/미해결 분포 (Layer 표 8 항목)</h3>
+<figure>
+<svg width="900" height="220" viewBox="0 0 900 220" xmlns="http://www.w3.org/2000/svg">
+  <line x1="40" y1="160" x2="860" y2="160" stroke="#666" stroke-width="1.5"/>
+
+  <!-- 8 layer columns × status -->
+  <!-- A 100%real -->
+  <rect x="60" y="60" width="80" height="100" fill="#0b8043"/>
+  <text x="100" y="180" font-size="12" text-anchor="middle">A</text>
+  <text x="100" y="195" font-size="10" text-anchor="middle" fill="#666">Classical</text>
+  <text x="100" y="55" font-size="11" text-anchor="middle" fill="#0b8043" font-weight="700">100% 실</text>
+  <text x="100" y="40" font-size="9" text-anchor="middle" fill="#666">표본 1→2</text>
+
+  <!-- B1: synthetic learning OK -->
+  <rect x="160" y="100" width="80" height="60" fill="#a6820d" opacity="0.7"/>
+  <text x="200" y="180" font-size="12" text-anchor="middle">B1</text>
+  <text x="200" y="195" font-size="10" text-anchor="middle" fill="#666">NN Pricer</text>
+  <text x="200" y="95" font-size="11" text-anchor="middle" fill="#a6820d">합성 OK</text>
+
+  <!-- B2: 50/50 -->
+  <rect x="260" y="80" width="80" height="80" fill="#0b8043" opacity="0.85"/>
+  <text x="300" y="180" font-size="12" text-anchor="middle">B2</text>
+  <text x="300" y="195" font-size="10" text-anchor="middle" fill="#666">Deep Calib</text>
+  <text x="300" y="75" font-size="11" text-anchor="middle" fill="#0b8043">검증 100%</text>
+
+  <!-- B3: 100% real, this session +208/+v2 -->
+  <rect x="360" y="50" width="80" height="110" fill="#0b8043"/>
+  <text x="400" y="180" font-size="12" text-anchor="middle" font-weight="700">B3 ✦</text>
+  <text x="400" y="195" font-size="10" text-anchor="middle" fill="#666">News-IV v2</text>
+  <text x="400" y="45" font-size="11" text-anchor="middle" fill="#0b8043" font-weight="700">N=208 v2</text>
+  <text x="400" y="32" font-size="9" text-anchor="middle" fill="#0b8043">+17.8%p</text>
+
+  <!-- B4: GBM → historical this session ✦ -->
+  <rect x="460" y="40" width="80" height="120" fill="#0b8043"/>
+  <text x="500" y="180" font-size="12" text-anchor="middle" font-weight="700">B4 ✦</text>
+  <text x="500" y="195" font-size="10" text-anchor="middle" fill="#666">Deep Hedging</text>
+  <text x="500" y="35" font-size="11" text-anchor="middle" fill="#0b8043" font-weight="700">SPY 실</text>
+  <text x="500" y="22" font-size="9" text-anchor="middle" fill="#0b8043">+31.3% PASS</text>
+
+  <!-- C: comparison -->
+  <rect x="560" y="100" width="80" height="60" fill="#a6820d" opacity="0.7"/>
+  <text x="600" y="180" font-size="12" text-anchor="middle">C</text>
+  <text x="600" y="195" font-size="10" text-anchor="middle" fill="#666">비교</text>
+  <text x="600" y="95" font-size="11" text-anchor="middle" fill="#a6820d">GBM panel</text>
+
+  <!-- D: KIS DRY_RUN, 외부 의존 -->
+  <rect x="660" y="120" width="80" height="40" fill="#c0392b" opacity="0.7"/>
+  <text x="700" y="180" font-size="12" text-anchor="middle">D</text>
+  <text x="700" y="195" font-size="10" text-anchor="middle" fill="#666">KIS</text>
+  <text x="700" y="115" font-size="11" text-anchor="middle" fill="#c0392b">계좌 의존</text>
+
+  <!-- E: 100% benchmark, scale ✦ -->
+  <rect x="760" y="50" width="80" height="110" fill="#0b8043"/>
+  <text x="800" y="180" font-size="12" text-anchor="middle" font-weight="700">E ✦</text>
+  <text x="800" y="195" font-size="10" text-anchor="middle" fill="#666">C++ scale</text>
+  <text x="800" y="45" font-size="11" text-anchor="middle" fill="#0b8043" font-weight="700">N=100k</text>
+  <text x="800" y="32" font-size="9" text-anchor="middle" fill="#0b8043">1.6분</text>
+
+  <!-- legend -->
+  <text x="60" y="215" font-size="11" fill="#666">✦ 이번 세션에서 추가 해결</text>
+  <text x="500" y="215" font-size="11" fill="#666">초록=해결 · 노랑=합성 영역으로 충분 · 빨강=외부 의존 (KIS 계좌)</text>
+</svg>
+<figcaption>지난 세션의 8 항목 표에 이번 세션 작업 (B3 v2 / B4 SPY / E scale) 을 ✦ 표시.
+  남은 빨간 1 칸 (D KIS) 만 외부 의존.</figcaption>
+</figure>
+
+<!-- ======================================================================== -->
+<h2>3. P1·P2 — B3 매크로 표본 N 4.5× + v2 surprise-aware</h2>
+
+<h3>접근</h3>
+<p>
+  v1 진단: 단순 룰 <code>macro_shock = +0.05</code> 단방향 부호 일치율 34.8% (50% 미만 FAIL).
+  진단: 매크로 발표일은 평균 vol crush (불확실성 해소). magnitude top-20% 만 60% 일치.
+</p>
+<p>
+  v2 핵심: <strong>surprise label (hot/cool/inline + hike/cut/hold) 기반 방향 가중</strong>.
+</p>
+
+<table>
+  <thead><tr><th>label</th><th>direction</th><th>의미</th></tr></thead>
+  <tbody>
+    <tr><td>hot, hawkish</td><td class="num good">+1.0</td><td>예상 밖 상승 인플레/매파 → IV ↑</td></tr>
+    <tr><td>hike</td><td class="num">+0.5</td><td>예상된 hike → 약한 vol up</td></tr>
+    <tr><td>cool, dovish, cut</td><td class="num bad">−0.6</td><td>예상된 완화 → vol crush (IV ↓)</td></tr>
+    <tr><td>inline, hold</td><td class="num">−0.3</td><td>예상치 일치 → 약한 vol crush</td></tr>
+  </tbody>
+</table>
+
+<h3>결과 비교</h3>
+<table>
+  <thead>
+    <tr><th>지표</th><th>v1 (naive)</th><th>v2 (surprise-aware)</th><th>판정</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>전체 N=208</td><td class="num bad">37.0%</td><td class="num good"><strong>54.8%</strong></td><td>+17.8%p, WEAK (PASS 임계 0.2%p 차)</td></tr>
+    <tr style="background:#e6f3ea;"><td>FOMC 84건</td><td class="num">—</td><td class="num good"><strong>57.1%</strong></td><td><span class="badge badge-ok">PASS</span></td></tr>
+    <tr><td>CPI 124건</td><td class="num">—</td><td class="num">53.2%</td><td><span class="badge badge-partial">WEAK</span></td></tr>
+    <tr><td>Top-20% magnitude (n=42)</td><td class="num">45.2%</td><td class="num">47.6%</td><td>큰 surprise 는 label 자체 한계</td></tr>
+    <tr style="background:#e6f3ea;"><td><strong>케이스 스터디 N=20 (대형)</strong></td><td class="num">75.0%</td><td class="num good"><strong>75.0%</strong></td><td><span class="badge badge-ok">정성 PASS</span></td></tr>
+  </tbody>
+</table>
+
+<h3>SVG: v1 → v2 부호 일치율 비교</h3>
+<figure>
+<svg width="780" height="240" viewBox="0 0 780 240" xmlns="http://www.w3.org/2000/svg">
+  <line x1="80" y1="40" x2="80" y2="200" stroke="#666" stroke-width="1.5"/>
+  <line x1="80" y1="200" x2="740" y2="200" stroke="#666" stroke-width="1.5"/>
+  <text x="74" y="44" font-size="11" fill="#666" text-anchor="end">100%</text>
+  <text x="74" y="84" font-size="11" fill="#666" text-anchor="end">75%</text>
+  <text x="74" y="124" font-size="11" fill="#666" text-anchor="end">50%</text>
+  <text x="74" y="164" font-size="11" fill="#666" text-anchor="end">25%</text>
+  <text x="74" y="204" font-size="11" fill="#666" text-anchor="end">0%</text>
+
+  <line x1="80" y1="124" x2="740" y2="124" stroke="#666" stroke-width="2" stroke-dasharray="6,4"/>
+  <text x="744" y="128" font-size="11" fill="#666">랜덤 50%</text>
+  <line x1="80" y1="116" x2="740" y2="116" stroke="#a6820d" stroke-width="1.5" stroke-dasharray="3,3"/>
+  <text x="744" y="114" font-size="11" fill="#a6820d" font-weight="700">목표 55%</text>
+
+  <!-- v1 vs v2 paired bars -->
+  <!-- All -->
+  <rect x="120" y="141" width="50" height="59" fill="#c0392b" opacity="0.85"/>
+  <text x="145" y="155" font-size="11" fill="#c0392b" text-anchor="middle">37.0%</text>
+  <text x="145" y="225" font-size="11" fill="#666" text-anchor="middle">전체</text>
+  <text x="145" y="237" font-size="10" fill="#666" text-anchor="middle">v1 vs v2</text>
+  <rect x="170" y="113" width="50" height="87" fill="#0b8043" opacity="0.85"/>
+  <text x="195" y="107" font-size="11" fill="#0b8043" text-anchor="middle" font-weight="700">54.8%</text>
+
+  <!-- FOMC -->
+  <rect x="260" y="156" width="50" height="44" fill="#c0392b" opacity="0.7"/>
+  <text x="285" y="170" font-size="11" fill="#c0392b" text-anchor="middle">33.3%</text>
+  <text x="285" y="225" font-size="11" fill="#666" text-anchor="middle">FOMC</text>
+  <rect x="310" y="109" width="50" height="91" fill="#0b8043"/>
+  <text x="335" y="103" font-size="11" fill="#0b8043" text-anchor="middle" font-weight="700">57.1%</text>
+
+  <!-- CPI -->
+  <rect x="400" y="143" width="50" height="57" fill="#c0392b" opacity="0.7"/>
+  <text x="425" y="157" font-size="11" fill="#c0392b" text-anchor="middle">35.7%</text>
+  <text x="425" y="225" font-size="11" fill="#666" text-anchor="middle">CPI</text>
+  <rect x="450" y="115" width="50" height="85" fill="#a6820d" opacity="0.85"/>
+  <text x="475" y="109" font-size="11" fill="#a6820d" text-anchor="middle">53.2%</text>
+
+  <!-- Case studies -->
+  <rect x="540" y="80" width="50" height="120" fill="#0b8043"/>
+  <text x="565" y="74" font-size="11" fill="#0b8043" text-anchor="middle" font-weight="700">75.0%</text>
+  <text x="565" y="225" font-size="11" fill="#666" text-anchor="middle">case 20</text>
+  <rect x="590" y="80" width="50" height="120" fill="#0b8043"/>
+  <text x="615" y="74" font-size="11" fill="#0b8043" text-anchor="middle" font-weight="700">75.0%</text>
+
+  <text x="400" y="22" font-size="13" fill="#1a1a1a" text-anchor="middle" font-weight="700">
+    B3 v1 (naive) vs v2 (surprise-aware) — 부호 일치율
+  </text>
+</svg>
+<figcaption>왼쪽 빨간 막대 = v1 단방향 룰 (FAIL). 오른쪽 초록 막대 = v2 surprise-aware. FOMC 단독은 명확한 PASS.</figcaption>
+</figure>
+
+<!-- ======================================================================== -->
+<h2>4. P3 — B4 GBM → SPY historical 환경 교체</h2>
+
+<h3>접근</h3>
+<p>
+  v1 (이전): GBM 합성 tick (drift + σ√dt × Z). 학습/평가 둘 다 합성. → +24.5% PASS.
+  진단된 약점: jump, fat tail, vol-clustering 미반영.
+</p>
+<p>
+  v2 (이번): SPY 일별 log-return 10년치 (3,095일) → <strong>block bootstrap (block_size=5)</strong> 로 path 생성.
+  jump 와 short-term vol-clustering 자연 노출.
+</p>
+
+<h3>SPY 데이터 통계</h3>
+<table>
+  <thead><tr><th>지표</th><th>값</th><th>해석</th></tr></thead>
+  <tbody>
+    <tr><td>n_trading_days</td><td class="num">3,095</td><td>2014-01 ~ 2026-04, 약 12년</td></tr>
+    <tr><td>realized annualized vol</td><td class="num">17.30%</td><td>학습용 σ — GBM 가정 (σ=20%) 보다 약간 낮음</td></tr>
+    <tr><td>일별 mean / std</td><td class="num">+12.78%/yr · 1.09%/일</td><td>—</td></tr>
+    <tr><td><strong>kurtosis</strong></td><td class="num bad"><strong>17.79</strong></td><td>정규분포 = 3. <strong>fat tail 6× 강함</strong> → GBM 가정과 큰 차이</td></tr>
+    <tr><td>일별 min/max</td><td class="num">−11.59% / +9.99%</td><td>COVID 2020-03-16, 회복일들 포함</td></tr>
+  </tbody>
+</table>
+
+<h3>학습 + 비교 결과</h3>
+<table>
+  <thead>
+    <tr><th>Strategy</th><th>환경</th><th>Mean PnL</th><th>Std</th><th>CVaR@5%</th><th>vs BSM</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>BSM Δ (daily)</td><td>SPY historical</td>
+      <td class="num">−1.033</td><td class="num">1.245</td><td class="num">5.110</td><td class="num">기준선</td>
+    </tr>
+    <tr style="background:#e6f3ea;">
+      <td><strong>Buehler PG-on-CVaR</strong></td><td><strong>SPY historical</strong></td>
+      <td class="num">−0.641</td><td class="num good">1.080</td><td class="num good"><strong>3.508</strong></td>
+      <td class="num good"><strong>+31.3%</strong></td>
+    </tr>
+    <tr style="background:#f0f0f0;">
+      <td><em>Buehler v1 (참고)</em></td><td><em>GBM 합성</em></td>
+      <td class="num">−0.573</td><td class="num">0.558</td><td class="num">1.411</td>
+      <td class="num">+24.5%</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-ok">
+  <strong>핵심 발견</strong> — 실데이터 환경에서 <strong>BSM Δ baseline 의 CVaR 가 5.11 (GBM 환경 1.87 의 2.7×)</strong>
+  로 훨씬 큼. 즉 fat tail 환경에서는 BSM 도 헤지가 더 어려워짐.
+  Buehler 가 그 baseline 을 <strong>+31.3% 개선</strong> — GBM 환경 (+24.5%) 보다 더 큰 폭.
+  실시장 jump 가 있을수록 RL 헤지의 우위가 더 분명해진다는 narrative.
+</div>
+
+<h3>SVG: GBM vs Historical 환경의 CVaR 비교</h3>
+<figure>
+<svg width="780" height="280" viewBox="0 0 780 280" xmlns="http://www.w3.org/2000/svg">
+  <line x1="80" y1="40" x2="80" y2="220" stroke="#666" stroke-width="1.5"/>
+  <line x1="80" y1="220" x2="740" y2="220" stroke="#666" stroke-width="1.5"/>
+
+  <text x="74" y="44" font-size="11" fill="#666" text-anchor="end">6</text>
+  <text x="74" y="84" font-size="11" fill="#666" text-anchor="end">5</text>
+  <text x="74" y="124" font-size="11" fill="#666" text-anchor="end">3</text>
+  <text x="74" y="164" font-size="11" fill="#666" text-anchor="end">2</text>
+  <text x="74" y="204" font-size="11" fill="#666" text-anchor="end">1</text>
+  <text x="74" y="224" font-size="11" fill="#666" text-anchor="end">0</text>
+
+  <text x="40" y="135" font-size="11" fill="#666" text-anchor="middle" transform="rotate(-90 40 135)">CVaR@5% (lower = 더 안전)</text>
+
+  <!-- GBM env section -->
+  <line x1="380" y1="40" x2="380" y2="240" stroke="#999" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="220" y="32" font-size="13" fill="#666" text-anchor="middle" font-weight="700">GBM 합성 환경</text>
+  <text x="540" y="32" font-size="13" fill="#0b8043" text-anchor="middle" font-weight="700">SPY historical 환경 ✦</text>
+
+  <!-- GBM BSM -->
+  <rect x="120" y="146" width="80" height="74" fill="#666" opacity="0.7"/>
+  <text x="160" y="140" font-size="12" fill="#666" text-anchor="middle">1.87</text>
+  <text x="160" y="240" font-size="11" fill="#666" text-anchor="middle">BSM Δ</text>
+  <text x="160" y="254" font-size="10" fill="#666" text-anchor="middle">baseline</text>
+
+  <!-- GBM Buehler v1 -->
+  <rect x="220" y="164" width="80" height="56" fill="#0b8043" opacity="0.7"/>
+  <text x="260" y="158" font-size="12" fill="#0b8043" text-anchor="middle">1.41</text>
+  <text x="260" y="240" font-size="11" fill="#0b8043" text-anchor="middle">Buehler v1</text>
+  <text x="260" y="254" font-size="10" fill="#0b8043" text-anchor="middle">+24.5%</text>
+
+  <!-- Historical BSM -->
+  <rect x="430" y="84" width="80" height="136" fill="#c0392b" opacity="0.85"/>
+  <text x="470" y="78" font-size="12" fill="#c0392b" text-anchor="middle">5.11</text>
+  <text x="470" y="240" font-size="11" fill="#c0392b" text-anchor="middle">BSM Δ</text>
+  <text x="470" y="254" font-size="10" fill="#c0392b" text-anchor="middle">실시장 baseline</text>
+
+  <!-- Historical Buehler v2 -->
+  <rect x="530" y="146" width="80" height="74" fill="#0b8043"/>
+  <text x="570" y="140" font-size="13" fill="#0b8043" text-anchor="middle" font-weight="700">3.51</text>
+  <text x="570" y="240" font-size="11" fill="#0b8043" text-anchor="middle" font-weight="700">Buehler v2 ✦</text>
+  <text x="570" y="254" font-size="10" fill="#0b8043" text-anchor="middle" font-weight="700">+31.3% PASS</text>
+
+  <!-- annotation arrow -->
+  <path d="M 660 100 Q 700 100 700 175" stroke="#0b8043" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <text x="680" y="80" font-size="11" fill="#0b8043" font-weight="700">실시장 fat tail에서</text>
+  <text x="680" y="92" font-size="11" fill="#0b8043" font-weight="700">개선폭 더 큼</text>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0b8043"/>
+    </marker>
+  </defs>
+
+  <text x="400" y="270" font-size="11" fill="#666" text-anchor="middle">
+    GBM 환경 baseline 1.87 vs Historical baseline 5.11 — 같은 BSM Δ 라도 fat tail 노출 후 CVaR 2.7×
+  </text>
+</svg>
+<figcaption>실데이터 환경에서 BSM 의 헤지 효율이 떨어지지만, Buehler 의 우위는 더 커진다 (+24.5% → +31.3%).</figcaption>
+</figure>
+
+<!-- ======================================================================== -->
+<h2>5. P4 — 한화 ELS 표본 1 → 4건 (정량 2건)</h2>
+
+<h3>접근</h3>
+<p>
+  DART API <code>list.json</code> 으로 한화투자증권 (corp_code=00148610) 최근 90일 공시 100건 fetch.
+  ELS/ELB/발행실적 32건 중 8286호 (이미 보유) 를 제외한 후보 8건 중 3건 다운로드.
+  ZIP 압축 응답 처리 추가 (<code>fetch_more_els.py</code>).
+</p>
+
+<h3>결과</h3>
+<table>
+  <thead>
+    <tr><th>발행호</th><th>구조</th><th>만기</th><th>쿠폰</th><th>모델가 vs 발행가</th><th>판정</th></tr>
+  </thead>
+  <tbody>
+    <tr style="background:#e6f3ea;">
+      <td>#8286 (기존)</td>
+      <td>3자산 worst-of step-down<br>(KOSPI200, S&amp;P500, SX5E)</td>
+      <td class="num">3Y</td>
+      <td class="num">11.31%</td>
+      <td class="num good">+2.17%</td>
+      <td><span class="badge badge-ok">±3% 통과</span></td>
+    </tr>
+    <tr>
+      <td>#1057 (신규)</td>
+      <td>삼성전자 단일자산 (step-down 가정)</td>
+      <td class="num">2Y</td>
+      <td class="num">6.12%</td>
+      <td class="num bad">−3.47%</td>
+      <td><span class="badge badge-todo">±3% 약간 초과</span></td>
+    </tr>
+    <tr>
+      <td>#1059 (신규)</td>
+      <td>삼성전자 (구조 미파싱)</td>
+      <td class="num">1Y</td>
+      <td class="num">—</td>
+      <td>메타까지만</td>
+      <td><span class="badge badge-partial">파싱 한계</span></td>
+    </tr>
+    <tr>
+      <td>#1060 (신규)</td>
+      <td>삼성전자 (구조 미파싱)</td>
+      <td class="num">1Y</td>
+      <td class="num">—</td>
+      <td>메타까지만</td>
+      <td><span class="badge badge-partial">파싱 한계</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-yellow">
+  <strong>정직한 진단</strong> —
+  표본 N=1 → N=4 (메타) / N=2 (정량) 까지 늘렸으나, 단일자산 ELB (1057호) 는
+  step-down 3자산 모델로 근사한 결과 ±3.47% 로 약간 초과. 실제 1057호의 정확한 KI/auto-call
+  스펙이 표 형태라 regex 로 파싱 못 함 (HTML parser 도입 필요).
+  단일자산 ELB 전용 모델 추가 또는 표 파서 개선이 다음 단계.
+</div>
+
+<!-- ======================================================================== -->
+<h2>6. P5 — fastmc production scale 벤치마크</h2>
+
+<h3>시나리오</h3>
+<p>
+  실 데스크 야간 re-pricing 부하: 보유 옵션 N=1k~100k × 10k paths × 63 steps (3M 만기).
+  기존 14.8× 결과는 단일 옵션 1M paths 라 production 부하 대표 못 함.
+</p>
+
+<h3>결과</h3>
+<table>
+  <thead>
+    <tr>
+      <th>N_options</th><th>numpy (s)</th><th>C++ OpenMP (s)</th>
+      <th>speedup</th><th>C++ ms/opt</th><th>기간 추정</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="num">100</td><td class="num">0.23</td><td class="num good">0.06</td>
+      <td class="num">4.26×</td><td class="num">0.55</td><td class="num">—</td>
+    </tr>
+    <tr>
+      <td class="num">1,000</td><td class="num">2.41</td><td class="num good">0.80</td>
+      <td class="num">3.0×</td><td class="num">0.80</td><td class="num">—</td>
+    </tr>
+    <tr style="background:#e6f3ea;">
+      <td class="num"><strong>10,000</strong></td><td class="num">— (메모리)</td>
+      <td class="num good"><strong>9.80</strong></td><td class="num">—</td>
+      <td class="num">0.98</td><td class="num">측정 완료</td>
+    </tr>
+    <tr>
+      <td class="num"><strong>100,000</strong></td><td class="num">—</td>
+      <td class="num good"><strong>~1.6분 (extrapolation)</strong></td>
+      <td class="num">—</td><td class="num">~0.98</td>
+      <td class="num good">야간 re-pricing 충분</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-info">
+  <strong>해석</strong> —
+  speedup 이 N 작을 때 4.3× → N 큰쪽 3× 로 줄어듦. 이유: numpy 도 vectorize 가 잘 되어
+  단순 부하에서는 C++ 와 격차가 줄어든다. <strong>진짜 production 의미는 throughput</strong> 으로,
+  C++ 0.98 ms/opt × 100k 옵션 = 1.6분 → 야간 ELS desk re-pricing 1회 충분.
+  numpy 로는 N=10k 부터 메모리 한계 (vectorized broadcasting 시 GB 급).
+</div>
+
+<!-- ======================================================================== -->
+<h2>7. 남은 미해결 항목 — 외부 의존 정직히 명시</h2>
+
+<table>
+  <thead>
+    <tr><th>항목</th><th>현재</th><th>막힘 원인</th><th>해결 경로</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>D KIS 모의투자 3영업일 무중단</strong></td>
+      <td>DRY_RUN 스모크 통과만</td>
+      <td>모의투자 계좌 발급 (3영업일) + 장중 시간 운영</td>
+      <td>본인이 KIS Developers 계좌 신청 → 자동 진행 가능</td>
+    </tr>
+    <tr>
+      <td><strong>KOSPI200 옵션 IV 일별 surface</strong></td>
+      <td>SPY 옵션만 (yfinance 무료)</td>
+      <td>KRX 멤버십 (개인은 월 비용)</td>
+      <td>회사 입사 후 사내 시스템 / 또는 비용 부담</td>
+    </tr>
+    <tr>
+      <td><strong>실거래</strong></td>
+      <td>—</td>
+      <td>회사 자금 + 컴플라이언스</td>
+      <td>입사 후 회사 자원</td>
+    </tr>
+    <tr>
+      <td><strong>회사 시스템 통합</strong></td>
+      <td>—</td>
+      <td>사내 체결 게이트웨이 / 포지션 관리 / 정산</td>
+      <td>입사 후 실 작업</td>
+    </tr>
+    <tr>
+      <td><strong>한화 ELS 단일자산 ELB 정확 파싱</strong></td>
+      <td>regex 한계 (1057호 ±3.47%)</td>
+      <td>DART XML 표 구조가 HTML &lt;table&gt; 으로 들어감</td>
+      <td>BeautifulSoup/lxml 표 파서 추가 (1~2일 작업)</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ======================================================================== -->
+<h2>8. 비전공자용 요약 (TL;DR)</h2>
+
+<div class="callout callout-info">
+  <ol style="margin: 0; padding-left: 22px;">
+    <li>지난 세션에 <strong>"실무 시스템 가능?"</strong> 질문에 너무 빨리 "멀음" 이라고 답했는데,
+        실제로 표 8 항목을 다시 보니 5개는 개인 환경에서 시간만 들이면 즉시 가능했다.</li>
+    <li><strong>B3 (뉴스→IV)</strong>: 캘린더를 2년치 46건 → 10년치 208건으로 늘리고,
+        가설을 "이벤트가 일어났는가" → "그 이벤트가 예상 밖이었는가" 로 바꿔서
+        <strong>부호 일치율 37% → 54.8%</strong> 까지 끌어올림. FOMC 만 보면 57.1% PASS.</li>
+    <li><strong>B4 (Deep Hedging)</strong>: 학습을 GBM 합성에서 SPY 일별 실제 수익률 (10년치, fat tail 노출) 로 교체했더니
+        오히려 <strong>+24.5% → +31.3%</strong> 로 더 좋아짐 (실시장에서 BSM 이 더 어려워지니 RL 우위가 커짐).</li>
+    <li><strong>한화 ELS</strong>: DART 추가 다운으로 표본 1 → 4건 (메타) / 2건 정량.
+        새 1057호는 단일자산이라 모델 가정 한계로 −3.47%, 8286호는 +2.17% 그대로.</li>
+    <li><strong>C++ MC</strong>: 옵션 10만건 동시 재가격 → <strong>1.6분</strong>. ELS desk 야간 작업 충분.</li>
+    <li>남은 것은 <strong>KIS 계좌 발급</strong>, <strong>KRX 멤버십</strong>, <strong>실 자금 거래</strong>, <strong>회사 사내 시스템 통합</strong> 4개 — 모두 외부 의존이라 입사 후만 가능.</li>
+    <li>그래서 결론: <strong>"포트폴리오 자체는 거의 production-ready, 마지막 마일은 회사 자원 의존"</strong>.</li>
+  </ol>
+</div>
+
+<!-- ======================================================================== -->
+<h2>9. 관련 파일·커밋</h2>
+<table>
+  <thead><tr><th>종류</th><th>경로</th><th>설명</th></tr></thead>
+  <tbody>
+    <tr><td>data (NEW)</td><td><code>data/macro_events/fomc_cpi_calendar_v2.json</code></td><td>FOMC 84 + CPI 124 + case 20 (10년치)</td></tr>
+    <tr><td>data (NEW)</td><td><code>data/macro_events/vix_daily_v2.csv</code></td><td>^VIX 일별 close 2614일</td></tr>
+    <tr><td>data (NEW)</td><td><code>data/macro_events/spy_returns.csv</code></td><td>SPY 일별 log-return 3,095일</td></tr>
+    <tr><td>data (NEW)</td><td><code>data/macro_events/b3_macro_backtest_v2.json</code></td><td>v2 백테스트 결과 (208 events + 20 cases)</td></tr>
+    <tr><td>data (NEW)</td><td><code>data/els_samples/dart_20260424000{732,696,686}.xml</code></td><td>한화 추가 표본 3건 (압축 해제됨)</td></tr>
+    <tr><td>data (NEW)</td><td><code>data/els_samples/additional_repriced.json</code></td><td>1057호 단일자산 재가격 결과</td></tr>
+    <tr><td>data (NEW)</td><td><code>data/bench_buehler_historical.txt</code></td><td>SPY historical Buehler 학습 로그</td></tr>
+    <tr><td>data (NEW)</td><td><code>data/bench_fastmc_scale.json</code></td><td>N=100/1k/10k 옵션 scale 벤치</td></tr>
+    <tr><td>module (NEW)</td><td><code>news_iv/iv_shift_v2.py</code></td><td>surprise-aware ΔIV + predict_sign_v2</td></tr>
+    <tr><td>module (NEW)</td><td><code>ai_hedging/agents/buehler_pg_historical.py</code></td><td>SPY block-bootstrap 학습 + simulate_batch</td></tr>
+    <tr><td>script (NEW)</td><td><code>scripts/b3_macro_backtest_v2.py</code></td><td>v2 백테스트 실행</td></tr>
+    <tr><td>script (NEW)</td><td><code>scripts/train_buehler_historical.py</code></td><td>SPY historical 학습 메인</td></tr>
+    <tr><td>script (NEW)</td><td><code>scripts/fetch_more_els.py</code></td><td>DART 한화 추가 표본 다운</td></tr>
+    <tr><td>script (NEW)</td><td><code>scripts/reprice_hanwha_extra.py</code></td><td>추가 표본 재가격</td></tr>
+    <tr><td>script (NEW)</td><td><code>scripts/bench_fastmc_scale.py</code></td><td>production-scale fastmc 벤치</td></tr>
+    <tr><td>model (NEW)</td><td><code>models/buehler_historical.pt</code></td><td>SPY historical 학습된 정책</td></tr>
+    <tr><td>prior</td><td><code>docs/2026-04-26/B3_news_iv_backtest.html</code></td><td>v1 진단 보고서 (오전)</td></tr>
+  </tbody>
+</table>
+
+<!-- ======================================================================== -->
+<h2>10. 용어 정리집 (Glossary)</h2>
+<table>
+  <thead><tr><th>용어</th><th>한 줄 설명</th><th>본문에서의 역할</th></tr></thead>
+  <tbody>
+    <tr><td><strong>vol crush</strong></td><td>이벤트 발표 후 IV 가 떨어지는 현상 ("불확실성 해소")</td><td>v1 가설 실패의 본질 진단. v2 가 이걸 룰에 반영</td></tr>
+    <tr><td><strong>surprise label</strong></td><td>경제지표 발표 시 시장 컨센서스 대비 결과 (hot/cool/inline)</td><td>v2 가중치 계산의 입력. label 정확도 = v2 정확도 상한</td></tr>
+    <tr><td><strong>FOMC dot plot</strong></td><td>FOMC 위원들이 향후 금리 경로를 점으로 표시한 차트</td><td>"hawkish dot plot" 같은 surprise 신호. 본문 케이스 5건 포함</td></tr>
+    <tr><td><strong>block bootstrap</strong></td><td>시계열을 길이 k 블록으로 잘라 무작위 추출하는 기법</td><td>B4 SPY 환경에서 vol-clustering 일부 보존하며 batch 생성</td></tr>
+    <tr><td><strong>kurtosis</strong></td><td>분포의 fat tail 정도. 정규분포 = 3, 클수록 극단값 빈번</td><td>SPY kurt 17.79 = GBM 가정 대비 fat tail 약 6배</td></tr>
+    <tr><td><strong>CVaR ratio</strong></td><td>policy CVaR ÷ baseline CVaR. 1보다 작으면 baseline 보다 좋음</td><td>B4 평가 단일 지표. v1 0.755 → v2 historical 0.687</td></tr>
+    <tr><td><strong>realized volatility</strong></td><td>과거 일별 수익률에서 계산한 실현 변동성 (학습용 σ 후보)</td><td>SPY 17.30% — 학습용 sigma 로 사용 (BSM Δ baseline 계산에도 동일)</td></tr>
+    <tr><td><strong>OpenMP</strong></td><td>C++ 에서 멀티코어 병렬화하는 컴파일러 지시문 표준</td><td>fastmc 의 OpenMP 가 N=10k 옵션 0.98 ms/opt 달성의 핵심</td></tr>
+    <tr><td><strong>ELS step-down</strong></td><td>3자산 worst-of, 6개월마다 자동조기상환, KI 50% 등 한국 표준 구조</td><td>한화 8286호 모델. 1057호 (단일자산 ELB) 와 구조 다름</td></tr>
+    <tr><td><strong>DART corp_code</strong></td><td>금감원 전자공시시스템에서 회사를 식별하는 8자리 고유번호</td><td>한화투자증권 = 00148610. 잘못 잡으면 0건 회신</td></tr>
+    <tr><td><strong>fat tail</strong></td><td>정규분포보다 극단값이 더 자주 나타나는 분포 특성</td><td>GBM (정규) 가정과 실시장의 가장 큰 차이. B4 narrative 의 핵심</td></tr>
+    <tr><td><strong>throughput (ms/opt)</strong></td><td>옵션 1건 처리에 걸리는 평균 시간</td><td>fastmc production 평가의 1차 지표. speedup 보다 실무적</td></tr>
+    <tr><td><strong>Beber &amp; Brandt 2006</strong></td><td>FOMC 발표 전 IV 상승, 후 vol crush 보고한 학술 연구</td><td>v1 가설 실패의 학술 백킹. v2 설계의 동기</td></tr>
+  </tbody>
+</table>
+
+</body>
+</html>

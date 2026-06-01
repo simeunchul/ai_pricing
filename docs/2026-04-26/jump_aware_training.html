@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Buehler Jump-Aware Retraining — specialization vs generalization 실증</title>
+<style>
+  :root {
+    --fg:#1a1a1a; --bg:#fafafa; --muted:#666;
+    --accent:#2c5aa0; --accent-light:#e6eef7;
+    --warn:#c0392b; --warn-light:#fdeae6;
+    --ok:#0b8043; --ok-light:#e6f3ea;
+    --yellow:#a6820d; --yellow-light:#fff4d6;
+    --purple:#6c3483; --purple-light:#eee0f3;
+    --border:#ddd; --code-bg:#f4f4f4;
+  }
+  *{box-sizing:border-box}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",
+                "Apple SD Gothic Neo",Roboto,sans-serif;
+    color:var(--fg); background:var(--bg); line-height:1.7;
+    max-width:1100px; margin:0 auto; padding:32px 24px 80px;
+  }
+  h1{font-size:28px; border-bottom:3px solid var(--accent); padding-bottom:8px}
+  h2{font-size:22px; margin-top:44px; color:var(--accent);
+     border-left:4px solid var(--accent); padding-left:12px}
+  h3{font-size:17px; margin-top:26px}
+  code{background:var(--code-bg); padding:2px 6px; border-radius:3px;
+       font-family:ui-monospace,Consolas,monospace; font-size:13px}
+  pre{background:#1e1e1e; color:#d4d4d4; padding:14px 16px; border-radius:6px;
+      overflow-x:auto; font-size:13px; line-height:1.5}
+  pre code{background:transparent; color:inherit; padding:0}
+  table{border-collapse:collapse; width:100%; margin:14px 0; font-size:14px}
+  th,td{padding:10px 12px; text-align:left; border:1px solid var(--border); vertical-align:top}
+  th{background:var(--accent-light); font-weight:600}
+  tbody tr:nth-child(even){background:#f7f7f7}
+  .num{font-family:ui-monospace,Consolas,monospace}
+  .good{color:var(--ok); font-weight:600}
+  .bad{color:var(--warn); font-weight:600}
+  .partial{color:var(--yellow); font-weight:600}
+  .callout{border-left:4px solid; padding:14px 18px; margin:18px 0; border-radius:0 6px 6px 0}
+  .callout-warn{border-color:var(--warn); background:var(--warn-light)}
+  .callout-ok{border-color:var(--ok); background:var(--ok-light)}
+  .callout-info{border-color:var(--accent); background:var(--accent-light)}
+  .callout-yellow{border-color:var(--yellow); background:var(--yellow-light)}
+  .callout-purple{border-color:var(--purple); background:var(--purple-light)}
+  .badge{display:inline-block; padding:2px 8px; border-radius:3px; font-size:12px; font-weight:600}
+  .badge-ok{background:var(--ok-light); color:var(--ok)}
+  .badge-partial{background:var(--yellow-light); color:var(--yellow)}
+  .badge-bad{background:var(--warn-light); color:var(--warn)}
+  .meta{color:var(--muted); font-size:13px}
+  figure{margin:20px 0; text-align:center}
+  figcaption{font-size:12.5px; color:var(--muted); margin-top:6px}
+  .matrix-cell-good{background:#d8efe2; color:#0b8043; font-weight:600; text-align:right}
+  .matrix-cell-bad{background:#fadcd6; color:#c0392b; font-weight:600; text-align:right}
+  .matrix-cell-best{background:#a6e0bd; color:#0b8043; font-weight:700; text-align:right}
+</style>
+</head>
+<body>
+
+<h1>Buehler Jump-Aware Retraining — specialization vs generalization 실증</h1>
+<p class="meta">
+  작성 2026-04-26 · 후속 작업: 사용자 요청 "환경에 비정형 추가, 철학 보존하며 retraining" ·
+  학습: 600 epoch × 16,384 batch × 30 step × 2 모델 (CPU 506초) · 평가: 3 모델 × 4 시나리오 × 8000 path
+</p>
+
+<div class="callout callout-ok">
+  <strong>한 줄 결과</strong> — 정책 입력 5-dim 그대로 (jump 신호 0개) 유지하며 학습 환경만 비정형화.
+  Jump 환경에서 재학습한 정책은 <strong>jump 환경에서 BSM Δ 대비 +30.47%</strong> (Medium) / <strong>+23.19%</strong> (Large) 까지 우위 회복.
+  단 <strong>GBM-only 환경에서는 −101.47% 폭망</strong> — ML 고전 trade-off (specialization vs generalization) 의 정확한 재현.
+  <strong>Domain-random 학습 모델</strong>이 가장 균형 잡힌 robustness (3개 jump 시나리오 모두 +10~27%).
+</div>
+
+<!-- ============================================================ -->
+<h2>1. 무엇을 시도했나</h2>
+
+<h3>이전 결과 (jump_stress_test.html) 의 한계</h3>
+<p>
+  GBM 환경에서 학습한 Buehler 정책을 jump 환경에서 평가했더니 코로나급 (λ=20) 에서 BSM Δ 대비 −1.53% 패배.
+  "어떻게 이 한계를 넘느냐?" 가 자연스러운 질문.
+</p>
+
+<h3>접근 — Buehler 의 model-free 정신을 깨지 않는 두 가지 전략</h3>
+
+<div class="callout callout-info">
+  <strong>핵심 제약</strong> — 정책 입력은 5-dim 그대로 (jump 신호 추가 금지).
+  변경되는 건 <em>학습 데이터의 분포</em> 뿐. 정책은 여전히 환경에 jump 가 있다는 사실을 모름.
+</div>
+
+<table>
+  <thead>
+    <tr><th style="width:24%">전략</th><th>학습 환경</th><th>예상 결과</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Fixed jump</strong> (λ=10)</td>
+      <td>매 epoch 동일한 jump 분포 (Medium 시나리오와 동일 파라미터)</td>
+      <td>해당 분포에서 압도적, 분포 외에서 약함 (specialization)</td>
+    </tr>
+    <tr>
+      <td><strong>Domain-random</strong></td>
+      <td>매 epoch 마다 λ ~ Uniform(0, 18) 새로 샘플 (μJ, σJ 도 λ 의 함수)</td>
+      <td>모든 환경에서 적당한 수준 (generalization)</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>의도적 train/test split</h3>
+
+<p>
+  학습 분포는 λ ∈ [0, 18], 평가 분포는 λ ∈ {0, 5, 10, 20}.
+  <strong>Large jump (λ=20)</strong> 는 학습 도메인 <em>밖</em> → OOD generalization 도 측정.
+</p>
+
+<!-- ============================================================ -->
+<h2>2. 학습 설정</h2>
+
+<table>
+  <thead><tr><th>파라미터</th><th>값</th><th>설명</th></tr></thead>
+  <tbody>
+    <tr><td>policy 구조</td><td><code>(128, 128, 64)</code> ReLU</td><td>기존 buehler_tc03_v2 와 동일</td></tr>
+    <tr><td>policy input</td><td>5-dim (jump 신호 없음)</td><td>철학 보존 핵심</td></tr>
+    <tr><td>batch size</td><td>16,384 paths/epoch</td><td>CVaR 추정 안정성</td></tr>
+    <tr><td>n_epochs</td><td>600</td><td>각 약 250초 (CPU)</td></tr>
+    <tr><td>loss</td><td>CVaR@5%</td><td>Buehler 2019 eq.13</td></tr>
+    <tr><td>optimizer</td><td>Adam, lr=1e-3, cosine schedule</td><td>기존과 동일</td></tr>
+    <tr><td>learning seed</td><td>0</td><td>재현 가능</td></tr>
+  </tbody>
+</table>
+
+<h3>Domain-random 의 분포 디자인</h3>
+<pre><code class="language-python">def sample_jump_params(rng):
+    lam  = rng.uniform(0.0, 18.0)              # 0 → 18 jumps/year
+    muJ  = -0.01 - 0.003 * (lam / 18.0) * 7.0  # mild → severe negative
+    sigJ = 0.03 + 0.005 * lam                  # mild → wide spread
+    return lam, muJ, sigJ</code></pre>
+
+<p>설계 의도: λ=18 까지만 학습 → λ=20 평가는 의도적 OOD.</p>
+
+<!-- ============================================================ -->
+<h2>3. 결과 — 3 모델 × 4 시나리오 행렬</h2>
+
+<h3>3.1 핵심 매트릭스 (Buehler/BSM Δ improvement %, 양수 = Buehler 승)</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th rowspan="2" style="width:24%">모델</th>
+      <th colspan="4" style="text-align:center">평가 시나리오</th>
+    </tr>
+    <tr>
+      <th style="text-align:right">GBM-only</th>
+      <th style="text-align:right">Small jump</th>
+      <th style="text-align:right">Medium jump</th>
+      <th style="text-align:right">Large jump (OOD)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>GBM 학습</strong> (기존 buehler_tc03_v2)</td>
+      <td class="matrix-cell-best">+21.28%</td>
+      <td class="matrix-cell-good">+4.41%</td>
+      <td class="matrix-cell-good">+8.69%</td>
+      <td class="matrix-cell-bad">−1.53%</td>
+    </tr>
+    <tr>
+      <td><strong>Jump-fixed 학습</strong> (λ=10 고정)</td>
+      <td class="matrix-cell-bad">−101.47%</td>
+      <td class="matrix-cell-bad">−2.88%</td>
+      <td class="matrix-cell-best">+30.47%</td>
+      <td class="matrix-cell-best">+23.19%</td>
+    </tr>
+    <tr>
+      <td><strong>Jump-random 학습</strong> (λ ~ U(0,18))</td>
+      <td class="matrix-cell-bad">−53.51%</td>
+      <td class="matrix-cell-good">+10.21%</td>
+      <td class="matrix-cell-good">+27.01%</td>
+      <td class="matrix-cell-good">+18.30%</td>
+    </tr>
+  </tbody>
+</table>
+
+<p class="meta">진한 녹색 = 해당 시나리오 1위. 빨강 = BSM Δ 패배. 연녹색 = BSM Δ 승.</p>
+
+<h3>3.2 시각화 — 모델 × 시나리오 막대 그래프</h3>
+
+<figure>
+<svg viewBox="0 0 1000 400" xmlns="http://www.w3.org/2000/svg" width="100%" height="auto"
+     style="background:#fff;border:1px solid var(--border);border-radius:6px">
+
+  <text x="500" y="22" text-anchor="middle" font-size="13" font-weight="600">
+    Improvement (%) over BSM Δ — 모델별 4 시나리오, 양수가 좋음
+  </text>
+
+  <!-- y axis: -110 to +35 mapped to y=350 to y=60 -->
+  <!-- y(v) = 350 - (v + 110) / 145 * 290 -->
+  <!-- 0 line: y = 350 - 110/145*290 = 350 - 220 = 130 -->
+  <line x1="120" y1="60" x2="120" y2="350" stroke="#333" stroke-width="1"/>
+  <line x1="120" y1="350" x2="980" y2="350" stroke="#333" stroke-width="1"/>
+  <line x1="120" y1="130" x2="980" y2="130" stroke="#333" stroke-width="1.5" stroke-dasharray="5,4"/>
+  <text x="984" y="134" font-size="10" fill="#333">0% (BSM 동률)</text>
+
+  <!-- y labels -->
+  <text x="115" y="64" text-anchor="end" font-size="10" fill="#666">+35%</text>
+  <text x="115" y="100" text-anchor="end" font-size="10" fill="#666">+18%</text>
+  <text x="115" y="134" text-anchor="end" font-size="10" fill="#666">0%</text>
+  <text x="115" y="170" text-anchor="end" font-size="10" fill="#666">−18%</text>
+  <text x="115" y="220" text-anchor="end" font-size="10" fill="#666">−43%</text>
+  <text x="115" y="270" text-anchor="end" font-size="10" fill="#666">−68%</text>
+  <text x="115" y="320" text-anchor="end" font-size="10" fill="#666">−93%</text>
+  <text x="115" y="354" text-anchor="end" font-size="10" fill="#666">−110%</text>
+
+  <!-- 4 groups (scenarios) × 3 bars (models) -->
+  <!-- Group spacing: 4 groups across [150, 970], each group 200 wide, 20 spacing -->
+  <!-- Group 1: GBM-only, x = 160 -->
+  <!-- Group 2: Small jump, x = 380 -->
+  <!-- Group 3: Medium jump, x = 600 -->
+  <!-- Group 4: Large jump, x = 820 -->
+
+  <!-- helper: y(v) computation
+       v=+21.28 → y = 350 - (21.28+110)/145*290 = 350 - 262.6 = 87.4
+       v=+4.41  → y = 350 - 114.41/145*290     = 350 - 228.8 = 121.2
+       v=+8.69  → y = 350 - 118.69/145*290     = 350 - 237.4 = 112.6
+       v=-1.53  → y = 350 - 108.47/145*290     = 350 - 216.9 = 133.1
+       v=-101.47→ y = 350 - 8.53/145*290       = 350 - 17.1  = 332.9
+       v=-2.88  → y = 350 - 107.12/145*290     = 350 - 214.2 = 135.8
+       v=+30.47 → y = 350 - 140.47/145*290     = 350 - 280.9 = 69.1
+       v=+23.19 → y = 350 - 133.19/145*290     = 350 - 266.4 = 83.6
+       v=-53.51 → y = 350 - 56.49/145*290      = 350 - 113.0 = 237.0
+       v=+10.21 → y = 350 - 120.21/145*290     = 350 - 240.4 = 109.6
+       v=+27.01 → y = 350 - 137.01/145*290     = 350 - 274.0 = 76.0
+       v=+18.30 → y = 350 - 128.30/145*290     = 350 - 256.6 = 93.4
+  -->
+
+  <!-- GBM-only group: x_start=140 -->
+  <rect x="140" y="87"  width="40" height="43"  fill="#0b8043"/>
+  <rect x="185" y="332" width="40" height="18"  fill="#c0392b"/>
+  <rect x="230" y="237" width="40" height="113" fill="#c0392b" opacity="0.6"/>
+  <text x="205" y="370" text-anchor="middle" font-size="11">GBM-only</text>
+
+  <!-- Small jump group: x_start=360 -->
+  <rect x="360" y="121" width="40" height="9"   fill="#0b8043"/>
+  <rect x="405" y="130" width="40" height="6"   fill="#c0392b"/>
+  <rect x="450" y="110" width="40" height="20"  fill="#0b8043" opacity="0.6"/>
+  <text x="425" y="370" text-anchor="middle" font-size="11">Small jump</text>
+
+  <!-- Medium jump group: x_start=580 -->
+  <rect x="580" y="113" width="40" height="17"  fill="#0b8043"/>
+  <rect x="625" y="69"  width="40" height="61"  fill="#0b8043" stroke="#0b8043" stroke-width="2"/>
+  <rect x="670" y="76"  width="40" height="54"  fill="#0b8043" opacity="0.6"/>
+  <text x="645" y="370" text-anchor="middle" font-size="11">Medium jump</text>
+
+  <!-- Large jump group: x_start=800 -->
+  <rect x="800" y="130" width="40" height="3"   fill="#c0392b"/>
+  <rect x="845" y="84"  width="40" height="46"  fill="#0b8043" stroke="#0b8043" stroke-width="2"/>
+  <rect x="890" y="93"  width="40" height="37"  fill="#0b8043" opacity="0.6"/>
+  <text x="865" y="370" text-anchor="middle" font-size="11">Large jump (OOD)</text>
+
+  <!-- Legend -->
+  <rect x="650" y="40" width="14" height="10" fill="#0b8043"/>
+  <text x="670" y="49" font-size="11">GBM 학습</text>
+  <rect x="750" y="40" width="14" height="10" fill="#0b8043" stroke="#0b8043" stroke-width="2"/>
+  <text x="770" y="49" font-size="11">Jump-fixed</text>
+  <rect x="870" y="40" width="14" height="10" fill="#0b8043" opacity="0.6"/>
+  <text x="890" y="49" font-size="11">Jump-random</text>
+</svg>
+<figcaption>
+  녹색 위로 = 좋음, 빨강 아래로 = 나쁨. Jump-fixed 의 GBM-only 막대 (−101%) 가 그래프 아래로 거의 끝까지 내려간 게 핵심.
+</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2>4. 해석 — ML 의 No Free Lunch</h2>
+
+<div class="callout callout-purple">
+  <strong>핵심 통찰</strong> — 어떤 환경에서 학습하느냐에 따라 그 환경에서 가장 강하지만 다른 환경에서 약해진다.
+  <strong>"어디서나 1등인 정책은 없다"</strong>. 이걸 4개 환경 × 3개 모델로 명확히 보여준 게 이 실험의 가치.
+</div>
+
+<h3>4.1 모델별 성격 진단</h3>
+
+<table>
+  <thead><tr><th>모델</th><th>강점</th><th>약점</th><th>성격</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>GBM 학습 (기존)</td>
+      <td>GBM 환경 +21.28%</td>
+      <td>Large jump −1.53%</td>
+      <td>전문가 (학습 분포에 최적화)</td>
+    </tr>
+    <tr>
+      <td>Jump-fixed 학습</td>
+      <td>Medium +30.47%, Large +23.19%</td>
+      <td>GBM −101.47%, Small −2.88%</td>
+      <td>편식 — jump 만 잘함, 평온할 때 폭망</td>
+    </tr>
+    <tr>
+      <td>Jump-random 학습</td>
+      <td>3개 jump 시나리오 모두 +10~27%</td>
+      <td>GBM −53.51% (Fixed 보단 나음)</td>
+      <td>제너럴리스트 — 적당히 다 잘함</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>4.2 왜 Jump-fixed 가 GBM 에서 −101% 인가?</h3>
+<p>
+  λ=10 환경에서는 평균적으로 <em>큰 음의 jump</em> 가 자주 온다는 걸 학습 → 정책은 "보수적으로 헤지를 항상 많이 들고 있는" 패턴을 학습.
+  GBM 환경에서는 jump 가 안 오는데 헤지를 무겁게 들고 있으면 거래비용만 누적 → 헤지 비용이 폭발.
+  <br><br>
+  즉 정책은 환경의 "통계적 성격" 에 적응한 것이지, 환경 자체를 인식한 것은 아니다. 이게 model-free 의 한계이자 정신.
+</p>
+
+<h3>4.3 왜 Jump-random 이 모든 jump 환경에서 일관된가?</h3>
+<p>
+  학습 동안 λ 가 0~18 사이를 자유롭게 돌아다녔으므로, 정책은 "어떤 jump 분포가 와도 합리적인 헤지" 를 학습.
+  특정 환경에서 1등은 못 되지만 어디서도 폭망하지 않음. <strong>robustness 의 정의 그대로</strong>.
+</p>
+
+<h3>4.4 OOD generalization 의 작은 승리</h3>
+<p>
+  Jump-random 은 학습 시 λ=20 환경을 본 적이 없는데도 Large jump 에서 +18.30% 개선.
+  "보지 못한 더 험한 환경에서도 어느 정도 일반화" — domain randomization 의 가치를 정량적으로 증명.
+</p>
+
+<!-- ============================================================ -->
+<h2>5. 실무 권장 — 어떤 모델을 언제 쓰나</h2>
+
+<table>
+  <thead><tr><th>시장 상황</th><th>권장 모델</th><th>근거</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>저변동성 / 평온한 시기 (VIX&lt;15)</td>
+      <td><strong>GBM 학습</strong> (기존)</td>
+      <td>+21.28% 우위. jump 가 거의 없으므로 specialization 이 답</td>
+    </tr>
+    <tr>
+      <td>중변동성 / 어닝시즌 (VIX 18~25)</td>
+      <td><strong>Jump-random 학습</strong></td>
+      <td>+10~27% 어디서나 안전. regime 판단 어려울 때 default</td>
+    </tr>
+    <tr>
+      <td>고변동성 / 경기 stress (VIX&gt;30)</td>
+      <td><strong>Jump-fixed 학습</strong> (λ=10)</td>
+      <td>+23~30% 압도적. GBM 폭망은 이 시기엔 무관</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-yellow">
+  <strong>면접 talking point</strong> — "단일 모델로 모든 시장을 커버할 수는 없습니다 (No Free Lunch).
+  대신 시장 regime 을 분류하고 (예: VIX 분위수, B3 News-IV 시그널) 그 결과에 따라 3개 정책을 교차 사용하는 ensemble 이 실무적 답입니다.
+  AI 기본법 대응 측면에서도 어느 모델을 언제 썼는지 audit log 에 기록하는 게 자연스럽고요."
+</div>
+
+<!-- ============================================================ -->
+<h2>6. 코드 변경 / 산출물</h2>
+
+<table>
+  <thead><tr><th>파일</th><th>내용</th></tr></thead>
+  <tbody>
+    <tr><td><code>scripts/train_buehler_jump.py</code></td><td>fixed / random 두 모드 학습 스크립트</td></tr>
+    <tr><td><code>scripts/stress_test_buehler_3way.py</code></td><td>3 모델 × 4 시나리오 비교 평가</td></tr>
+    <tr><td><code>models/buehler_jump_fixed.pt</code></td><td>λ=10 고정 학습 정책 (252s)</td></tr>
+    <tr><td><code>models/buehler_jump_random.pt</code></td><td>λ ~ U(0,18) 랜덤 학습 정책 (254s)</td></tr>
+    <tr><td><code>data/stress_test_buehler_3way.json</code></td><td>raw 결과 (3×4=12 row)</td></tr>
+  </tbody>
+</table>
+
+<h3>재현 방법</h3>
+<pre><code># 1. 두 정책 학습 (각 ~250초, 총 ~8.5분 CPU)
+python scripts/train_buehler_jump.py --mode fixed  --epochs 600
+python scripts/train_buehler_jump.py --mode random --epochs 600
+
+# 2. 3-way stress test (~110초, 모델 로드 + 평가)
+python scripts/stress_test_buehler_3way.py
+# → 콘솔에 3×4 매트릭스 출력
+# → data/stress_test_buehler_3way.json</code></pre>
+
+<!-- ============================================================ -->
+<h2>7. 비전공자용 TL;DR</h2>
+
+<div class="callout callout-info">
+  <ol style="margin:0;padding-left:20px">
+    <li>"평소 시장만 본 헤지 정책 (GBM 학습) 은 평소엔 잘하지만 (+21%) 코로나급 폭락에선 BSM 공식과 비슷해진다 (−1.5%)."</li>
+    <li>"항상 폭락이 오는 시뮬에서만 학습한 정책 (Jump-fixed) 은 폭락 시 압도적이지만 (+30%) 평온할 땐 거의 100% 망한다."</li>
+    <li>"매번 다른 시뮬에서 학습한 정책 (Jump-random) 은 어디서나 적당한 수준 (+10~27%) 의 안정성을 갖는다 — generalist."</li>
+    <li>"세 모델 모두 정책 입력은 똑같이 5-dim. 정책은 jump 가 있다는 사실 자체를 모름. 학습 환경의 성격에만 적응할 뿐."</li>
+    <li>"실무 답 = '시장 regime 따라 3 모델 교차 사용' 또는 '더 다양한 학습 + 더 큰 정책으로 한 모델로 커버'. 둘 다 정직한 trade-off."</li>
+  </ol>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="glossary">8. 용어 정리집</h2>
+
+<table>
+  <thead><tr><th style="width:22%">용어</th><th style="width:38%">한 줄 설명</th><th>본문에서의 역할</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>retraining</strong></td>
+      <td>같은 모델 구조를 다른 데이터/환경으로 다시 학습</td>
+      <td>이 작업의 본체 — fixed/random 두 가지 retraining</td>
+    </tr>
+    <tr>
+      <td><strong>specialization</strong></td>
+      <td>특정 분포에 최적화 → 그 분포에서 강하나 분포 외에선 약함</td>
+      <td>Jump-fixed 의 정확한 정의 (Medium에서 +30, GBM에서 −101)</td>
+    </tr>
+    <tr>
+      <td><strong>generalization</strong></td>
+      <td>다양한 분포에서 적당히 잘함 → 어디서도 폭망하지 않음</td>
+      <td>Jump-random 의 목표</td>
+    </tr>
+    <tr>
+      <td><strong>domain randomization</strong></td>
+      <td>학습 시 환경 파라미터를 매 에피소드마다 새로 샘플 → 정책이 환경 변화에 robust 해짐</td>
+      <td>Jump-random 의 핵심 기법 (Sim-to-Real 에서 표준)</td>
+    </tr>
+    <tr>
+      <td><strong>OOD (Out-of-Distribution)</strong></td>
+      <td>학습 시 본 적 없는 분포에서의 평가</td>
+      <td>Large jump (λ=20) — 학습은 [0,18] 까지만</td>
+    </tr>
+    <tr>
+      <td><strong>No Free Lunch (NFL)</strong></td>
+      <td>"모든 분포에서 최적인 단일 정책은 없다" 는 ML 정리</td>
+      <td>이 실험의 정확한 재현</td>
+    </tr>
+    <tr>
+      <td><strong>regime</strong></td>
+      <td>시장의 큰 분류 (저/중/고변동성 같은 상태)</td>
+      <td>실무 권장의 핵심 — regime 별 모델 교차 사용</td>
+    </tr>
+    <tr>
+      <td><strong>ensemble</strong></td>
+      <td>여러 정책을 조합해서 사용 — regime 별 분기 또는 가중평균</td>
+      <td>NFL 을 우회하는 실무적 답</td>
+    </tr>
+    <tr>
+      <td><strong>distribution shift</strong></td>
+      <td>학습 분포 ≠ 평가 분포일 때 성능이 깨지는 현상</td>
+      <td>Jump-fixed 가 GBM 에서 −101% 인 이유</td>
+    </tr>
+    <tr>
+      <td><strong>model-free</strong></td>
+      <td>가격 모델 (BSM, Heston 등) 가정을 정책 입력에 안 쓰는 정책 설계</td>
+      <td>Buehler 의 핵심 정신, 본 작업에서 보존</td>
+    </tr>
+    <tr>
+      <td><strong>cosine annealing</strong></td>
+      <td>학습률을 cosine 곡선처럼 천천히 줄이는 방식</td>
+      <td>두 학습 모두에 사용된 lr 스케줄</td>
+    </tr>
+    <tr>
+      <td><strong>CVaR@5%</strong></td>
+      <td>최악의 5% 손실들의 평균 (tail 손실 척도)</td>
+      <td>모든 학습/평가의 비교 지표</td>
+    </tr>
+  </tbody>
+</table>
+
+<p class="meta" style="margin-top:48px;padding-top:14px;border-top:1px solid var(--border)">
+  관련 보고서:
+  <a href="jump_stress_test.html">Jump 옵션 추가 + 1차 stress test (이 작업의 prequel)</a> ·
+  <a href="../2026-04-25/B4_buehler_implementation.html">B4 Buehler 구현 (+24.5% 달성)</a> ·
+  <a href="project_overview.html">프로젝트 종합 설명서</a>
+</p>
+
+</body>
+</html>

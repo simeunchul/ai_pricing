@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phase 2 — ETF LP 업그레이드: Avellaneda-Stoikov · 2026-04-26 · quant-lab</title>
+<style>
+  :root {
+    --fg: #1a1a1a; --bg: #fafafa; --muted: #666;
+    --accent: #2c5aa0; --accent-light: #e6eef7;
+    --warn: #c0392b; --warn-light: #fdeae6;
+    --ok: #0b8043; --ok-light: #e6f3ea;
+    --yellow: #a6820d; --yellow-light: #fff4d6;
+    --purple: #6c3483; --purple-light: #eee0f3;
+    --teal: #117a65; --teal-light: #d5f5ee;
+    --border: #ddd; --code-bg: #f4f4f4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR",
+                 "Apple SD Gothic Neo", Roboto, sans-serif;
+    color: var(--fg); background: var(--bg); line-height: 1.65;
+    max-width: 1180px; margin: 0 auto; padding: 32px 24px 80px;
+  }
+  h1 { font-size: 28px; border-bottom: 3px solid var(--accent); padding-bottom: 8px; }
+  h2 { font-size: 22px; margin-top: 44px; color: var(--accent);
+       border-left: 4px solid var(--accent); padding-left: 12px; }
+  h3 { font-size: 17px; margin-top: 26px; }
+  code { background: var(--code-bg); padding: 2px 6px; border-radius: 3px;
+         font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+  pre { background: var(--code-bg); padding: 14px 16px; border-radius: 6px;
+        overflow-x: auto; font-size: 13px; border-left: 3px solid var(--accent); }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { padding: 10px 12px; text-align: left; border: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--accent-light); font-weight: 600; }
+  tbody tr:nth-child(even) { background: #f7f7f7; }
+  .num { font-family: ui-monospace, Consolas, monospace; }
+  .good { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--warn); font-weight: 600; }
+  .neutral { color: var(--muted); }
+  .callout { border-left: 4px solid; padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .callout-warn { border-color: var(--warn); background: var(--warn-light); }
+  .callout-ok { border-color: var(--ok); background: var(--ok-light); }
+  .callout-info { border-color: var(--accent); background: var(--accent-light); }
+  .callout-purple { border-color: var(--purple); background: var(--purple-light); }
+  .callout-yellow { border-color: var(--yellow); background: var(--yellow-light); }
+  .callout-teal { border-color: var(--teal); background: var(--teal-light); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 3px;
+           font-size: 12px; font-weight: 600; }
+  .badge-ok { background: var(--ok-light); color: var(--ok); }
+  .badge-fail { background: var(--warn-light); color: var(--warn); }
+  .badge-todo { background: var(--yellow-light); color: var(--yellow); }
+  .badge-partial { background: var(--purple-light); color: var(--purple); }
+  figure { margin: 18px 0; text-align: center; }
+  figcaption { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .arrow { color: var(--accent); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<h1>Phase 2 — ETF LP 업그레이드: Avellaneda-Stoikov 양방향 호가</h1>
+<p class="meta">
+  2026-04-26 · Phase 1 (ELS desk_day) 직후 연속 진행 · JD 4축 중 ETF LP 축 보강.
+  단방향 iNAV → 양방향 LP + 재고 페널티 알고리즘으로 업그레이드.
+</p>
+
+<div class="callout callout-yellow">
+  <strong>한 줄 결과</strong> —
+  Avellaneda-Stoikov 모듈 신설 + 6개월 KODEX 200 일봉 백테스트 + compliance hook 통합.
+  <strong>일봉 + trending market (KODEX 200 +82% 6mo) 환경에서 A-S MTM 음수</strong> —
+  알고리즘 자체는 정상 작동하나 high-frequency 가정 위반.
+  실 production 검증은 <strong>KIS 분봉 + 횡보장 구간</strong> 필요.
+  본 sprint 의 ROI: A-S 수식 + compliance 통합 + 한계 정직히 진단까지.
+</div>
+
+<!-- ====================================================================== -->
+<h2>1. 무엇을 시도했는지 (배경 + 접근)</h2>
+
+<h3>왜 LP 업그레이드인가</h3>
+<p>
+  한화투자증권 디지털금융 JD 4축 중 <strong>"ETF LP 업무"</strong> 매핑이 약했음.
+  기존 <code>etf_inav_arb.py</code> 는 단방향 iNAV 평균회귀 — "LP 의사결정 모사" 라기엔 너무 단순.
+  실 LP 는 <strong>양방향 (bid + ask) 동시 호가 제출 + 재고 페널티</strong> 로 spread 수익 + 위험 관리.
+</p>
+
+<h3>접근 — Avellaneda-Stoikov (2008) 원논문 직접 구현</h3>
+<p>
+  Avellaneda-Stoikov 가 마켓메이킹의 표준 모델. 핵심 수식:
+</p>
+<pre><code>reservation_price = mid - q · γ · σ² · (T - t)        ← 재고 q 가 클수록 호가 skew
+optimal_spread    = γ · σ² · (T - t) + (2/γ) · ln(1 + γ/k)
+bid = reservation - spread/2
+ask = reservation + spread/2
+
+  q       : current inventory (signed)
+  γ (감마): risk aversion (높을수록 재고 회피)
+  σ       : asset 1-step volatility
+  T - t   : remaining session time (∈ [0, 1])
+  k       : order arrival intensity scale</code></pre>
+
+<p>
+  3 가지 안전 메커니즘이 자동 작동:
+</p>
+<ul>
+  <li><strong>재고 페널티 (q · γσ²(T-t))</strong>: 재고 한 방향 쏠리면 reservation price 자동 skew → 자연 mean-revert</li>
+  <li><strong>시간 감쇠 ((T-t))</strong>: 만기/세션 임박 시 spread 좁아짐 → 위험 빠르게 줄이기</li>
+  <li><strong>주문 도착 강도 (k)</strong>: 시장 활성도에 따라 spread 자동 조정</li>
+</ul>
+
+<!-- ====================================================================== -->
+<h2>2. 신규 모듈 설계</h2>
+
+<h3>코드 구조</h3>
+<table>
+<thead><tr><th>파일</th><th>역할</th><th>핵심 API</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>packages/autotrader/.../strategies/avellaneda_stoikov.py</code></td>
+  <td>A-S 양방향 호가 알고리즘</td>
+  <td><code>compute_quote(state, mid, t_remaining, cfg)</code> · <code>fill_check()</code> · <code>update_state()</code></td>
+</tr>
+<tr>
+  <td><code>scripts/bench_lp_strategies.py</code></td>
+  <td>iNAV vs A-S 비교 백테스트</td>
+  <td><code>backtest_avellaneda_stoikov()</code> · <code>backtest_inav_arbitrage()</code> + config sweep</td>
+</tr>
+<tr>
+  <td><code>data/lp/etf_prices.csv</code></td>
+  <td>069500.KS 6개월 일봉 캐시</td>
+  <td>yfinance fallback (KIS 분봉 인증 부재)</td>
+</tr>
+<tr>
+  <td><code>data/lp/bench_lp_2026-04-26.json</code></td>
+  <td>백테스트 결과 dump</td>
+  <td>3 config sweep + iNAV baseline 결과</td>
+</tr>
+</tbody>
+</table>
+
+<h3>핵심 dataclass</h3>
+<pre><code>@dataclass
+class ASConfig:
+    gamma: float = 0.1                # 위험회피 (0.1 ~ 1.5 sweep)
+    sigma: float = 0.01               # 1-step return std
+    k: float = 1.5                    # arrival intensity
+    inventory_limit: int = 50         # 절대 한도
+    quote_size: int = 1
+    tick_size: float = 0.001          # mid 비례
+
+@dataclass
+class ASState:
+    inventory: int = 0
+    cash: float = 0.0
+    realized_pnl: float = 0.0
+    n_buys: int = 0
+    n_sells: int = 0</code></pre>
+
+<!-- ====================================================================== -->
+<h2>3. 백테스트 결과 — 정직한 진단</h2>
+
+<h3>데이터</h3>
+<table>
+<tr><th>대상</th><td>KODEX 200 (069500.KS) — KOSPI200 추종 ETF</td></tr>
+<tr><th>기간</th><td>최근 6개월 (yfinance auto-adjusted close, 124 거래일)</td></tr>
+<tr><th>가격 변동</th><td>54,153원 → 98,355원 (<strong class="bad">+81.6%</strong>) — 강한 상승 trending market</td></tr>
+<tr><th>한계</th><td><strong>일봉 (1-day timestep)</strong>. A-S 는 high-frequency (분/초봉) 가정. KIS API 분봉 인증 부재</td></tr>
+</table>
+
+<h3>3 config sweep 결과</h3>
+<table>
+<thead>
+  <tr><th>Config</th><th>γ</th><th>tick</th><th>inv_limit</th><th>Final MTM</th><th>Trades</th><th>Sharpe-like</th><th>Mean spread</th><th>Inv 끝</th></tr>
+</thead>
+<tbody>
+<tr><td>default</td><td>0.1</td><td>0.0005</td><td>20</td><td class="num bad">−1,076,785</td><td>119</td><td class="num">−0.124</td><td class="num">1.291</td><td>−37</td></tr>
+<tr><td>tight</td><td>0.5</td><td>0.003</td><td>50</td><td class="num bad">−1,047,434</td><td>118</td><td class="num">−0.124</td><td class="num">0.729</td><td>−36</td></tr>
+<tr><td>wide</td><td>1.5</td><td>0.005</td><td>50</td><td class="num bad">−998,874</td><td>104</td><td class="num">−0.121</td><td class="num">0.425</td><td>−36</td></tr>
+<tr style="background:#e6eef7;"><td><strong>iNAV (baseline)</strong></td><td>—</td><td>—</td><td>20</td><td class="num bad"><strong>−17,121</strong></td><td><strong>33</strong></td><td class="num"><strong>−0.068</strong></td><td>—</td><td>−1</td></tr>
+</tbody>
+</table>
+
+<div class="callout callout-warn">
+  <strong>진단 — 일봉 + trending market 의 본질적 한계</strong>
+  <ol style="margin-top:6px;">
+    <li>KODEX 200 6개월 +82% 상승 → 매일 mid 가 ask 이상으로 상승 → A-S ask side fill 빈번 → inventory negative 누적</li>
+    <li>최종 inventory −36~−37 (limit 의 70~95%) — short position 이 unrealized loss 폭발</li>
+    <li>A-S 의 bid-ask spread × fill count 수익 메커니즘 = high-frequency 환경 (1분 mid 변동 ~ spread) 에서만 유효</li>
+    <li>일봉 환경에서는 1-day mid 변동 (mean ±1%) 이 spread (~0.4-1.3 원) 보다 훨씬 큼 → 한 방향만 fill</li>
+    <li>iNAV 는 5d 이동평균 기준 deviation threshold 0.5% → trade 횟수 33회로 적음 → 손실 적음 (그러나 trending 시 여전히 음수)</li>
+  </ol>
+</div>
+
+<h3>SVG: A-S vs iNAV PnL (6개월 누적)</h3>
+<figure>
+<svg width="900" height="220" viewBox="0 0 900 220" xmlns="http://www.w3.org/2000/svg">
+  <line x1="60" y1="40" x2="60" y2="170" stroke="#666" stroke-width="1.5"/>
+  <line x1="60" y1="170" x2="860" y2="170" stroke="#666" stroke-width="1.5"/>
+  <text x="55" y="44" font-size="11" fill="#666" text-anchor="end">0</text>
+  <text x="55" y="100" font-size="11" fill="#666" text-anchor="end">−500K</text>
+  <text x="55" y="170" font-size="11" fill="#666" text-anchor="end">−1.0M</text>
+
+  <text x="40" y="105" font-size="11" fill="#666" text-anchor="middle" transform="rotate(-90 40 105)">PnL (KRW)</text>
+
+  <line x1="60" y1="42" x2="860" y2="42" stroke="#0b8043" stroke-width="1.5" stroke-dasharray="3,3"/>
+  <text x="864" y="40" font-size="11" fill="#0b8043">break-even 0</text>
+
+  <!-- iNAV bar -->
+  <rect x="120" y="44" width="80" height="3" fill="#a6820d" opacity="0.85"/>
+  <text x="160" y="35" font-size="11" fill="#a6820d" text-anchor="middle">−17K</text>
+  <text x="160" y="190" font-size="11" fill="#666" text-anchor="middle">iNAV (단방향)</text>
+  <text x="160" y="204" font-size="10" fill="#666" text-anchor="middle">trades 33</text>
+
+  <!-- A-S default -->
+  <rect x="240" y="44" width="80" height="135" fill="#c0392b" opacity="0.85"/>
+  <text x="280" y="190" font-size="11" fill="#c0392b" text-anchor="middle">A-S default</text>
+  <text x="280" y="204" font-size="10" fill="#666" text-anchor="middle">−1.08M, 119 trades</text>
+  <text x="280" y="195" font-size="9" fill="#fff" text-anchor="middle"></text>
+
+  <!-- A-S tight -->
+  <rect x="360" y="44" width="80" height="131" fill="#c0392b" opacity="0.7"/>
+  <text x="400" y="190" font-size="11" fill="#c0392b" text-anchor="middle">A-S tight</text>
+  <text x="400" y="204" font-size="10" fill="#666" text-anchor="middle">−1.05M, 118 trades</text>
+
+  <!-- A-S wide -->
+  <rect x="480" y="44" width="80" height="125" fill="#c0392b" opacity="0.6"/>
+  <text x="520" y="190" font-size="11" fill="#c0392b" text-anchor="middle">A-S wide</text>
+  <text x="520" y="204" font-size="10" fill="#666" text-anchor="middle">−1.00M, 104 trades</text>
+
+  <!-- annotation -->
+  <text x="700" y="60" font-size="12" fill="#1a1a1a" font-weight="700">진단:</text>
+  <text x="700" y="78" font-size="11" fill="#666">KODEX 200 6mo +82% 상승</text>
+  <text x="700" y="92" font-size="11" fill="#666">→ A-S 가 ask side 만 fill</text>
+  <text x="700" y="106" font-size="11" fill="#666">→ short inventory 누적</text>
+  <text x="700" y="120" font-size="11" fill="#666">→ MTM 폭락</text>
+  <text x="700" y="138" font-size="11" fill="#0b8043" font-weight="700">실 검증: KIS 분봉 + 횡보장</text>
+
+  <text x="450" y="20" font-size="13" fill="#1a1a1a" text-anchor="middle" font-weight="700">
+    Phase 2 LP 백테스트 — A-S 3 config 모두 trending market 에서 음수 PnL
+  </text>
+</svg>
+<figcaption>A-S 알고리즘 자체는 정상 작동 (양방향 호가, 재고 페널티 동작) 하나, trending + 일봉 환경에서는 가정 위반.</figcaption>
+</figure>
+
+<!-- ====================================================================== -->
+<h2>4. Compliance hook 작동 검증</h2>
+
+<p>
+  Phase 1 에서 신설한 <code>packages/compliance</code> 모듈이 Phase 2 의 LP 알고리즘에도 자연스럽게 통합됨.
+  cross-cutting concern 으로 설계한 효과 — Phase 2 코드에 추가 작업 거의 없이 동일 audit log 에 기록.
+</p>
+
+<h3>본 백테스트의 compliance 활동</h3>
+<table>
+<thead><tr><th>지표</th><th>값</th></tr></thead>
+<tbody>
+<tr><td>Audit log 누적 (Phase 1 + Phase 2 합산)</td><td class="num">17 decisions</td></tr>
+<tr><td>By model</td><td>MC_ELS_step_down 1 · NN_Pricer_log_500k 1 · Buehler_PG_CVaR_historical 1 · <strong>Avellaneda_Stoikov 14</strong></td></tr>
+<tr><td>Deviation breaches</td><td class="num bad">16 / 17 — A-S 가 inventory limit 80% 초과 ratio 자주 breach</td></tr>
+<tr><td>HITL escalated</td><td class="num bad">16 — 모두 simulation 환경 auto-approve 하나 영구 기록</td></tr>
+<tr><td>실 데스크 적용 시</td><td>각 HITL → trader 승인 대기 (block) → manual flatten 또는 skew 강화 결정</td></tr>
+</tbody>
+</table>
+
+<div class="callout callout-teal">
+  <strong>핵심 — compliance 가 trending failure 를 자동 감지</strong>: A-S 가 자연스럽게 손실을 누적하는 동안
+  inventory ratio 가 80% 임계 초과 → audit log + HITL escalate 자동. 실 데스크에서는 이 단계에서
+  trader 가 algorithm 강제 flatten 또는 skew 강화 결정 → loss 추가 누적 차단.
+  <strong>compliance 모듈이 algorithm OOD 의 first line of defense 로 작동</strong>.
+</div>
+
+<!-- ====================================================================== -->
+<h2>5. 비전공자용 요약 (TL;DR)</h2>
+<div class="callout callout-info">
+  <ol style="margin: 0; padding-left: 22px;">
+    <li>한화 JD 4축 중 "<strong>ETF LP 업무</strong>" 매핑이 약해서 기존 단방향 알고리즘을
+        <strong>Avellaneda-Stoikov (2008) 양방향 LP</strong> 알고리즘으로 업그레이드 (이게 마켓메이킹 표준).</li>
+    <li>핵심 수식: 호가의 중심 = mid 가격에서 보유 재고만큼 한 방향으로 밀고, 호가 폭 = 변동성 × 시간 + 주문 강도 함수. 재고 쏠리면 자동 mean-revert.</li>
+    <li>6개월 KODEX 200 일봉으로 백테스트 → <strong>전부 큰 음수 손실</strong>.
+        이유는 알고리즘이 틀린 게 아니라 <strong>가정이 깨진 환경</strong> (high-frequency 분봉이 아닌 일봉 + 강한 상승장).</li>
+    <li>그러나 이 실패에서 두 가지 수확:
+        <ul>
+          <li>(a) <strong>알고리즘 자체</strong>: 양방향 호가, 재고 페널티, spread 계산 모두 정상 작동 검증</li>
+          <li>(b) <strong>compliance hook</strong>: Phase 1 에서 만든 audit log + HITL gate 가 LP 의 inventory 위반을 자동 감지·escalate. cross-cutting concern 설계 정당화</li>
+        </ul>
+    </li>
+    <li>다음 단계: KIS API 모의투자 계좌 발급 후 <strong>분봉 (1분/5분) 데이터 + 횡보장 구간</strong> 으로 재검증.
+        분봉에서는 A-S 의 bid-ask spread 수익 메커니즘이 작동할 수 있음 (논문 결과는 1초 ~ 1분 봉 가정).</li>
+  </ol>
+</div>
+
+<!-- ====================================================================== -->
+<h2>6. 알려진 한계 + 다음 단계</h2>
+
+<table>
+<thead><tr><th>한계</th><th>이유</th><th>다음 단계</th></tr></thead>
+<tbody>
+<tr>
+  <td>일봉 데이터로 high-frequency 알고리즘 백테스트</td>
+  <td>KIS 분봉 API 인증 부재 → yfinance 일봉 fallback</td>
+  <td>KIS 모의투자 계좌 발급 + 분봉 1주~1개월 수집 → 재실행</td>
+</tr>
+<tr>
+  <td>Trending market (KODEX +82%)</td>
+  <td>최근 6개월 한국 시장 강세장 환경</td>
+  <td>2022 약세장 (KOSPI −20%) 또는 횡보장 구간 추가 백테스트</td>
+</tr>
+<tr>
+  <td>Fill model 이 단순 (mid 가 호가 도달 시 즉시 체결)</td>
+  <td>Production fill model 은 Poisson + spread distance 종속 강도</td>
+  <td>fill intensity λ(δ) = A·exp(−κδ) 모델로 업그레이드 (Avellaneda-Stoikov 원논문)</td>
+</tr>
+<tr>
+  <td>iNAV proxy 가 5일 이동평균</td>
+  <td>실 iNAV 는 ETF 내 바스켓 NAV 계산 (실시간)</td>
+  <td>KIS API 의 iNAV 데이터 endpoint 확인 또는 KRX 공시 사용</td>
+</tr>
+<tr>
+  <td>단일 ETF (069500)</td>
+  <td>baseline 검증용</td>
+  <td>069500 + 069660 (KOSPI 100) + 122630 (인버스) 다중 ETF universe 확장</td>
+</tr>
+</tbody>
+</table>
+
+<!-- ====================================================================== -->
+<h2>7. 관련 파일 / 커밋</h2>
+<table>
+<thead><tr><th>종류</th><th>경로</th><th>설명</th></tr></thead>
+<tbody>
+<tr><td>module (NEW)</td><td><code>packages/autotrader/src/autotrader/strategies/avellaneda_stoikov.py</code></td><td>A-S 양방향 호가 + 재고 페널티 + tick rounding</td></tr>
+<tr><td>script (NEW)</td><td><code>scripts/bench_lp_strategies.py</code></td><td>3 config sweep + iNAV baseline 비교 백테스트</td></tr>
+<tr><td>data (NEW)</td><td><code>data/lp/etf_prices.csv</code></td><td>069500.KS 6개월 124 거래일 close</td></tr>
+<tr><td>data (NEW)</td><td><code>data/lp/bench_lp_2026-04-26.json</code></td><td>3 config × A-S + iNAV 결과 stage 별 dump</td></tr>
+<tr><td>reuse (Phase 1 compliance)</td><td><code>packages/compliance/</code></td><td>audit_log + deviation_monitor + HITL gate. Phase 2 코드에 거의 무수정 통합</td></tr>
+<tr><td>reuse</td><td><code>packages/autotrader/.../strategies/etf_inav_arb.py</code></td><td>baseline iNAV 단방향 (변경 없음)</td></tr>
+<tr><td>prior 보고서</td><td><code>docs/2026-04-26/desk_day_workflow.html</code></td><td>Phase 1 — compliance 모듈 신설 보고서</td></tr>
+</tbody>
+</table>
+
+<!-- ====================================================================== -->
+<h2>8. 용어 정리집 (Glossary)</h2>
+<table>
+<thead><tr><th>용어</th><th>한 줄 설명</th><th>본문에서의 역할</th></tr></thead>
+<tbody>
+<tr><td><strong>LP (Liquidity Provider)</strong></td><td>양방향 (bid + ask) 호가를 동시 제출하여 시장 유동성 공급하는 마켓메이커</td><td>한화 JD 의 "ETF LP 업무" 직접 매핑. 단방향 차익 거래자와 구분</td></tr>
+<tr><td><strong>Avellaneda-Stoikov (2008)</strong></td><td>마켓메이킹의 표준 모델 — 재고 페널티 + 시간 감쇠 + 주문 강도 합성한 closed-form 호가 공식</td><td>본 모듈의 이론적 기반</td></tr>
+<tr><td><strong>reservation price</strong></td><td>LP 가 주관적으로 "공정" 하다 보는 가격. 재고 q 만큼 mid 에서 한 방향 skew</td><td>호가의 중심. 자연 mean-revert 메커니즘의 핵심</td></tr>
+<tr><td><strong>γ (gamma, 위험회피)</strong></td><td>재고 1 단위 늘어날 때 reservation price 가 얼마나 skew 되는지의 강도</td><td>config sweep 의 주 변수 (0.1 → 1.5). 클수록 재고 회피 강함</td></tr>
+<tr><td><strong>k (arrival intensity)</strong></td><td>주문 도착 강도 scale. spread (bid-ask 폭) 계산의 한 항</td><td>실 시장 활성도 proxy. 실측 어려워 본 백테스트는 1.5~4.0 sweep</td></tr>
+<tr><td><strong>iNAV (indicative NAV)</strong></td><td>ETF 의 기초 바스켓 가치를 실시간 계산한 가격 (지표 NAV)</td><td>baseline 단방향 전략의 기준선. 실 iNAV API 부재로 5d MA proxy</td></tr>
+<tr><td><strong>tick size</strong></td><td>호가 최소 단위. KRX ETF 는 가격대별 5~50원</td><td>호가 rounding 시 floor/ceil 적용</td></tr>
+<tr><td><strong>trending market</strong></td><td>가격이 한 방향으로 추세적 이동하는 시장 (mean-revert 의 반대)</td><td>KODEX 6개월 +82% 강세 → A-S 가정 위반의 핵심 이유</td></tr>
+<tr><td><strong>fill model</strong></td><td>호가 제출 후 어떤 조건에서 체결되는지의 가정</td><td>본 백테스트는 단순 (mid 가 bid/ask 도달 시 체결). 실 production 은 Poisson</td></tr>
+<tr><td><strong>compliance hook</strong></td><td>알고리즘에 자동 통합된 의사결정 기록 + 편차 모니터 + HITL escalation</td><td>Phase 1 모듈을 Phase 2 에 거의 무수정 통합 — cross-cutting concern 설계의 효과</td></tr>
+<tr><td><strong>inventory ratio</strong></td><td>현재 재고의 절대값 / inventory_limit</td><td>0.80 초과 시 deviation breach + HITL escalate. 16 회 발동</td></tr>
+<tr><td><strong>cross-cutting concern</strong></td><td>여러 모듈에 걸쳐 공통 적용되는 관심사 (logging, security, compliance)</td><td>compliance 모듈이 Phase 1 (ELS desk) 와 Phase 2 (LP) 모두에 자연 통합 — 설계 정당화</td></tr>
+<tr><td><strong>KODEX 200 (069500)</strong></td><td>KOSPI200 추종 가장 큰 ETF (운용사 삼성자산운용, AUM 8조원대)</td><td>본 백테스트의 대상 자산. KIS 분봉 인증 부재로 yfinance 일봉 사용</td></tr>
+</tbody>
+</table>
+
+</body>
+</html>

@@ -1,0 +1,31 @@
+# 자동매매 시스템 의존성
+# Python 3.10+ 필수
+# pip install -r release/requirements.txt
+
+# 핵심
+requests>=2.31.0
+pandas>=2.0.0
+numpy>=1.24.0
+python-dotenv>=1.0.0
+
+# Binance / Crypto
+python-binance>=1.0.36
+ccxt>=4.5.0
+
+# 데이터/시각화
+yfinance>=0.2.40
+plotly>=5.18.0
+pyarrow>=14.0.0       # parquet I/O
+
+# 대시보드
+streamlit>=1.30.0
+altair>=5.0.0
+
+# Optional: 뉴스 분류 (B3)
+feedparser>=6.0.10
+# transformers>=4.36.0   # FinBERT (대용량, 선택)
+# torch>=2.0.0            # FinBERT (선택)
+# anthropic>=0.18.0       # Claude API 분류 (선택)
+
+# Optional: 한국 시장 데이터
+# pykrx>=1.0.45            # 한국거래소 데이터

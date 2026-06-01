@@ -1415,11 +1415,12 @@ python -m autotrader.runner --symbol 069500 --seconds 300</code></pre>
 <div class="callout callout-purple">
   <strong>이 프로젝트를 제3자에게 1분 안에 설명하는 방법</strong>
   <ol>
-    <li>"옵션 프라이싱·헤지를 Classical(BSM/Heston) + AI 4종(NN Pricer, Deep Calibration, News-IV, Deep Hedging) + C++ 가속으로 풀어낸 모노레포"</li>
+    <li>"옵션 프라이싱·헤지를 Classical(BSM/Heston) + AI 4종(NN Pricer, Deep Calibration, News-IV, Deep Hedging) + C++ 가속으로 풀어낸 모노레포 — <strong>한화 ELS 데스크의 하루</strong>로 시간 순 chain"</li>
     <li>"500k 데이터 CPU 학습으로 Hutchinson 1994 NN Pricer 의 ATM IV 오차 0.55 vp, Horvath 2021 Deep Calibration 26× 가속 재현"</li>
-    <li>"Buehler 2019 Deep Hedging 을 PPO 5번 실패 → PG-on-CVaR 직접 구현으로 CPU 2분 학습 +24.5% CVaR 개선"</li>
-    <li>"News-IV 가설은 매크로 N=46 백테스트로 단순 룰 34.8% FAIL → vol-crush 진단까지 정직하게 narrative"</li>
+    <li>"Buehler 2019 Deep Hedging 을 PPO 5번 실패 → PG-on-CVaR 직접 구현으로 CPU 2분 학습 +24.5% CVaR (GBM) / +31.3% (SPY historical) 개선"</li>
+    <li>"News-IV 가설은 매크로 N=208 백테스트로 v2 surprise-aware → FOMC 57.1% PASS"</li>
     <li>"KIS Developers API 로 ETF iNAV 전략 자동매매, DRY_RUN + 다중 risk guard 적용"</li>
+    <li>"<strong>AI 기본법 (2026-01-22 시행) 회색지대 자발 대응</strong>: compliance 모듈 (audit log + 편차 모니터 + HITL) 데스크 워크플로우 통합"</li>
     <li>"모든 실험 결과는 GitHub README + docs/*.html 에 시각화 + CSV raw"</li>
   </ol>
 </div>

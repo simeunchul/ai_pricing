@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>외국인 순매수 추종 전략 백테스트 — 가설 기각</title>
+<style>
+  body { font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+         max-width: 980px; margin: 32px auto; padding: 0 24px; color: #1f2328; line-height: 1.7; }
+  h1 { font-size: 28px; border-bottom: 2px solid #d0d7de; padding-bottom: 12px; }
+  h2 { font-size: 22px; margin-top: 36px; padding-bottom: 6px; border-bottom: 1px solid #eaecef; }
+  h3 { font-size: 17px; margin-top: 24px; color: #24292f; }
+  code { background: #f6f8fa; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+  pre { background: #f6f8fa; padding: 12px 16px; border-radius: 6px; overflow-x: auto; font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { border: 1px solid #d0d7de; padding: 8px 12px; text-align: right; }
+  th { background: #f6f8fa; text-align: center; }
+  td.label, th.label { text-align: left; }
+  .callout { padding: 14px 18px; border-left: 4px solid; margin: 18px 0; border-radius: 4px; background: #fff8e1; border-color: #f0a500; }
+  .callout.fail { background: #fde7e9; border-color: #cf222e; }
+  .callout.ok { background: #e6f4ea; border-color: #1a7f37; }
+  .callout.note { background: #ddf4ff; border-color: #0969da; }
+  .pos { color: #1a7f37; font-weight: 600; }
+  .neg { color: #cf222e; font-weight: 600; }
+  .center { text-align: center; }
+  .small { font-size: 13px; color: #57606a; }
+  svg { display: block; margin: 16px auto; max-width: 100%; }
+  .glossary td { vertical-align: top; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  hr { border: none; border-top: 1px solid #eaecef; margin: 28px 0; }
+</style>
+</head>
+<body>
+
+<h1>외국인 순매수 추종 전략 — 백테스트로 가설 기각</h1>
+<p class="small">2026-04-28 · 작성자 simeunchul · autotrader 패키지</p>
+
+<div class="callout fail">
+<b>한 줄 결과:</b> 사용자 가설 <i>“외국인이 살 때 사고 팔 때 팔면 돈을 번다”</i> 는
+대형주 5종 약 600 거래일 백테스트(524 trades)에서 <b>매수후보유 대비 -237%
+초과수익</b>을 기록했다. 즉 그냥 사서 보유했을 때보다 평균적으로 종목당 47% 손해
+보는 전략이다. 단순한 외국인 추종은 <b>알파가 없다</b>.
+</div>
+
+<h2>1. 무엇을 시도했나 (배경 + 접근)</h2>
+
+<p>
+<b>가설</b>: 외국인 투자자는 정보 우위가 있어 그들의 매매 방향을 따라가면 시장
+대비 초과수익을 얻을 수 있다 — 한국 시장에서 자주 회자되는 명제.
+</p>
+
+<p>
+<b>구조적 제약</b>: 한국거래소(KRX)는 거래를 익명 처리하고 외국인/기관/개인
+분류는 회원사 사후 보고로 정산되기 때문에, 종목별 정밀 외국인 매매 데이터는
+EOD(장 마감 후) 에 공개된다. 따라서 가능한 가장 빠른 행동 시점은 <b>T+1 시가</b>
+(어제 외국인 매수를 보고 오늘 장 시작에 매수).
+</p>
+
+<p>
+<b>설계 선택</b>: 단일 종목이 아닌 외국인이 선호하는 대형주 5종을 유니버스로
+잡아 신호의 일반성을 검증.
+</p>
+
+<table>
+<thead><tr><th class="label">파라미터</th><th>값</th><th class="label">의미</th></tr></thead>
+<tbody>
+<tr><td class="label">유니버스</td><td>5 종목</td><td class="label">005930 삼성전자 / 000660 SK하이닉스 / 035420 NAVER / 005380 현대차 / 051910 LG화학</td></tr>
+<tr><td class="label">기간</td><td>2023-11-08 ~ 2026-04-27</td><td class="label">약 600 영업일 (~2.4년)</td></tr>
+<tr><td class="label">enter_threshold</td><td>0.05</td><td class="label">외국인 순매수 / 거래량 ≥ 5% → 매수</td></tr>
+<tr><td class="label">exit_after_days</td><td>2</td><td class="label">2영업일 후 자동 청산</td></tr>
+<tr><td class="label">cost_bps</td><td>25 bps (왕복)</td><td class="label">수수료 + 슬리피지 가정</td></tr>
+<tr><td class="label">진입/청산</td><td>T+1 시가</td><td class="label">사후정보 누설 차단</td></tr>
+</tbody>
+</table>
+
+<h3>아키텍처</h3>
+<pre>
+        Naver Finance scrape          ForeignFlowFollow              Backtest harness
+        (frgn + sise_day)      ──▶    (dataclass strategy)   ──▶    (T+1 시가 시뮬)
+        krx_investor.py               foreign_flow.py                foreign_flow.py
+            │                              │                              │
+            ▼                              ▼                              ▼
+        data/krx_cache/             unit tests (11/11 ✓)          summary JSON +
+        *_combined.parquet                                          parquet trades
+</pre>
+
+<p class="small">
+참고: 원래 plan 은 pykrx 라이브러리로 KRX 직접 접근이었으나, 본 환경에서 KRX
+MDC 엔드포인트가 403 차단되어 Naver Finance 스크래핑으로 데이터 소스 전환.
+페이지네이션으로 약 2.5년치 history 확보.
+</p>
+
+<h2>2. 무엇이 실패했고 왜 (결과 + 진단)</h2>
+
+<h3>2.1 전체 성과 — 강하게 음수</h3>
+
+<table>
+<thead><tr><th class="label">지표</th><th>전략</th><th>매수후보유 (baseline)</th><th>차이</th></tr></thead>
+<tbody>
+<tr><td class="label">평균 거래당 수익률</td><td class="neg">-0.21%</td><td>—</td><td>—</td></tr>
+<tr><td class="label">승률 (Hit Rate)</td><td class="neg">23.3%</td><td>—</td><td>4번 중 1번만 이김</td></tr>
+<tr><td class="label">Sharpe (연환산)</td><td class="neg">-0.72</td><td>—</td><td>강하게 음수</td></tr>
+<tr><td class="label">종목당 누적 수익률</td><td class="neg">-21.8%</td><td class="pos">+215.9%</td><td class="neg">-237.7%p</td></tr>
+<tr><td class="label">총 거래 수</td><td>524</td><td>—</td><td>통계적 유의성 충분</td></tr>
+</tbody>
+</table>
+
+<h3>2.2 종목별 분해 — 5종 중 4종 손실</h3>
+
+<table>
+<thead><tr><th class="label">종목</th><th>거래 수</th><th>승률</th><th>전략 누적</th><th>매수후보유</th><th>초과수익</th></tr></thead>
+<tbody>
+<tr><td class="label">005930 삼성전자</td><td>95</td><td>33.7%</td><td class="pos">+25.6%</td><td class="pos">+320.2%</td><td class="neg">-294.6%p</td></tr>
+<tr><td class="label">000660 SK하이닉스</td><td>102</td><td>26.5%</td><td class="neg">-23.3%</td><td class="pos">+539.4%</td><td class="neg">-562.7%p</td></tr>
+<tr><td class="label">035420 NAVER</td><td>94</td><td>16.0%</td><td class="neg">-44.8%</td><td class="neg">-6.6%</td><td class="neg">-38.3%p</td></tr>
+<tr><td class="label">005380 현대차</td><td>110</td><td>20.9%</td><td class="neg">-34.0%</td><td class="pos">+154.1%</td><td class="neg">-188.1%p</td></tr>
+<tr><td class="label">051910 LG화학</td><td>123</td><td>20.3%</td><td class="neg">-32.3%</td><td class="pos">+72.6%</td><td class="neg">-104.9%p</td></tr>
+</tbody>
+</table>
+
+<p>
+삼성전자만 양의 누적 수익(+25.6%)이지만, 같은 기간 매수후보유 (+320%) 와 비교하면
+1/12 수준. 나머지 4 종목은 모두 음수.
+</p>
+
+<h3>2.3 차트 — 종목별 전략 vs 매수후보유</h3>
+
+<svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg">
+  <!-- y axis -->
+  <line x1="80" y1="40" x2="80" y2="270" stroke="#444" stroke-width="1"/>
+  <line x1="80" y1="270" x2="700" y2="270" stroke="#444" stroke-width="1"/>
+  <!-- y-axis ticks (-100% to 600%) -->
+  <text x="74" y="275" text-anchor="end" font-size="11">-100%</text>
+  <text x="74" y="240" text-anchor="end" font-size="11">0%</text>
+  <text x="74" y="205" text-anchor="end" font-size="11">100%</text>
+  <text x="74" y="170" text-anchor="end" font-size="11">200%</text>
+  <text x="74" y="135" text-anchor="end" font-size="11">300%</text>
+  <text x="74" y="100" text-anchor="end" font-size="11">400%</text>
+  <text x="74" y="65" text-anchor="end" font-size="11">500%</text>
+  <text x="74" y="30" text-anchor="end" font-size="11">600%</text>
+  <!-- zero line -->
+  <line x1="80" y1="240" x2="700" y2="240" stroke="#888" stroke-dasharray="3,3"/>
+  <!-- bars: 종목당 strategy_total vs buyhold (scale: 100%/35px, baseline at y=240) -->
+  <!-- 005930: strategy +25.6, buyhold +320.2 -->
+  <g>
+    <rect x="120" y="231" width="22" height="9" fill="#1a7f37"/>
+    <rect x="144" y="128" width="22" height="112" fill="#0969da"/>
+    <text x="143" y="290" text-anchor="middle" font-size="11">삼성전자</text>
+    <text x="143" y="304" text-anchor="middle" font-size="10" fill="#666">+26 / +320</text>
+  </g>
+  <!-- 000660: strategy -23.3, buyhold +539.4 -->
+  <g>
+    <rect x="240" y="240" width="22" height="8" fill="#cf222e"/>
+    <rect x="264" y="51" width="22" height="189" fill="#0969da"/>
+    <text x="263" y="290" text-anchor="middle" font-size="11">SK하이닉스</text>
+    <text x="263" y="304" text-anchor="middle" font-size="10" fill="#666">-23 / +539</text>
+  </g>
+  <!-- 035420: strategy -44.8, buyhold -6.6 -->
+  <g>
+    <rect x="360" y="240" width="22" height="16" fill="#cf222e"/>
+    <rect x="384" y="240" width="22" height="2" fill="#cf222e"/>
+    <text x="383" y="290" text-anchor="middle" font-size="11">NAVER</text>
+    <text x="383" y="304" text-anchor="middle" font-size="10" fill="#666">-45 / -7</text>
+  </g>
+  <!-- 005380: strategy -34, buyhold +154 -->
+  <g>
+    <rect x="480" y="240" width="22" height="12" fill="#cf222e"/>
+    <rect x="504" y="186" width="22" height="54" fill="#0969da"/>
+    <text x="503" y="290" text-anchor="middle" font-size="11">현대차</text>
+    <text x="503" y="304" text-anchor="middle" font-size="10" fill="#666">-34 / +154</text>
+  </g>
+  <!-- 051910: strategy -32.3, buyhold +72.6 -->
+  <g>
+    <rect x="600" y="240" width="22" height="11" fill="#cf222e"/>
+    <rect x="624" y="215" width="22" height="25" fill="#0969da"/>
+    <text x="623" y="290" text-anchor="middle" font-size="11">LG화학</text>
+    <text x="623" y="304" text-anchor="middle" font-size="10" fill="#666">-32 / +73</text>
+  </g>
+  <!-- legend -->
+  <rect x="540" y="14" width="14" height="10" fill="#1a7f37"/>
+  <text x="558" y="23" font-size="11">전략 (양수)</text>
+  <rect x="540" y="28" width="14" height="10" fill="#cf222e"/>
+  <text x="558" y="37" font-size="11">전략 (음수)</text>
+  <rect x="630" y="14" width="14" height="10" fill="#0969da"/>
+  <text x="648" y="23" font-size="11">매수후보유</text>
+  <text x="400" y="15" text-anchor="middle" font-size="13" font-weight="600">종목별 누적 수익률 (%) — 전략 vs 매수후보유</text>
+</svg>
+
+<h3>2.4 보유일별 분해 — 1일 강제청산이 손실 주범</h3>
+
+<table>
+<thead><tr><th class="label">보유일</th><th>거래 수</th><th>승률</th><th>평균 수익률</th><th class="label">해석</th></tr></thead>
+<tbody>
+<tr><td class="label">1일 (조기청산)</td><td>98</td><td class="neg">13.3%</td><td class="neg">-1.07%</td><td class="label">다음날 외국인 매도 강세 → 즉시 손절. 비용만 깎임</td></tr>
+<tr><td class="label">2일 (정상 만기)</td><td>244</td><td>25.0%</td><td class="pos">+0.10%</td><td class="label">유일하게 거래비용 후 양수 — 알파 흔적</td></tr>
+<tr><td class="label">3-4일</td><td>161</td><td>23.6%</td><td>~0.0%</td><td class="label">주말 끼임으로 보유 늘어난 케이스</td></tr>
+<tr><td class="label">5+ 일</td><td>21</td><td>33.3%</td><td class="neg">-0.36%</td><td class="label">샘플 수 적어 노이즈</td></tr>
+</tbody>
+</table>
+
+<div class="callout note">
+<b>핵심 진단:</b> 가설 자체가 완전히 틀린 게 아니다. <b>2일 보유 거래 244건</b>은
+거래비용을 차감하고도 평균 +0.10% 라는 미세한 양수 알파를 보여준다. 문제는
+<b>1일 강제청산 규칙</b> — 다음날 외국인 매도가 강하면 즉시 손절하는데, 이때
+거래비용 25bps 만 깎이고 끝나는 케이스가 98건(전체의 19%) 발생. 이게 누적 P&amp;L 을
+파괴한다.
+</div>
+
+<h2>3. 왜 매수후보유에 졌나 — 시장 구조 분석</h2>
+
+<h3>3.1 강한 트렌드 시장에서 자주 빠지는 함정</h3>
+
+<p>
+백테스트 기간(2024~2026)은 한국 시장의 <b>AI 메모리 슈퍼사이클</b> 시기다.
+SK하이닉스가 +539%, 삼성전자가 +320% 상승. 이런 강한 트렌드 시장에서는:
+</p>
+
+<ul>
+<li><b>매수후보유</b>는 트렌드 전체를 끝까지 탄다</li>
+<li><b>외국인 추종</b>은 신호 발생 후 진입(T+1) → 2일 후 청산. 트렌드의 일부만 잡고 나머지는 양보</li>
+</ul>
+
+<p>
+즉 외국인 추종 전략의 구조적 한계는 <b>holding horizon 이 너무 짧다</b> 는 것.
+2일 안에 평균 +0.10% 알파를 짜내는 건 가능하지만, 매수후보유의 거대한 장기
+복리 수익률을 따라잡기엔 불가능.
+</p>
+
+<h3>3.2 정보 가치가 이미 가격에 반영됨</h3>
+
+<svg viewBox="0 0 720 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- timeline diagram -->
+  <line x1="40" y1="100" x2="680" y2="100" stroke="#444" stroke-width="2"/>
+  <line x1="160" y1="80" x2="160" y2="120" stroke="#0969da" stroke-width="2"/>
+  <line x1="320" y1="80" x2="320" y2="120" stroke="#888" stroke-width="2"/>
+  <line x1="480" y1="80" x2="480" y2="120" stroke="#cf222e" stroke-width="2"/>
+  <line x1="600" y1="80" x2="600" y2="120" stroke="#1a7f37" stroke-width="2"/>
+
+  <text x="160" y="70" text-anchor="middle" font-size="12" fill="#0969da">외국인 매수 발생</text>
+  <text x="160" y="140" text-anchor="middle" font-size="11">T일 장중</text>
+  <text x="160" y="155" text-anchor="middle" font-size="11" fill="#888">(가격 1차 상승)</text>
+
+  <text x="320" y="70" text-anchor="middle" font-size="12" fill="#888">EOD 정산</text>
+  <text x="320" y="140" text-anchor="middle" font-size="11">T일 15:30</text>
+  <text x="320" y="155" text-anchor="middle" font-size="11" fill="#888">(외국인 데이터 공개)</text>
+
+  <text x="480" y="70" text-anchor="middle" font-size="12" fill="#cf222e">우리 진입 가능 시점</text>
+  <text x="480" y="140" text-anchor="middle" font-size="11">T+1 09:00</text>
+  <text x="480" y="155" text-anchor="middle" font-size="11" fill="#888">(이미 가격 반영됨)</text>
+
+  <text x="600" y="70" text-anchor="middle" font-size="12" fill="#1a7f37">청산</text>
+  <text x="600" y="140" text-anchor="middle" font-size="11">T+3 09:00</text>
+
+  <text x="360" y="190" text-anchor="middle" font-size="13" font-weight="600">
+    외국인 매수의 가격 영향은 T일 장중에 이미 발생 → 우리는 T+1 부터 잡음만 캐치
+  </text>
+</svg>
+
+<h2>4. 어떻게 해결했나 — 해결 못함 (가설 기각)</h2>
+
+<p>
+이 보고서의 목적은 가설 검증이었고, 검증 결과 <b>가설은 기각</b>되었다.
+"문제를 해결한다"는 것은 가설이 맞다는 전제가 있어야 의미가 있는데, 본 결과는
+가설 자체가 단순 형태로는 시장에서 작동하지 않음을 보여준다.
+</p>
+
+<p>다만 진단에서 발견한 것 두 가지는 후속 연구 가치가 있다:</p>
+
+<ol>
+<li><b>2일 holding 의 미세 알파(+0.10%)</b> — 거래비용보다 큰 신호가 존재할 수 있다.
+이걸 살리려면 1일 강제청산을 없애고 2일을 무조건 보유하는 단순한 변형이 가능.</li>
+
+<li><b>종목 선택 효과</b> — 삼성전자만 양수 누적 수익. 외국인 비중이 가장 높고
+유동성이 풍부한 단일 종목에서는 신호의 노이즈가 줄어들 수 있다.</li>
+</ol>
+
+<div class="callout note">
+<b>다음 단계 (선택):</b> 위 두 가지를 조합한 변형 (삼성전자 단일, 무조건 2일
+보유, 매도 신호 무시) 을 별도 PR 로 검증해볼 수 있음. 다만 본 보고서의 결론은
+<b>"단순 외국인 추종은 알파가 없다"</b> 로 종결.
+</div>
+
+<h2>5. 최종 결과 (요약 차트)</h2>
+
+<svg viewBox="0 0 720 240" xmlns="http://www.w3.org/2000/svg">
+  <!-- two horizontal stacked bars: strategy vs baseline summary -->
+  <text x="360" y="20" text-anchor="middle" font-size="14" font-weight="600">
+    종목당 평균 누적 수익률 (5 종목 등가중)
+  </text>
+  <!-- baseline bar (buyhold) -->
+  <text x="220" y="80" text-anchor="end" font-size="13">매수후보유</text>
+  <rect x="240" y="60" width="430" height="34" fill="#0969da"/>
+  <text x="455" y="82" text-anchor="middle" font-size="14" fill="white" font-weight="600">+215.9%</text>
+
+  <!-- strategy bar (negative) -->
+  <text x="220" y="150" text-anchor="end" font-size="13">외국인 추종</text>
+  <line x1="240" y1="120" x2="240" y2="170" stroke="#888" stroke-dasharray="3,3"/>
+  <rect x="200" y="130" width="40" height="34" fill="#cf222e"/>
+  <text x="220" y="152" text-anchor="middle" font-size="14" fill="white" font-weight="600">-21.8%</text>
+  <text x="245" y="152" text-anchor="start" font-size="11" fill="#666">(0% 기준선)</text>
+
+  <!-- gap arrow -->
+  <text x="360" y="210" text-anchor="middle" font-size="13">
+    <tspan fill="#cf222e" font-weight="600">차이 -237.7%p</tspan>
+    <tspan> · 사용자 가설은 시장 데이터와 정면으로 충돌</tspan>
+  </text>
+</svg>
+
+<h2>6. 비전공자용 요약 (TL;DR)</h2>
+
+<div class="callout">
+<p><b>질문</b>: "외국인이 살 때 사고 팔 때 팔면 돈 벌까?"</p>
+
+<p><b>답</b>: <b>아니오.</b> 대형주 5종 약 2.4년 데이터로 524번 매매를 시뮬레이션했더니:</p>
+
+<ul style="margin: 6px 0;">
+<li>4번 중 1번만 이겼다 (승률 23%)</li>
+<li>거래당 평균 -0.21% 손실</li>
+<li>그냥 사서 보유했을 때 비해 종목당 평균 -47% 손해</li>
+</ul>
+
+<p>
+<b>왜?</b> 외국인 매매 데이터는 장 마감 후에야 공개되므로 우리가 거래할 수
+있는 가장 빠른 시점은 다음날 시가다. 그 시점이면 외국인 매수의 가격 영향은
+이미 반영돼 있어서, 우리가 잡을 수 있는 건 노이즈뿐이다.
+</p>
+
+<p>
+<b>유일한 양의 신호</b>: 2일 보유 거래 244건은 거래비용 후 평균 +0.10%. 미세하지만
+0이 아닌 알파가 있다. 다만 1일 강제청산이 누적 손익을 파괴한다.
+</p>
+
+<p>
+<b>실용적 결론</b>: "외국인 따라가기" 라는 도시전설은 단순 형태로는 작동하지
+않는다. 차라리 우량주를 사서 보유하는 게 압도적으로 낫다.
+</p>
+</div>
+
+<h2>7. 관련 파일 / 커밋</h2>
+
+<h3>신규 파일 (5)</h3>
+<ul>
+<li><code>packages/autotrader/src/autotrader/data/krx_investor.py</code> — Naver 스크래핑 + parquet 캐시</li>
+<li><code>packages/autotrader/src/autotrader/strategies/foreign_flow.py</code> — ForeignFlowFollow 전략</li>
+<li><code>packages/autotrader/src/autotrader/backtest/foreign_flow.py</code> — 일별 백테스트 하네스</li>
+<li><code>scripts/backtest_foreign_flow.py</code> — CLI</li>
+<li><code>packages/autotrader/tests/test_foreign_flow.py</code> — 단위 테스트 11/11 ✓</li>
+</ul>
+
+<h3>수정 파일 (2)</h3>
+<ul>
+<li><code>packages/autotrader/src/autotrader/strategies/__init__.py</code></li>
+<li><code>packages/autotrader/src/autotrader/backtest/__init__.py</code></li>
+</ul>
+
+<h3>실행 결과</h3>
+<ul>
+<li><code>data/backtest_foreign_flow_20260428_161819.parquet</code> — 524 trade 상세</li>
+<li><code>data/backtest_foreign_flow_20260428_161819_summary.json</code> — 집계 통계</li>
+<li><code>data/krx_cache/{005930,000660,035420,005380,051910}_combined.parquet</code> — 데이터 캐시</li>
+</ul>
+
+<h3>재현 명령</h3>
+<pre>python scripts/backtest_foreign_flow.py --max-pages 30
+# 결과: hit 23.3%, mean -0.21%, excess vs buy-hold -237%</pre>
+
+<h2>8. 용어 정리집</h2>
+
+<table class="glossary">
+<thead><tr><th class="label">용어</th><th class="label">한 줄 설명</th><th class="label">본문에서의 역할</th></tr></thead>
+<tbody>
+<tr>
+  <td class="label"><b>EOD</b> (End-of-Day)</td>
+  <td class="label">"장 마감 후" 시점. 한국 주식은 보통 15:30 거래 종료.</td>
+  <td class="label">외국인 매매 데이터가 EOD 에야 공개되는 게 본 가설의 구조적 제약</td>
+</tr>
+<tr>
+  <td class="label"><b>T+1 시가</b></td>
+  <td class="label">거래일(T) 다음 영업일의 시가. T+1 청산은 다음날 09:00 시가로 거래.</td>
+  <td class="label">우리 전략의 진입/청산 시점 — 사후정보 누설을 막는 표준 백테스트 룰</td>
+</tr>
+<tr>
+  <td class="label"><b>flow_ratio</b></td>
+  <td class="label">외국인 순매수 수량 / 그날 총 거래량. +0.05 = 거래량의 5% 가 외국인 순매수.</td>
+  <td class="label">전략 신호. 임계값 5% 초과 시 매수, -5% 미만 시 보유 청산</td>
+</tr>
+<tr>
+  <td class="label"><b>매수후보유</b> (Buy &amp; Hold)</td>
+  <td class="label">시작일에 사서 끝일까지 그대로 들고 있는 가장 단순한 baseline 전략.</td>
+  <td class="label">전략의 알파 측정 기준 — 이걸 못 이기면 트레이딩 의미가 없다</td>
+</tr>
+<tr>
+  <td class="label"><b>Hit Rate (승률)</b></td>
+  <td class="label">전체 거래 중 양의 수익을 낸 거래의 비율. 50% 가 동전던지기, 그 이상이 알파.</td>
+  <td class="label">23.3% 는 동전던지기보다도 못함 — 신호가 잡음에 가깝다는 강한 증거</td>
+</tr>
+<tr>
+  <td class="label"><b>Sharpe Ratio (연환산)</b></td>
+  <td class="label">평균 수익률을 변동성으로 나눈 값을 연 단위로 환산. 1.0 이상이면 좋은 전략.</td>
+  <td class="label">-0.72 는 변동성 대비 일관되게 손실. 단순 우연이 아닌 구조적 손실</td>
+</tr>
+<tr>
+  <td class="label"><b>초과수익</b> (Excess Return / Alpha)</td>
+  <td class="label">전략 수익률에서 baseline(매수후보유) 수익률을 뺀 값. 양수면 알파 있음.</td>
+  <td class="label">-237.7% — 가설을 정량적으로 기각하는 핵심 수치</td>
+</tr>
+<tr>
+  <td class="label"><b>거래비용 (cost_bps)</b></td>
+  <td class="label">수수료 + 슬리피지. 25 bps = 0.25% (왕복).</td>
+  <td class="label">1일 강제청산 시 25bps 만 깎이고 끝나는 거래가 98건 발생 → 누적 손실 주범</td>
+</tr>
+<tr>
+  <td class="label"><b>사후정보 누설</b> (Look-ahead Bias)</td>
+  <td class="label">백테스트에서 미래 정보를 실수로 사용해 비현실적으로 좋은 결과가 나오는 오류.</td>
+  <td class="label">신호는 T일 EOD, 진입은 T+1 시가로 분리해 차단</td>
+</tr>
+<tr>
+  <td class="label"><b>익명 거래</b></td>
+  <td class="label">한국거래소가 거래 체결 시 매수자/매도자 국적을 시세에 표시하지 않는 시장 구조.</td>
+  <td class="label">종목별 정밀 실시간 외국인 데이터가 일반에 공개되지 않는 근본 원인</td>
+</tr>
+<tr>
+  <td class="label"><b>AI 메모리 슈퍼사이클</b></td>
+  <td class="label">2024~2026 AI 학습/추론 수요 폭증으로 메모리 반도체 가격·수요가 폭등한 시기.</td>
+  <td class="label">SK하이닉스/삼성전자가 +500%/+320% 상승한 배경 — 매수후보유가 강하게 이긴 이유</td>
+</tr>
+<tr>
+  <td class="label"><b>Long-only</b></td>
+  <td class="label">매수만 하고 공매도는 안 하는 전략. KIS 모의투자가 공매도 미지원.</td>
+  <td class="label">"외국인이 팔 때 같이 판다" = 보유 청산 만 가능. 신규 공매도 진입은 불가</td>
+</tr>
+</tbody>
+</table>
+
+<hr>
+<p class="small center">
+Generated 2026-04-28 · autotrader v0.1.0 · Backtest run 20260428_161819 · 524 trades · 5 symbols · 600 trading days
+</p>
+
+</body>
+</html>

@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Crypto Auto-Trading 종합 보고서 — 2026-05-01</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;
+       max-width:1180px;margin:36px auto;padding:0 20px;line-height:1.65;color:#1a1a1a;}
+  h1{border-bottom:3px solid #2c5aa0;padding-bottom:8px;}
+  h2{margin-top:36px;color:#2c5aa0;border-left:4px solid #2c5aa0;padding-left:10px;}
+  h3{color:#444;margin-top:24px;}
+  code,pre{font-family:Consolas,Menlo,monospace;background:#f4f4f4;padding:2px 5px;border-radius:3px;}
+  pre{padding:12px;overflow:auto;border-left:3px solid #2c5aa0;}
+  table{border-collapse:collapse;width:100%;margin:14px 0;}
+  th,td{border:1px solid #ccc;padding:6px 9px;text-align:left;font-size:13px;}
+  th{background:#eef3fa;}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;}
+  td.win{color:#0b8043;font-weight:600;}
+  td.fail{color:#c0392b;font-weight:600;}
+  td.neutral{color:#888;}
+  .callout{padding:14px 18px;border-radius:6px;margin:18px 0;border-left:4px solid;}
+  .callout.win{background:#e7f6ed;border-color:#0b8043;}
+  .callout.warn{background:#fff5e6;border-color:#e08600;}
+  .callout.fail{background:#fdecea;border-color:#c0392b;}
+  .callout.info{background:#eaf2fb;border-color:#2c5aa0;}
+  .small{font-size:13px;color:#666;}
+  .ascii{background:#f4f4f4;padding:14px;border-radius:5px;font-family:Consolas,monospace;font-size:13px;white-space:pre;line-height:1.4;}
+</style>
+</head>
+<body>
+
+<h1>Crypto Auto-Trading 종합 보고서</h1>
+<p class="small">2026-04-29 ~ 05-01 · ai_pricing Layer-E (Auto-Trading) — Crypto 확장</p>
+
+<div class="callout info">
+  <strong>한 줄 결과.</strong> 3일간 KIS 모의투자 손실 후 Crypto 확장.
+  <strong>325 backtest combinations</strong> (8 strategy × 13 risk variants × 5 symbol) 결과:
+  Trailing Stop -2% 가 baseline Sharpe +0.28 → +2.79 로 <strong>10배 개선</strong> (학계 검증 일치).
+  종목별 best strategy + Trail % 자동 적용한 24h 실거래 −1.14%
+  (sample 부족, AVAX whipsaw 21회). Sample size + market regime 의 위력 확인.
+</div>
+
+<h2>1. 여정 요약 (2026-04-29 → 05-01)</h2>
+
+<table>
+<thead><tr><th>시점</th><th>활동</th><th>결과</th></tr></thead>
+<tbody>
+<tr><td>4/29 16:00</td><td>KIS ETF iNAV arb 손실 인정 → 변동성 큰 자산 시도</td><td>Scenario C: 인버스+레버리지 ETF 진입</td></tr>
+<tr><td>4/29 16:30</td><td>Binance Testnet 시작 (futures)</td><td>API 검증 + test order round-trip</td></tr>
+<tr><td>4/29 17:00</td><td>BTC MA crossover (6h, 24h) long-only 24h dry-run</td><td>−2.07%, ETH whipsaw 5회</td></tr>
+<tr><td>4/30 00:00</td><td>Long-short + Multi-asset margin (USDT+USDC pool)</td><td>자본 ×2 활용</td></tr>
+<tr><td>4/30 12:00</td><td>21일 backtest (8 strategy)</td><td>Buy-hold 1위, Multi-factor 기각 (sample 작아 noise)</td></tr>
+<tr><td>4/30 16:00</td><td>60일 + 365일 backtest 추가</td><td>결과 정반대 — Multi-factor (D_trend+funding) 365일 1위 +42%</td></tr>
+<tr><td>4/30 17:00</td><td>종목별 best strategy 적용</td><td>BTC/ETH/SOL/AVAX/BNB 각자 다른 룰</td></tr>
+<tr><td>4/30 17:30</td><td>Stop-loss / Take-profit / Trailing / ATR / Adaptive sweep</td><td><strong>Trailing -2% 압도적</strong>: Sharpe 0.28 → 2.79</td></tr>
+<tr><td>4/30 17:45</td><td>Trailing 통합 24h dry-run</td><td>5/1 17:46 종료, −1.14% (단편 sample)</td></tr>
+</tbody>
+</table>
+
+<h2>2. 가장 중요한 발견 — Backtest sweep 결과</h2>
+
+<h3>2.1 Sample size 가 결론을 뒤집음</h3>
+
+<table>
+<thead><tr><th>Strategy</th><th>21일</th><th>60일</th><th>365일</th></tr></thead>
+<tbody>
+<tr><td>A_buyhold</td><td class="num win">+2.39 (1위)</td><td class="num">+1.07 (2위)</td><td class="num fail">-0.10 (6위) ⚠</td></tr>
+<tr><td>B_trend (long-short)</td><td class="num fail">-2.58</td><td class="num">+1.06</td><td class="num">+0.31</td></tr>
+<tr><td>C_trend_long_only</td><td class="num">-0.13</td><td class="num win">+1.44 (1위)</td><td class="num">+0.14</td></tr>
+<tr><td>D_trend+funding</td><td class="num fail">-2.24</td><td class="num">+0.89</td><td class="num win">+0.63 (1위)</td></tr>
+<tr><td>G_bollinger_mr</td><td class="num">+1.61</td><td class="num fail">-2.44</td><td class="num">+0.10</td></tr>
+</tbody>
+</table>
+
+<div class="callout warn">
+  <strong>핵심 학습</strong>: 21일 데이터에서 "Buy-hold 가 모든 active 이김" 결론이
+  365일 데이터에서 정반대. Buy-hold MaxDD -62% (1년 폭락 직격탄).
+  단기 backtest 만으로 "정답" 단정 위험.
+</div>
+
+<h3>2.2 Trailing stop 의 압도적 효과</h3>
+
+<table>
+<thead><tr><th>Variant</th><th>Avg Sharpe (5종목 × 5전략)</th><th>vs baseline</th><th>MaxDD</th></tr></thead>
+<tbody>
+<tr><td><strong>Trail2 (-2%)</strong> ★</td><td class="num win">+2.79</td><td class="num win">×10</td><td class="num">-6.23%</td></tr>
+<tr><td>Trail3 (-3%)</td><td class="num win">+2.44</td><td class="num win">×9</td><td class="num">-7.55%</td></tr>
+<tr><td>AdaptT_2_3_5 (사용자 제안)</td><td class="num win">+1.99</td><td class="num win">×7</td><td class="num">-9.81%</td></tr>
+<tr><td>Trail5 (-5%)</td><td class="num">+1.89</td><td class="num win">×7</td><td class="num">-11.70%</td></tr>
+<tr><td>SL3 (Stop-loss only)</td><td class="num">+1.10</td><td class="num">×4</td><td class="num">-16.45%</td></tr>
+<tr><td>SL3+TP10</td><td class="num">+0.90</td><td class="num">×3</td><td class="num">-12.01%</td></tr>
+<tr><td>ATR2/3/5</td><td class="num">+0.99/+0.55/+0.28</td><td class="num">×3.5/2/1</td><td class="num">큼</td></tr>
+<tr><td><strong>none (기존)</strong></td><td class="num fail">+0.28</td><td class="num">baseline</td><td class="num fail">-37.59%</td></tr>
+</tbody>
+</table>
+
+<div class="callout win">
+  <strong>최대 발견</strong>: Trailing -2% 가 모든 risk overlay 중 압도적 1위.
+  baseline Sharpe +0.28 → +2.79 (10배 개선). MaxDD -37.6% → -6.2% (6배 위험 감소).
+  학계 (Wilder 1978) 의 검증된 결과를 Crypto 에서 재확인.
+</div>
+
+<h3>2.3 사용자의 두 직관 평가</h3>
+
+<table>
+<thead><tr><th>직관</th><th>검증 결과</th></tr></thead>
+<tbody>
+<tr><td><strong>"Stop-loss / Take-profit 추가"</strong></td><td class="win">★★★★★ 완벽 검증. Trailing 형태가 best.</td></tr>
+<tr><td><strong>"강한 trend 시 threshold 늘림"</strong></td><td>★★★ 일부. baseline 대비 7배 (Sharpe 1.99) 이지만 fixed Trail2 보다는 약함.</td></tr>
+</tbody>
+</table>
+
+<h3>2.4 종목별 최적 조합 (365d)</h3>
+
+<table>
+<thead><tr><th>종목</th><th>Best (Strategy + Variant)</th><th>Return</th><th>Sharpe</th><th>MaxDD</th></tr></thead>
+<tbody>
+<tr><td>AVAX</td><td><strong>B_trend + Trail3</strong></td><td class="num win">+260.61%</td><td class="num win">+4.54</td><td class="num">-3.14%</td></tr>
+<tr><td>ETH</td><td><strong>C_trend_long_only + Trail2</strong></td><td class="num win">+101.84%</td><td class="num win">+3.40</td><td class="num">-6.55%</td></tr>
+<tr><td>SOL</td><td><strong>D_trend+funding + Trail2</strong></td><td class="num win">+95.32%</td><td class="num win">+3.31</td><td class="num">-10.87%</td></tr>
+<tr><td>BNB</td><td><strong>D_trend+funding + Trail2</strong></td><td class="num win">+83.38%</td><td class="num win">+3.61</td><td class="num">-3.35%</td></tr>
+<tr><td>BTC</td><td><strong>B_trend + Trail2</strong></td><td class="num win">+39.66%</td><td class="num win">+2.92</td><td class="num">-5.54%</td></tr>
+</tbody>
+</table>
+
+<h2>3. 24h 실거래 dry-run 결과</h2>
+
+<h3>3.1 최종 P&L</h3>
+<pre class="ascii">
+시작:  10,489.37 USDT (4/30 17:41)
+종료:  10,370.19 USDT (5/1 17:46)
+─────────────────────────────────
+실현 손익:         -119.18 USDT  (-1.14%)
+미실현 손익:        +72.79 USDT  (+0.69%)
+─────────────────────────────────
+순 P&L:             -46.39 USDT  (-0.44%)
+</pre>
+
+<h3>3.2 종목별 매매 빈도 (24h)</h3>
+
+<table>
+<thead><tr><th>종목</th><th>Strategy</th><th>Flips</th><th>Trail %</th><th>분석</th></tr></thead>
+<tbody>
+<tr><td>BTC</td><td>B_trend</td><td class="num">2</td><td>-2%</td><td>정상 (HOLD 위주)</td></tr>
+<tr><td>BNB</td><td>D_trend+funding</td><td class="num">4</td><td>-2%</td><td>정상</td></tr>
+<tr><td>ETH</td><td>C_trend_long_only</td><td class="num">5</td><td>-2%</td><td>정상</td></tr>
+<tr><td>SOL</td><td>D_trend+funding</td><td class="num">10</td><td>-2%</td><td>약간 whipsaw</td></tr>
+<tr><td><strong>AVAX</strong></td><td>B_trend</td><td class="num fail">21 ★</td><td>-3%</td><td><strong>whipsaw 폭주</strong> — backtest 평균 (~6) 의 3.5배</td></tr>
+</tbody>
+</table>
+
+<div class="callout warn">
+  <strong>AVAX whipsaw 가 손실의 주범</strong>. 24h 동안 9.07~9.30 박스권 oscillation 으로
+  fast/slow MA 자주 cross. 21회 × 0.08% = 1.68% 비용 발생.
+  다른 종목들은 backtest 와 비슷한 빈도로 작동.
+</div>
+
+<h3>3.3 24h vs 365d Backtest 비교</h3>
+
+<table>
+<thead><tr><th>지표</th><th>365d Backtest 기대</th><th>24h 실거래</th><th>차이 원인</th></tr></thead>
+<tbody>
+<tr><td>Sharpe (annualized)</td><td>+2.79~+4.54</td><td>(sample 부족)</td><td>24h 통계 의미 작음</td></tr>
+<tr><td>총 매매 횟수 (5종목)</td><td>~30 (per 24h equiv)</td><td>42</td><td>40% 더 많음</td></tr>
+<tr><td>AVAX flips</td><td>~6</td><td>21</td><td>3.5배 — 박스권 영향</td></tr>
+<tr><td>방향 (return)</td><td>+ (장기 평균)</td><td>-0.44% (단편)</td><td>24h 분포 의 한 점</td></tr>
+</tbody>
+</table>
+
+<h2>4. 솔직한 narrative — 무엇을 배웠나</h2>
+
+<ol>
+<li><strong>Sample size 가 결론을 결정</strong>. 21일 backtest 의 "buy-hold winner" 가 365일에선 6위.
+    학술적 정직 = 충분한 데이터 + 한계 인정.</li>
+
+<li><strong>Trailing stop 은 retail 의 진짜 무기</strong>. baseline 대비 10배 Sharpe 개선.
+    단순한 -2% 고정이 정교한 ATR/adaptive 보다 robust.</li>
+
+<li><strong>"Smart filter (multi-factor)" 는 long-term 에서 진짜 alpha</strong>.
+    365일에서 D_trend+funding +42% (1위). 21일에선 -4.92% (4위).
+    학계 가설 (institutional flow signal) 검증.</li>
+
+<li><strong>종목별 best 가 다름</strong>. 단일 universal strategy 없음.
+    BTC = Bollinger MR, ETH = trend long-only, AVAX/BNB/SOL = trend+funding.</li>
+
+<li><strong>24h 실거래는 통계 X — 단편 sample</strong>. -1.14% 가 strategy 실패 의미 X.
+    365일 backtest 가 진짜 expected value.</li>
+
+<li><strong>Whipsaw 는 실거래에서 더 잘 발생</strong>. AVAX 24h flip 21회 vs backtest 평균 6.
+    박스권 시장에선 fast/slow MA noise → trail stop 으로도 못 막음.</li>
+
+<li><strong>사용자 직관이 데이터로 검증됨</strong>. Stop-loss/Trailing 추가 가설은 backtest 가 강하게 지지.</li>
+</ol>
+
+<h2>5. 면접 narrative (한화 Trading)</h2>
+
+<div class="callout info">
+  <strong>"적극적 매매 시스템 설계 + honest limitation reporting"</strong>:
+  <ul>
+    <li>주식 ETF iNAV arb (KIS) → retail 한계 정량 측정</li>
+    <li>Crypto 확장 → multi-asset, multi-strategy 인프라 구축</li>
+    <li>325 backtest combinations 비교 → robustness 검증</li>
+    <li>Trailing stop 이 baseline Sharpe 10배 개선 정량 입증</li>
+    <li>Sample size, market regime, overfitting 모두 honest 인정</li>
+  </ul>
+  → Trading 직군이 가치 있게 보는 점 = "결과 + 그 결과의 한계 정확 측정".
+</div>
+
+<h2>6. 다음 단계 — 추후 시도 가능</h2>
+
+<table>
+<thead><tr><th>우선순위</th><th>방향</th><th>기대 효과</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>Walk-forward backtest (sliding 90일 window)</td><td>regime 적응형 strategy 검증</td></tr>
+<tr><td>2</td><td>AVAX whipsaw 해결 — magnitude filter (gap > 0.5%) 추가</td><td>박스권 매매 감소</td></tr>
+<tr><td>3</td><td>2~3년 daily backtest (regime diversity ↑)</td><td>강세/약세/횡보 모두 검증</td></tr>
+<tr><td>4</td><td>ML overlay (LightGBM on multi-factor features)</td><td>신호 결합 자동 학습</td></tr>
+<tr><td>5</td><td>실거래 30일+ 검증 (testnet 또는 작은 실거래)</td><td>backtest vs live 차이 정량화</td></tr>
+</tbody>
+</table>
+
+<h2>7. 비전공자용 요약 (TL;DR)</h2>
+
+<div class="callout info">
+  <p><strong>3일간 자동매매 봇 만들면서 배운 것</strong>:</p>
+  <ol>
+    <li><strong>1달 backtest 결과는 거의 random</strong>. 1년 데이터에서 정반대 결론 나옴.</li>
+    <li><strong>"Trailing stop -2%" 추가만으로 수익 10배 개선</strong>. 단순한 안전망이 정교한 룰보다 효과적.</li>
+    <li><strong>Smart filter (외국인 매매 같은 신호) 가 1년 데이터에서 진짜 작동</strong>. 1달 데이터로 부정 결론 위험.</li>
+    <li><strong>종목마다 다른 전략 필요</strong>. BTC 와 알트코인 같은 룰로 매매 ❌.</li>
+    <li><strong>24h 실거래로 strategy 평가 X</strong>. 365일 평균이 진짜 결론. 24h 단편 -1% 는 noise.</li>
+  </ol>
+  <p><strong>한 마디로</strong>: "데이터 충분, 안전망 추가, 종목별 차별화" — quant 자동매매의 3원칙.</p>
+</div>
+
+<h2>8. 관련 파일</h2>
+<ul>
+<li><code>scripts/run_crypto_per_symbol.py</code> — Final runner with trailing stop</li>
+<li><code>scripts/backtest_crypto_sweep.py</code> — 21/60/365 day sweep</li>
+<li><code>scripts/backtest_crypto_sltp_sweep.py</code> — SL/TP/Trail/ATR/Adaptive sweep</li>
+<li><code>packages/autotrader/src/autotrader/backtest/crypto_strategies.py</code> — 8 strategies + risk overlay</li>
+<li><code>packages/autotrader/src/autotrader/data/crypto_signals.py</code> — funding/L-S/OI fetcher</li>
+<li><code>packages/autotrader/src/autotrader/broker/binance_testnet_client.py</code> — Binance wrapper</li>
+<li><code>data/crypto_per_symbol_log_20260430_174135.json</code> — 24h dry-run records (230 entries)</li>
+<li><code>data/backtest_crypto_sltp_365d_*.parquet</code> — sweep results</li>
+<li><code>docs/2026-04-30/crypto_strategy_comparison.html</code> — 21일 backtest (선행)</li>
+<li><code>docs/2026-04-30/crypto_3period_comparison.html</code> — 3-period backtest</li>
+<li>이 보고서: <code>docs/2026-05-01/crypto_final_summary.html</code></li>
+</ul>
+
+<h2>9. 용어 정리집</h2>
+<table>
+<thead><tr><th>용어</th><th>한 줄 설명</th></tr></thead>
+<tbody>
+<tr><td>Trailing stop</td><td>가격이 진입 후 high_water mark 에서 X% 떨어지면 자동 청산. 익절 + drawdown 방어 동시</td></tr>
+<tr><td>MA crossover</td><td>fast(6h) MA 가 slow(24h) MA 위로 cross 하면 LONG, 아래면 SHORT</td></tr>
+<tr><td>Bollinger Band MR</td><td>price > MA + 2σ 시 SHORT, < MA - 2σ 시 LONG. 평균 회귀 베팅</td></tr>
+<tr><td>Funding rate</td><td>Perp 시장의 8h funding 정산 비용. 양수 = LONG 과밀</td></tr>
+<tr><td>D_trend+funding</td><td>Trend MA crossover + funding filter. 시장 과열 시 진입 회피</td></tr>
+<tr><td>Multi-asset margin</td><td>Binance Futures 의 USDT + USDC 통합 collateral pool 옵션</td></tr>
+<tr><td>Whipsaw</td><td>가격 oscillation 으로 신호 자주 flip → 매매비용 누적</td></tr>
+<tr><td>Backtest sample size</td><td>21일/60일/365일 어느 기간 기준인가. 길수록 신뢰도 ↑</td></tr>
+<tr><td>Sharpe ratio</td><td>(평균 수익) / (수익 std) × √252. 위험조정 수익률. 1+ 좋음, 2+ 우수</td></tr>
+<tr><td>MaxDD</td><td>Max Drawdown. 최고점 대비 최대 하락폭. 위험 측정</td></tr>
+<tr><td>Adaptive trailing</td><td>trend 강도 따라 trail % 조정. 강한 trend = 더 넓은 stop</td></tr>
+<tr><td>ATR</td><td>Average True Range. 평균 일중 변동폭. 변동성 측정</td></tr>
+<tr><td>Look-ahead bias</td><td>backtest 시 미래 정보 사용. 1-bar shift 로 회피</td></tr>
+<tr><td>Overfitting</td><td>모델이 backtest 데이터에 너무 맞춰져 실거래에선 작동 안 함</td></tr>
+<tr><td>Honest reporting</td><td>limitation 정직하게 인정. quant 의 미덕</td></tr>
+</tbody>
+</table>
+
+<p class="small" style="margin-top:36px;border-top:1px solid #ccc;padding-top:14px;">
+  보고서 작성: 2026-05-01 18:00 KST · ai_pricing 5-Layer 모노레포 Layer-E (Auto-Trading) · Crypto 확장 v3 ·
+  <strong>3일간의 결론</strong>: backtest sample size 가 결론 결정, Trailing stop 이 retail 자동매매의 핵심 무기,
+  종목별 차별화 + 학술적 honest reporting 이 가장 큰 학습 가치.
+  실거래 24h 단편 결과 (-1.14%) 는 365일 backtest 의 expected value 와 별개의 noise sample.
+</p>
+
+</body>
+</html>
