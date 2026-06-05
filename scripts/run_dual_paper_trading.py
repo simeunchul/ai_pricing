@@ -224,10 +224,17 @@ def safe_order(client, sym: str, qty: int, side: str, log,
         except Exception as e:
             log.warning(f"    [{sym}] order attempt {attempt+1} 통신 실패: {str(e)[:120]}")
             _record_api_error(log)
+            # KIS vts 처리 지연 흡수 — 2초로는 부족했던 사례(2026-06-05) 관찰.
+            # 첫 check 2s 후 시도, 안 보이면 8초 더 기다리고 한 번 더 (총 ~10s).
+            # idempotent OK 판정되면 즉시 종료. 너무 빨리 "잔고 변화 없음"으로
+            # 판정해 retry 보낸 결과 같은 주문이 두 번 들어가는 위험 차단.
             _t.sleep(2.0)
-            # Idempotency check — 들어갔는지 잔고 확인
             if _check_landed():
-                log.info(f"    [{sym}] 잔고 확인 — 500 났지만 주문은 들어감 (idempotent OK)")
+                log.info(f"    [{sym}] 잔고 확인 — 500 났지만 주문은 들어감 (idempotent OK, 2s)")
+                return ("ok", None)
+            _t.sleep(8.0)
+            if _check_landed():
+                log.info(f"    [{sym}] 잔고 확인 — 10s 지연 후 확인, 주문 처리됨 (idempotent OK)")
                 return ("ok", None)
             if attempt < max_retry:
                 log.info(f"    [{sym}] 잔고 변화 없음 — retry {attempt+2}/{max_retry+1}")
@@ -343,9 +350,20 @@ def _parse_kospi_quote(payload: dict) -> float:
 
 
 def _days_between(entry_date_iso: str, today: datetime | None = None) -> int:
-    """entry_date 와 오늘 사이 거래일 추정 (단순 calendar day - 비거래일 무시)."""
-    if not entry_date_iso or entry_date_iso == "unknown":
+    """entry_date 와 오늘 사이 일수 추정 (단순 calendar day - 비거래일 무시).
+
+    "unknown" 의미: KIS balance 의 thdt_buyqty=0 AND bfdy_buy_qty=0 → 그저께 이전
+    매수. 정확한 날짜는 모르지만 **최소 2영업일 이상 보유 확정**. 이전 버그
+    (2026-06-05 발견): "unknown" 을 0일로 반환해서 replacement / underperform
+    청산 룰의 min_hold_days 게이트를 통과 못하게 만들어, 6주 보유한 종목이
+    "어제 산 신규" 로 처리됨. 사용자가 호소한 "흐지부지한 주식 못 정리" 의 원인.
+    수정: "unknown" 은 보수적으로 큰 값(999) 반환 → 보유일 게이트는 통과,
+    상대 손익 게이트는 그대로 작동 → 적격성 판정 책임을 손익에 위임.
+    """
+    if not entry_date_iso:
         return 0
+    if entry_date_iso == "unknown":
+        return 999  # 충분히 오래 보유한 것으로 간주
     try:
         entry = datetime.fromisoformat(entry_date_iso).date()
     except ValueError:
@@ -657,6 +675,24 @@ def run_one_iteration(client: KISClient, args, log):
             if fixed_dates > 0:
                 log.info(f"[sync] entry_date 정정 {fixed_dates}건 — KIS thdt/bfdy 기준")
                 state.save(state_path)
+
+            # ===== Cash sync (KIS truth) =====
+            # 봇은 매수 0.1% 수수료 가정 (cost = qty*price*1.001), 매도 0.999 등
+            # 일률 추정으로 cash 갱신. 실제 KIS vts 의 fill 슬리피지·수수료·세금과
+            # 어긋나 6주간 누적 drift 1.27M+ 관찰됨 (2026-06-05 EOD reconcile).
+            # positions sync 와 동일하게 KIS dnca_tot_amt 를 truth 로 인정,
+            # tolerance 초과 시 정정. in-flight 주문 흡수용으로 10K 임계.
+            out2 = bal.get("output2") or []
+            if out2 and isinstance(out2[0], dict):
+                kis_cash = _f(out2[0].get("dnca_tot_amt"))
+                cash_diff = state.cash - kis_cash
+                if abs(cash_diff) > 10_000:
+                    log.warning(
+                        f"[sync] cash drift {cash_diff:+,.0f}원 — "
+                        f"봇 {state.cash:,.0f} vs KIS {kis_cash:,.0f} → KIS 기준 정정"
+                    )
+                    state.cash = kis_cash
+                    state.save(state_path)
         else:
             log.debug(f"[sync] balance 응답 비정상 — sync skip (rt_cd="
                       f"{bal.get('rt_cd') if isinstance(bal, dict) else '?'})")
@@ -744,6 +780,8 @@ def run_one_iteration(client: KISClient, args, log):
             if history_path.exists():
                 hist = pd.read_parquet(history_path)
                 hist = pd.concat([hist, pd.DataFrame([new_row])], ignore_index=True)
+                # 기존 datetime64[ns] 컬럼 + 새 row 의 isoformat str 충돌 방지
+                hist["timestamp"] = pd.to_datetime(hist["timestamp"], errors="coerce")
             else:
                 hist = pd.DataFrame([new_row])
             hist.to_parquet(history_path)
@@ -1057,6 +1095,8 @@ def run_one_iteration(client: KISClient, args, log):
         if history_path.exists():
             hist = pd.read_parquet(history_path)
             hist = pd.concat([hist, pd.DataFrame([new_row])], ignore_index=True)
+            # 기존 datetime64[ns] 컬럼 + 새 row 의 isoformat str 충돌 방지 (2026-06-05 fix)
+            hist["timestamp"] = pd.to_datetime(hist["timestamp"], errors="coerce")
         else:
             hist = pd.DataFrame([new_row])
         hist.to_parquet(history_path)
@@ -1396,6 +1436,8 @@ def main():
         if history_path.exists():
             hist = pd.read_parquet(history_path)
             hist = pd.concat([hist, pd.DataFrame([new_row])], ignore_index=True)
+            # 기존 datetime64[ns] 컬럼 + 새 row 의 isoformat str 충돌 방지 (2026-06-05 fix)
+            hist["timestamp"] = pd.to_datetime(hist["timestamp"], errors="coerce")
         else:
             hist = pd.DataFrame([new_row])
         hist.to_parquet(history_path)
