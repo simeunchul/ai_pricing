@@ -961,6 +961,11 @@ def run_dual_dynamic_backtest_v2(
     # v1 (strength 기준) 은 승자를 자르는 buggy 동작이라 폐기.
     replacement_pnl_max: float | None = None,
     replacement_min_hold: int = 3,
+    # ===== sell rule variant (2026-06-05) =====
+    # "dual"         — 기존: 외인 AND 기관 둘 다 < -sell_th 일 때만 매도 (덜 민감, 적은 거래)
+    # "foreign_only" — 외인만 < -sell_th 일 때 매도 (기관 신호 무시)
+    # "or"           — 외인 OR 기관 중 하나라도 < -sell_th 일 때 매도 (매우 민감)
+    sell_rule: str = "dual",
 ) -> PortfolioBacktestResult:
     """run_dual_dynamic_backtest 의 sell 룰 확장판.
 
@@ -1057,11 +1062,18 @@ def run_dual_dynamic_backtest_v2(
             reason = None
             days_held = (prev - pos["entry_date"]).days
             sell_th = sell_threshold_override if sell_threshold_override is not None else enter_threshold
-            # (a) 강한 dual (sell_th 가 매수와 다를 수 있음 — asymmetric)
-            if flow < -sell_th and inst < -sell_th:
-                reason = "dual_strong"
+            # (a) flow 기반 매도 — sell_rule 에 따라 분기
+            if sell_rule == "dual":
+                if flow < -sell_th and inst < -sell_th:
+                    reason = "dual_strong"
+            elif sell_rule == "foreign_only":
+                if flow < -sell_th:
+                    reason = "foreign_only_sell"
+            elif sell_rule == "or":
+                if flow < -sell_th or inst < -sell_th:
+                    reason = "or_sell"
             # (b) absolute stop loss (진입가 대비 -X%) — 양/음전 무관, 최우선 보호
-            elif (stop_loss_pct is not None and avg_entry > 0):
+            if reason is None and (stop_loss_pct is not None and avg_entry > 0):
                 pnl_from_entry = (prev_close - avg_entry) / avg_entry
                 if pnl_from_entry <= -stop_loss_pct:
                     reason = "stop_loss"
