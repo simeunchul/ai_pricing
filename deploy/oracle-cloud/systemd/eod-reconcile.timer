@@ -1,0 +1,14 @@
+[Unit]
+Description=Trigger EOD reconciliation daily at 15:35 KST
+Documentation=https://github.com/simeunchul/ai_pricing
+
+[Timer]
+# 한국 거래시간 마감(15:30) 후 5분 → 정산 완료된 KIS 잔고로 비교
+# Asia/Seoul timezone — VM 시간대 설정 필요
+OnCalendar=Mon..Fri 15:35:00
+# 시스템이 꺼져 있던 동안 못 fire 한 경우 boot 직후 한 번 실행
+Persistent=true
+Unit=eod-reconcile.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,18 @@
+[Unit]
+Description=EOD Reconciliation (bot state vs KIS balance)
+Documentation=https://github.com/simeunchul/ai_pricing
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/ai_pricing
+Environment="PATH=/home/ubuntu/ai_pricing/venv/bin:/usr/bin:/bin"
+EnvironmentFile=/home/ubuntu/ai_pricing/.env
+
+ExecStart=/home/ubuntu/ai_pricing/venv/bin/python scripts/eod_reconcile.py
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=eod-reconcile

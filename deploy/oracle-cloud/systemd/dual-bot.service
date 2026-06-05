@@ -1,0 +1,38 @@
+[Unit]
+Description=KIS Dual Paper Trading Bot
+Documentation=https://github.com/simeunchul/ai_pricing
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/ai_pricing
+Environment="PATH=/home/ubuntu/ai_pricing/venv/bin:/usr/bin:/bin"
+EnvironmentFile=/home/ubuntu/ai_pricing/.env
+
+# --watch: daemon polling mode (interval 120s)
+# --off-hours-skip: 장외 시간 polling 건너뛰기
+ExecStart=/home/ubuntu/ai_pricing/venv/bin/python scripts/run_dual_paper_trading.py --watch --interval 120 --off-hours-skip
+
+# 죽으면 자동 재시작 (Windows watchdog 대체)
+Restart=always
+RestartSec=10
+
+# 메모리 누수 대비 — 매일 02:00 강제 재시작 권장 (별도 timer 로)
+# 정상 종료 시그널: SIGTERM
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# stdout/stderr → journal
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dual-bot
+
+# Resource limits (free tier 보호)
+MemoryHigh=512M
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target
