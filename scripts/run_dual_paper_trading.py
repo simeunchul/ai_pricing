@@ -79,6 +79,13 @@ MOMENTUM_MIN = 0.0
 REPLACEMENT_PNL_MAX = 0.02
 REPLACEMENT_MIN_HOLD = 7
 
+# A3 매도 룰: 단기 수익률 음전 + 손실 영역 (30위 밖 가시성 사각지대 backup).
+# 보유 종목의 N일 가격 수익률 < threshold AND 현재가 < 진입가 → 매도.
+# 백테스트(2026-06-05): Calmar 0.85→1.02, MDD -45%→-38%, bear +20%→+28%.
+# 추세분석(EMA)과 TP는 backtest에서 더 나빴음 — A3가 데이터로 검증된 winner.
+SHORT_MOM_LOOKBACK = 10
+SHORT_MOM_THRESHOLD = -0.05
+
 
 def _append_trade(state_path: Path, *, ts: str, side: str, code: str,
                    name: str, qty: int, price: float,
@@ -889,6 +896,51 @@ def run_one_iteration(client: KISClient, args, log):
                 del state.positions[sym]
             else:
                 log.warning(f"    {sym} underperform 청산 실패 — 다음 iter 재시도")
+
+    # ===== 4c. A3 매도 — 단기 가격 모멘텀 음전 + 손실 영역 =====
+    # 가격만으로 작동 → top-30 가시성 무관, 모든 보유 종목에 적용.
+    # 조건 (둘 다 AND):
+    #   ① 보유 종목의 10일 가격 수익률 < -5%  (= 지속적 하락 검증)
+    #   ② 현재가 < 진입가  (= 손실 영역, 승자 보호 게이트)
+    # 30위 밖 가시성 사각지대 종목의 매도 timing backup.
+    # 백테스트(2026-06-05): Calmar 0.85→1.02, MDD -45%→-38%, bear +20%→+28%.
+    for sym in list(state.positions.keys()):
+        pos = state.positions[sym]
+        cur_px, _ = pos_values.get(sym, (pos.avg_entry, 0))
+        if pos.avg_entry <= 0 or cur_px <= 0:
+            continue
+        # 손실 영역 게이트 (승자 절대 안 자름)
+        if cur_px >= pos.avg_entry:
+            continue
+        short_ret = _get_momentum(sym, lookback=SHORT_MOM_LOOKBACK)
+        if short_ret is None:
+            continue  # 가격 데이터 없으면 보수적으로 skip
+        if short_ret >= SHORT_MOM_THRESHOLD:
+            continue
+        log.warning(
+            f"  [A3 매도] {sym} {pos.qty}주 @ {cur_px:,}원 — "
+            f"{SHORT_MOM_LOOKBACK}일 수익률 {short_ret*100:+.2f}% "
+            f"(< {SHORT_MOM_THRESHOLD*100:.0f}%) + 손실영역"
+        )
+        order_ok = args.dry_only
+        if not args.dry_only:
+            status, _ = safe_order(client, sym, pos.qty, "sell", log)
+            order_ok = (status == "ok")
+        if order_ok:
+            pnl_krw_val = pos.qty * (cur_px - pos.avg_entry)
+            pnl_pct_val = (cur_px - pos.avg_entry) / pos.avg_entry
+            _append_trade(
+                state_path,
+                ts=datetime.now().isoformat(),
+                side="SELL", code=sym, name=sym,
+                qty=pos.qty, price=cur_px, avg_entry=pos.avg_entry,
+                pnl_pct=pnl_pct_val, pnl_krw=pnl_krw_val,
+                reason="a3_short_momentum",
+            )
+            state.cash += pos.qty * cur_px * 0.999
+            del state.positions[sym]
+        else:
+            log.warning(f"    {sym} A3 매도 실패 — 다음 iter 재시도")
 
     # ===== 5. 매수 (cooldown / circuit breaker 아니면) =====
     # config/symbols.json 의 max_concurrent 가 있으면 그 값 우선 (런타임 변경 즉시 반영)

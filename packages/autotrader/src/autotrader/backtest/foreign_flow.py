@@ -966,6 +966,24 @@ def run_dual_dynamic_backtest_v2(
     # "foreign_only" — 외인만 < -sell_th 일 때 매도 (기관 신호 무시)
     # "or"           — 외인 OR 기관 중 하나라도 < -sell_th 일 때 매도 (매우 민감)
     sell_rule: str = "dual",
+    # ===== 추세분석 매도 (top-30 가시성 무관, 전 종목 적용 가능) =====
+    # trend_ema_window: N일 EMA. 종가가 EMA 아래 + EMA 기울기(5일 차분) 음수 → 매도.
+    # trend_break_require_loss: True 면 손실 영역(진입가 미만)에서만 발동 (보수적).
+    trend_ema_window: int | None = None,
+    trend_break_require_loss: bool = False,
+    # ===== A 방법 (단기 수익률 음전 + 손실 게이트) =====
+    # short_mom_lookback 일 수익률이 short_mom_threshold 미만 + 진입가 미만 → 매도.
+    short_mom_lookback: int | None = None,
+    short_mom_threshold: float = -0.03,
+    # ===== Take-profit 보조 룰 (30위 밖 가시성 사각지대 대응) =====
+    # 보유 종목 unrealized PnL >= take_profit_pct → 매도.
+    # sell rule chain 마지막에 위치 (dual_strong 등이 먼저 발동하면 TP 는 안 fire).
+    # 라이브 라이브 운영에서: top-30 안 종목은 dual_strong 빠르게 잡고, 30위 밖
+    # 종목은 dual_strong 못 보니 TP 가 backup. backtest 는 가시성 무시 (Naver
+    # full data) 이므로 dual_strong 과 경쟁하는 worst-case → 살아남으면 안전.
+    # take_profit_min_hold_days: 진입 후 이 일수 이상에서만 fire (단기 흔들림 보호).
+    take_profit_pct: float | None = None,
+    take_profit_min_hold_days: int = 0,
 ) -> PortfolioBacktestResult:
     """run_dual_dynamic_backtest 의 sell 룰 확장판.
 
@@ -1006,6 +1024,17 @@ def run_dual_dynamic_backtest_v2(
     if momentum_lookback is not None:
         for _df in sym_data.values():
             _df["_mom"] = _df["close"].pct_change(momentum_lookback)
+
+    # 추세분석 매도용: EMA 및 EMA 5일 기울기 사전계산
+    if trend_ema_window is not None:
+        for _df in sym_data.values():
+            _df["_ema"] = _df["close"].ewm(span=trend_ema_window, adjust=False).mean()
+            _df["_ema_slope"] = _df["_ema"].diff(5)
+
+    # A 방법(단기 수익률) 매도용: N일 수익률 사전계산
+    if short_mom_lookback is not None:
+        for _df in sym_data.values():
+            _df["_short_ret"] = _df["close"].pct_change(short_mom_lookback)
 
     positions: dict[str, dict] = {}
     cash: float = initial_cash
@@ -1063,6 +1092,7 @@ def run_dual_dynamic_backtest_v2(
             days_held = (prev - pos["entry_date"]).days
             sell_th = sell_threshold_override if sell_threshold_override is not None else enter_threshold
             # (a) flow 기반 매도 — sell_rule 에 따라 분기
+            # "none" = 모든 종목이 가시성 사각지대인 worst-case 시뮬레이션 (TP backup 가치 검증용)
             if sell_rule == "dual":
                 if flow < -sell_th and inst < -sell_th:
                     reason = "dual_strong"
@@ -1072,6 +1102,8 @@ def run_dual_dynamic_backtest_v2(
             elif sell_rule == "or":
                 if flow < -sell_th or inst < -sell_th:
                     reason = "or_sell"
+            elif sell_rule == "none":
+                pass  # flow 기반 매도 비활성 — 다음 룰들만 작동
             # (b) absolute stop loss (진입가 대비 -X%) — 양/음전 무관, 최우선 보호
             if reason is None and (stop_loss_pct is not None and avg_entry > 0):
                 pnl_from_entry = (prev_close - avg_entry) / avg_entry
@@ -1094,6 +1126,26 @@ def run_dual_dynamic_backtest_v2(
             if (reason is None and time_exit_days is not None
                   and days_held >= time_exit_days):
                 reason = "time_exit"
+            # (f) 추세분석 매도 — 종가 < EMA AND EMA 5일 기울기 음수
+            # NaN(초기 구간) 은 비교 결과 False → 자동 skip.
+            if reason is None and trend_ema_window is not None:
+                ema = float(prev_row["_ema"])
+                ema_slope = float(prev_row["_ema_slope"])
+                if prev_close < ema and ema_slope < 0:
+                    if (not trend_break_require_loss) or (prev_close < avg_entry):
+                        reason = "trend_break"
+            # (g) A 방법 — 단기 N일 수익률 < threshold AND 진입가 미만 (손실 영역)
+            if reason is None and short_mom_lookback is not None:
+                short_ret = float(prev_row["_short_ret"])
+                if short_ret < short_mom_threshold and prev_close < avg_entry:
+                    reason = "short_momentum"
+            # (h) Take-profit — chain 마지막. dual_strong 등 우선 룰이 발동하면
+            # 안 fire. 라이브 invisible 종목 backup 용. min_hold 게이트로 단기 흔들림 보호.
+            if (reason is None and take_profit_pct is not None and avg_entry > 0
+                    and days_held >= take_profit_min_hold_days):
+                pnl_from_entry = (prev_close - avg_entry) / avg_entry
+                if pnl_from_entry >= take_profit_pct:
+                    reason = "take_profit"
 
             if reason is not None:
                 sells_today.append((sym, reason))
