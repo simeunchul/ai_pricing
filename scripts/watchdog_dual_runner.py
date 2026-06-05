@@ -99,7 +99,48 @@ def _dashboard_health() -> bool:
         return False
 
 
+def _kill_existing_dashboards() -> int:
+    """기존 dashboard 프로세스(streamlit/dual_dashboard) 모두 종료.
+
+    중복 spawn 방지: health 실패 후 _start_dashboard 호출 시 old 프로세스를
+    먼저 정리해야 메모리 누수 + 포트 경합이 안 생긴다. 2026-06-04 관찰된
+    streamlit 2개 동시 실행 사고 대응.
+    """
+    killed = 0
+    try:
+        out = subprocess.check_output(
+            ["wmic", "process", "where", "name='python.exe'", "get",
+             "commandline,processid", "/format:csv"],
+            stderr=subprocess.DEVNULL, text=True,
+            creationflags=CREATE_NO_WINDOW,
+        )
+        for line in out.splitlines():
+            if "dual_dashboard.py" not in line and "streamlit" not in line:
+                continue
+            parts = line.strip().split(",")
+            if parts and parts[-1].isdigit():
+                pid = parts[-1]
+                try:
+                    subprocess.run(
+                        ["taskkill", "/PID", pid, "/F"],
+                        stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                        creationflags=CREATE_NO_WINDOW,
+                    )
+                    killed += 1
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return killed
+
+
 def _start_dashboard() -> None:
+    # spawn 전 기존 dashboard 정리 — 중복 실행으로 인한 메모리 누수/포트 경합 차단
+    n_killed = _kill_existing_dashboards()
+    if n_killed > 0:
+        _log(f"기존 dashboard 프로세스 {n_killed}개 정리")
+        time.sleep(1.0)  # 포트 release 대기
+
     _log("dashboard 재시작 시도...")
     try:
         creationflags = 0x00000200 | 0x08000000

@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>운영 신뢰성 인벤토리 — 자동매매 봇의 11개 안전장치 (2026-06-05)</title>
+<style>
+  :root{
+    --ink:#1d2330; --muted:#5b6472; --line:#e2e6ee; --bg:#f7f9fc;
+    --blue:#2f6fed; --green:#1f9d6b; --red:#e0533d; --gold:#c79a2b; --gray:#9aa3b2;
+    --layer1:#2f6fed; --layer2:#1f9d6b; --layer3:#c79a2b; --layer4:#9d3ec7;
+  }
+  *{box-sizing:border-box}
+  body{font-family:"Segoe UI","Malgun Gothic",sans-serif;color:var(--ink);
+       line-height:1.7;max-width:960px;margin:0 auto;padding:32px 22px;background:#fff}
+  h1{font-size:26px;line-height:1.35;border-bottom:3px solid var(--ink);padding-bottom:12px}
+  h2{font-size:20px;margin-top:42px;border-left:5px solid var(--blue);padding-left:12px}
+  h3{font-size:16px;margin-top:26px;color:#33405c}
+  h4{font-size:14.5px;margin-top:18px;color:#33405c}
+  p,li{font-size:15px}
+  code{background:#eef1f7;padding:1px 6px;border-radius:4px;font-size:13px}
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:#eef2fa;text-align:center}
+  td.c, th.c{text-align:center}
+  td.r, th.r{text-align:right}
+  .callout{border-radius:10px;padding:16px 18px;margin:18px 0;font-size:15px}
+  .callout.key{background:#eaf2ff;border-left:6px solid var(--blue)}
+  .callout.warn{background:#fff5e6;border-left:6px solid var(--gold)}
+  .callout.good{background:#eafbf2;border-left:6px solid var(--green)}
+  .callout.fail{background:#fdeeeb;border-left:6px solid var(--red)}
+  .callout.incident{background:#fbf3ff;border-left:6px solid var(--layer4);padding-left:22px}
+  .callout.incident b{color:var(--layer4)}
+  .fig{margin:22px 0;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+  .fig .cap{font-size:13px;color:var(--muted);margin-top:8px}
+  .tldr{background:#1d2330;color:#eef2fa;border-radius:12px;padding:22px}
+  .tldr h2{color:#fff;border-left-color:var(--gold)}
+  .tldr code{background:#33405c;color:#fff}
+  .meta{color:var(--muted);font-size:13px}
+  ul{padding-left:22px}
+  .glossary td{text-align:left;vertical-align:top}
+  pre{background:#1d2330;color:#eef2fa;padding:14px;border-radius:8px;font-size:13px;overflow-x:auto}
+  .layer-tag{display:inline-block;padding:1px 8px;border-radius:4px;font-size:11.5px;
+             color:#fff;font-weight:600;margin-right:4px}
+  .L1{background:var(--layer1)} .L2{background:var(--layer2)}
+  .L3{background:var(--layer3)} .L4{background:var(--layer4)}
+  .file-ref{font-family:Consolas,monospace;font-size:12.5px;color:#5b6472}
+</style>
+</head>
+<body>
+
+<h1>운영 신뢰성 인벤토리<br>— 자동매매 봇의 11개 안전장치와 6주간의 사고-패치 히스토리</h1>
+<p class="meta">2026-06-05 · KIS 모의투자 + Windows 데스크톱 환경 · 4계층 방어 구조 정리</p>
+
+<div class="callout key">
+<b>한 줄 결과.</b> 이 봇은 "Sharpe 가 높다" 보다 <b>"6주간 실전 운영하면서 5번의 사고를 거치며 11개의 안전장치를
+누적해 왔다"</b> 가 더 강한 신호다. 정상 동작 시엔 안 보이지만, 비정상 상황에 처음으로 가치를 입증한다.
+이 보고서는 그 11개 안전장치, 그것들이 박힌 자리, 그것들을 만들게 한 사고들을 한 자리에 정리한다.
+</div>
+
+<!-- =========== 1. 배경 =========== -->
+<h2>1. 왜 reliability 가 portfolio 의 핵심인가</h2>
+<p>
+백테스트 수익률은 거의 모든 지원자가 자랑한다. 그런데 실제 인터뷰에서 면접관이 던지는 첫 질문은
+거의 항상 "<b>프로덕션에서 무엇이 잘못될 수 있나, 그때 어떻게 되나?</b>" 다. 이 질문에 답할 수 있어야
+"잘 짠 백테스트"와 "운영 가능한 시스템" 사이를 건널 수 있다.
+</p>
+<p>
+이 봇은 6주간(2026-04 말 ~ 06 초) 실전 모의투자로 운영되며 의도치 않은 사고를 여러 번 겪었다.
+매 사고마다 — 시초 데이터 공백, 매도 주문 누락, 손실 종목 미청산, 콘솔 깜빡임, PC 부팅 직후 봇 idle —
+그 사건의 원인을 진단하고 코드에 안전장치를 박는 사이클을 반복했다. 그 결과 오늘 시점에
+<b>11개의 reliability 메커니즘</b>이 들어있고, 각각이 어떤 사고를 막는지 명확하다.
+</p>
+
+<!-- =========== 2. 4계층 방어 =========== -->
+<h2>2. 4계층 방어 구조 (defense in depth)</h2>
+<p>
+좋은 시스템은 한 곳에서 실패해도 다음 계층이 받아낸다. 이 봇의 안전장치들은 다음 4계층 중 하나에
+속한다. 한 사고가 1계층을 뚫어도 2계층에서 잡히는 식.
+</p>
+
+<div class="fig">
+<svg width="100%" viewBox="0 0 880 320" role="img" aria-label="4계층 방어 구조">
+  <!-- L1: data ingress -->
+  <rect x="20" y="30" width="200" height="240" rx="10" fill="#eaf2ff" stroke="#2f6fed" stroke-width="2"/>
+  <text x="120" y="55" font-size="14" text-anchor="middle" font-weight="700" fill="#2f6fed">L1 데이터 입력 안전</text>
+  <text x="120" y="76" font-size="12" text-anchor="middle" fill="#5b6472">"입력이 신뢰할 만한가?"</text>
+  <text x="35" y="110" font-size="13" fill="#1d2330">• API retry (1.5/3/6s)</text>
+  <text x="35" y="135" font-size="13" fill="#1d2330">• Disk fallback cache</text>
+  <text x="35" y="160" font-size="13" fill="#1d2330">  (시초 500 대응)</text>
+  <text x="35" y="185" font-size="13" fill="#1d2330">• Stale 임계 강화</text>
+  <text x="35" y="210" font-size="13" fill="#1d2330">  (1.5×)</text>
+  <text x="35" y="245" font-size="13" fill="#1d2330">→ 데이터 못 받으면</text>
+  <text x="35" y="261" font-size="13" fill="#1d2330">  매매 일시 보류</text>
+
+  <!-- L2: order execution -->
+  <rect x="240" y="30" width="200" height="240" rx="10" fill="#eafbf2" stroke="#1f9d6b" stroke-width="2"/>
+  <text x="340" y="55" font-size="14" text-anchor="middle" font-weight="700" fill="#1f9d6b">L2 주문 실행 안전</text>
+  <text x="340" y="76" font-size="12" text-anchor="middle" fill="#5b6472">"주문이 의도대로 갔나?"</text>
+  <text x="255" y="110" font-size="13" fill="#1d2330">• Safe order (3-state)</text>
+  <text x="255" y="135" font-size="13" fill="#1d2330">  ok/rejected/failed</text>
+  <text x="255" y="160" font-size="13" fill="#1d2330">• Idempotency check</text>
+  <text x="255" y="185" font-size="13" fill="#1d2330">  (500 시 잔고 확인)</text>
+  <text x="255" y="210" font-size="13" fill="#1d2330">• Circuit breaker</text>
+  <text x="255" y="245" font-size="13" fill="#1d2330">→ KIS 폭풍 시</text>
+  <text x="255" y="261" font-size="13" fill="#1d2330">  5분 매매 차단</text>
+
+  <!-- L3: state consistency -->
+  <rect x="460" y="30" width="200" height="240" rx="10" fill="#fff5e6" stroke="#c79a2b" stroke-width="2"/>
+  <text x="560" y="55" font-size="14" text-anchor="middle" font-weight="700" fill="#c79a2b">L3 상태 일관성</text>
+  <text x="560" y="76" font-size="12" text-anchor="middle" fill="#5b6472">"내가 아는 게 진실인가?"</text>
+  <text x="475" y="110" font-size="13" fill="#1d2330">• KIS 실잔고 sync</text>
+  <text x="475" y="135" font-size="13" fill="#1d2330">  (phantom/missing)</text>
+  <text x="475" y="160" font-size="13" fill="#1d2330">• Heartbeat + watchdog</text>
+  <text x="475" y="185" font-size="13" fill="#1d2330">  (5분 내 재기동)</text>
+  <text x="475" y="210" font-size="13" fill="#1d2330">• Log rotation (7일)</text>
+  <text x="475" y="245" font-size="13" fill="#1d2330">→ 봇이 모르고 있는</text>
+  <text x="475" y="261" font-size="13" fill="#1d2330">  상태 자동 정정</text>
+
+  <!-- L4: loss control -->
+  <rect x="680" y="30" width="200" height="240" rx="10" fill="#fbf3ff" stroke="#9d3ec7" stroke-width="2"/>
+  <text x="780" y="55" font-size="14" text-anchor="middle" font-weight="700" fill="#9d3ec7">L4 손실 통제</text>
+  <text x="780" y="76" font-size="12" text-anchor="middle" fill="#5b6472">"최악의 시나리오 한도?"</text>
+  <text x="695" y="110" font-size="13" fill="#1d2330">• MDD cap (-25%)</text>
+  <text x="695" y="135" font-size="13" fill="#1d2330">  + cooldown 0일</text>
+  <text x="695" y="160" font-size="13" fill="#1d2330">• KOSPI underperform</text>
+  <text x="695" y="185" font-size="13" fill="#1d2330">  강제 청산</text>
+  <text x="695" y="210" font-size="13" fill="#1d2330">• 유동성 필터</text>
+  <text x="695" y="245" font-size="13" fill="#1d2330">→ portfolio 보호</text>
+  <text x="695" y="261" font-size="13" fill="#1d2330">  + dry_only flag</text>
+
+  <!-- bottom arrow -->
+  <line x1="20" y1="295" x2="860" y2="295" stroke="#5b6472" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="440" y="313" font-size="12" fill="#5b6472" text-anchor="middle">사고가 깊어질수록 안쪽 계층까지 도달 — 그래도 마지막 L4 가 portfolio 자체를 지킨다</text>
+  <defs><marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#5b6472"/></marker></defs>
+</svg>
+<div class="cap">도표 1. 4계층 방어 구조. 각 계층은 독립적이며, 한 계층이 뚫려도 다음이 받아낸다. 11개 메커니즘이 4계층에 분포.</div>
+</div>
+
+<!-- =========== 3. 메커니즘 인벤토리 =========== -->
+<h2>3. 메커니즘 인벤토리 (11개 안전장치)</h2>
+
+<table>
+<tr><th class="c">#</th><th>메커니즘</th><th class="c">계층</th><th>막는 것</th><th>위치</th></tr>
+<tr>
+  <td class="c">1</td>
+  <td><b>API fetch retry w/ exponential backoff</b><br>1.5초 → 3초 → 6초 지수 backoff, 최대 3회</td>
+  <td class="c"><span class="layer-tag L1">L1</span></td>
+  <td>HTTP 500 / timeout / 일시 네트워크 장애</td>
+  <td class="file-ref">scripts/run_dual_paper_trading.py#L294 <code>_safe_fetch_with_retry</code></td>
+</tr>
+<tr>
+  <td class="c">2</td>
+  <td><b>Disk-cache fallback (가집계 응답)</b><br>매수 또는 매도 payload 둘 다 빈 응답 → 디스크의 직전 good payload 사용</td>
+  <td class="c"><span class="layer-tag L1">L1</span></td>
+  <td>2026-05-19~26 매일 09:00~09:15 KIS vts 500 패턴 — 시초 22분 알파 보호</td>
+  <td class="file-ref">packages/autotrader/src/autotrader/market/foreign_inst_realtime.py#L181 <code>PersistentPayloadCache</code></td>
+</tr>
+<tr>
+  <td class="c">3</td>
+  <td><b>Stale 데이터 시 임계 강화</b><br>fallback 사용 시 신호 임계 1.5배 → false signal 위험 제한</td>
+  <td class="c"><span class="layer-tag L1">L1</span></td>
+  <td>오래된 데이터를 진짜인 양 trade 하는 실수</td>
+  <td class="file-ref">scripts/run_dual_paper_trading.py#L296 <code>FALLBACK_THRESHOLD_MULT = 1.5</code></td>
+</tr>
+<tr>
+  <td class="c">4</td>
+  <td><b>Safe order with 3-state return</b><br>ok / rejected / failed 명확 구분 + 500 후 잔고로 idempotency 확인 + 1회 retry</td>
+  <td class="c"><span class="layer-tag L2">L2</span></td>
+  <td>주문이 KIS 에 들어갔는지 모른 채 또 보내는 중복 주문</td>
+  <td class="file-ref">scripts/run_dual_paper_trading.py#L183 <code>safe_order</code></td>
+</tr>
+<tr>
+  <td class="c">5</td>
+  <td><b>Circuit breaker (API 에러 폭풍 대응)</b><br>10분 윈도우 10회 에러 → 매매 5분 차단 + dashboard 에 상태 노출</td>
+  <td class="c"><span class="layer-tag L2">L2</span></td>
+  <td>KIS API 일시 폭주 시 잘못된 결정 연속 실행</td>
+  <td class="file-ref">scripts/run_dual_paper_trading.py#L147 <code>_record_api_error, _is_halted</code></td>
+</tr>
+<tr>
+  <td class="c">6</td>
+  <td><b>KIS 실잔고 sync (매 iter)</b><br>state.positions ↔ KIS balance 일치 확인. phantom(state만)/missing(KIS만) 자동 정렬. entry_date 도 KIS thdt/bfdy 기준 정정</td>
+  <td class="c"><span class="layer-tag L3">L3</span></td>
+  <td>5/12 sell-failed 누락, 5/18 buy-failed (008700) silent drift</td>
+  <td class="file-ref">scripts/run_dual_paper_trading.py#L521</td>
+</tr>
+<tr>
+  <td class="c">7</td>
+  <td><b>Heartbeat + Watchdog 자동복구</b><br>봇이 매 iter heartbeat 갱신, watchdog 가 5분마다 stale 검사 후 죽었으면 재기동</td>
+  <td class="c"><span class="layer-tag L3">L3</span></td>
+  <td>봇 hang / crash 시 사람 개입 없이 10분 내 복구</td>
+  <td class="file-ref">scripts/watchdog_dual_runner.py</td>
+</tr>
+<tr>
+  <td class="c">8</td>
+  <td><b>TimedRotatingFileHandler (자정 회전 + 7일 보관)</b><br>로그 단일 파일 무한 증가 차단</td>
+  <td class="c"><span class="layer-tag L3">L3</span></td>
+  <td>디스크 가득 차서 봇이 멈추는 사고</td>
+  <td class="file-ref">scripts/run_dual_paper_trading.py#L268 <code>setup_logging</code></td>
+</tr>
+<tr>
+  <td class="c">9</td>
+  <td><b>MDD cap + cooldown 0일 + peak 리셋</b><br>portfolio -25% 도달 시 전종목 강제 청산. 청산 후 peak 를 잔여 자본으로 리셋 → 무한 재발동 방지</td>
+  <td class="c"><span class="layer-tag L4">L4</span></td>
+  <td>큰 약세장에서 자본 50%+ 손실</td>
+  <td class="file-ref">scripts/run_dual_paper_trading.py#L643</td>
+</tr>
+<tr>
+  <td class="c">10</td>
+  <td><b>KOSPI underperform 강제 청산</b><br>보유 종목이 매수 후 KOSPI 대비 -5% 초과 underperform + 2영업일 이상 → 청산</td>
+  <td class="c"><span class="layer-tag L4">L4</span></td>
+  <td>flow 안 보이는 손실 종목 무한 보유 (top-30 외)</td>
+  <td class="file-ref">scripts/run_dual_paper_trading.py#L405 <code>should_force_sell_underperform</code></td>
+</tr>
+<tr>
+  <td class="c">11</td>
+  <td><b>유동성 필터 + dry_only 배포 게이트</b><br>거래대금 5억 미만 / 스프레드 30bps 초과 종목 skip. <code>--dry-only</code> 로 실주문 없이 신호만 검증</td>
+  <td class="c"><span class="layer-tag L4">L4</span></td>
+  <td>체결 안 되거나 스프레드로 손해 보는 종목 진입 + 신규 룰 라이브 사고</td>
+  <td class="file-ref">packages/autotrader/src/autotrader/market/liquidity_filter.py</td>
+</tr>
+</table>
+
+<!-- =========== 4. 사고-패치 사이클 =========== -->
+<h2>4. Incident-driven 진화 — 6주간 5건의 사고와 패치</h2>
+<p>
+가장 강한 portfolio 신호는 "사고가 났고, 그 사고를 진단했고, 그 진단을 코드로 박았다" 의 사이클이다.
+이 봇은 그 사이클을 다섯 번 돌았다.
+</p>
+
+<div class="fig">
+<svg width="100%" viewBox="0 0 880 200" role="img" aria-label="사고-패치 타임라인">
+  <!-- timeline -->
+  <line x1="40" y1="100" x2="840" y2="100" stroke="#9aa3b2" stroke-width="2"/>
+  <!-- months -->
+  <g font-size="11" fill="#5b6472">
+    <text x="100" y="125" text-anchor="middle">5월 초</text>
+    <text x="250" y="125" text-anchor="middle">5월 중순</text>
+    <text x="450" y="125" text-anchor="middle">5월 말</text>
+    <text x="650" y="125" text-anchor="middle">6월 초</text>
+    <text x="800" y="125" text-anchor="middle">오늘</text>
+  </g>
+  <!-- incidents -->
+  <g>
+    <circle cx="120" cy="100" r="9" fill="#e0533d"/>
+    <text x="120" y="78" font-size="11" text-anchor="middle" fill="#1d2330">#1 sell-failed</text>
+    <text x="120" y="65" font-size="10" text-anchor="middle" fill="#5b6472">(5/12)</text>
+    <text x="120" y="155" font-size="10.5" text-anchor="middle" fill="#1f9d6b">→ KIS sync</text>
+
+    <circle cx="220" cy="100" r="9" fill="#e0533d"/>
+    <text x="220" y="78" font-size="11" text-anchor="middle" fill="#1d2330">#2 buy-failed</text>
+    <text x="220" y="65" font-size="10" text-anchor="middle" fill="#5b6472">(5/18)</text>
+    <text x="220" y="155" font-size="10.5" text-anchor="middle" fill="#1f9d6b">→ phantom 정리</text>
+
+    <circle cx="400" cy="100" r="9" fill="#e0533d"/>
+    <text x="400" y="78" font-size="11" text-anchor="middle" fill="#1d2330">#3 시초 공백</text>
+    <text x="400" y="65" font-size="10" text-anchor="middle" fill="#5b6472">(5/19~26)</text>
+    <text x="400" y="155" font-size="10.5" text-anchor="middle" fill="#1f9d6b">→ fallback cache</text>
+
+    <circle cx="530" cy="100" r="9" fill="#e0533d"/>
+    <text x="530" y="78" font-size="11" text-anchor="middle" fill="#1d2330">#4 손실종목</text>
+    <text x="530" y="65" font-size="10" text-anchor="middle" fill="#5b6472">(5/26)</text>
+    <text x="530" y="155" font-size="10.5" text-anchor="middle" fill="#1f9d6b">→ KOSPI under</text>
+
+    <circle cx="670" cy="100" r="9" fill="#e0533d"/>
+    <text x="670" y="78" font-size="11" text-anchor="middle" fill="#1d2330">#5 콘솔 깜빡</text>
+    <text x="670" y="65" font-size="10" text-anchor="middle" fill="#5b6472">(6/01)</text>
+    <text x="670" y="155" font-size="10.5" text-anchor="middle" fill="#1f9d6b">→ CREATE_NO_WIN</text>
+
+    <circle cx="780" cy="100" r="9" fill="#c79a2b"/>
+    <text x="780" y="78" font-size="11" text-anchor="middle" fill="#1d2330">#6 PC 재부팅</text>
+    <text x="780" y="65" font-size="10" text-anchor="middle" fill="#5b6472">(6/04)</text>
+    <text x="780" y="155" font-size="10.5" text-anchor="middle" fill="#c79a2b">→ 진행 중</text>
+  </g>
+</svg>
+<div class="cap">차트 1. 사고-패치 타임라인. 각 사고는 며칠 내 진단·패치 사이클로 마무리됐고, 그 결과가 위 메커니즘 인벤토리에 박혔다.</div>
+</div>
+
+<h3>사고 #1: 매도 주문 실패 silent drift (5/12)</h3>
+<div class="callout incident">
+<b>증상.</b> 매도 신호로 KIS 에 주문 보냈으나 KIS 가 reject. 봇의 state.positions 에선 매도된 걸로 처리됨 →
+다음 iter 부터 그 종목이 "안 보이는" 상태로 KIS 계좌에는 그대로 남음 (phantom 의 반대 — missing).<br>
+<b>진단.</b> 봇이 state 만 믿고 KIS 잔고를 cross-check 안 함.<br>
+<b>패치.</b> 매 iter 시작 시 KIS balance 호출 → state.positions ↔ KIS holdings 비교 → 차이 시
+KIS 기준으로 자동 정렬. <span class="file-ref">run_dual_paper_trading.py#L521</span>
+</div>
+
+<h3>사고 #3: 시초 22분 데이터 공백 (5/19~26)</h3>
+<div class="callout incident">
+<b>증상.</b> 매일 09:00~09:15 사이 KIS vts <code>foreign-institution-total</code> 엔드포인트가 500 또는 빈 응답.
+이 22분이 외국인 갭매수 알파의 절반 이상을 차지하는 결정적 시간대 — 매일 가장 중요한 진입 기회를 놓침.<br>
+<b>진단.</b> KIS 모의서버 안정성 이슈, 우회 불가능. 그러나 직전 거래일의 마지막 가집계 응답은 disk 에 남겨둘 수 있음.<br>
+<b>패치.</b> <code>PersistentPayloadCache</code> 클래스 도입. 정상 응답이 들어올 때마다 disk 저장. 시초 빈 응답 시
+직전 good payload (48h 이내) 로드 후 fallback signal 생성. 단 stale 데이터 위험을 위해 진입 임계
+<b>1.5배 강화</b> (false signal 위험 제한). <span class="file-ref">foreign_inst_realtime.py#L181</span>
+</div>
+
+<h3>사고 #4: 손실 종목 무한 보유 — 30위 외 사각지대 (5/26)</h3>
+<div class="callout incident">
+<b>증상.</b> 매수했던 종목이 가격은 빠지는데 외인+기관 매도 신호도 약해서 top-30 매도 리스트에 안 뜸.
+flow-only 매도 룰로는 잡을 수 없어 손실 종목을 무한 보유.<br>
+<b>진단.</b> Flow 가시성 한계 (top-30 만 보임) + flow 기반 매도가 유일한 청산 경로 — 가시성 사각지대에 들어간
+포지션은 청산 불가.<br>
+<b>패치.</b> KOSPI 대비 underperform 룰 도입. 매수 시점 KOSPI 지수 저장 → 매 iter 비교 →
+종목 수익률 - KOSPI 수익률 < -5% 이고 2영업일 이상 보유 시 강제 청산.
+"flow 와 무관한" 첫 청산 경로. <span class="file-ref">run_dual_paper_trading.py#L405</span>
+</div>
+
+<h3>사고 #5: 5분마다 콘솔 깜빡임 (6/01)</h3>
+<div class="callout incident">
+<b>증상.</b> 사용자 화면에 5분마다 콘솔 창이 깜빡임. 작업 중 시각적 방해.<br>
+<b>진단.</b> Watchdog 가 봇 생존 확인용으로 <code>wmic</code>, <code>taskkill</code> 같은 콘솔 프로그램을 호출하는데
+<code>CREATE_NO_WINDOW</code> 플래그 없이 호출 → pythonw(windowless) 부모에서 자식 콘솔이 새 창을 띄움.<br>
+<b>패치.</b> 4곳의 <code>subprocess.check_output</code> / <code>subprocess.run</code> 호출에 <code>creationflags=CREATE_NO_WINDOW</code> 추가.
+봇 자동복구 기능은 그대로 유지, 깜빡임만 제거. <span class="file-ref">watchdog_dual_runner.py</span>
+</div>
+
+<h3>사고 #6: PC 재부팅 → 봇 idle (6/04, 진행 중)</h3>
+<div class="callout incident">
+<b>증상.</b> 시스템 재부팅 후 봇이 자동 기동되지 않음. 사용자 로그인 + 다음 watchdog 5분 스케줄까지 ~수 시간 idle.<br>
+<b>진단.</b> Watchdog 스케줄 작업이 <code>Logon Mode: Interactive only</code> → 로그인 전엔 안 돔. 부팅 트리거도 없음.
+더 깊은 문제: PC 자체가 죽으면 watchdog 도 죽음.<br>
+<b>패치 (오늘 진행).</b> ① Logon Mode 를 "Run whether user is logged on or not" 으로 변경,
+② "시스템 시작 시" 트리거 추가, ③ 외부 모니터링 (PC 자체가 죽었을 때 알람) — 별도 검토.
+</div>
+
+<!-- =========== 5. 현재 한계 (정직) =========== -->
+<h2>5. 현재 한계 (정직)</h2>
+<p>완벽하지 않다. 다음은 알면서도 아직 안 박은 약점들이다.</p>
+
+<table>
+<tr><th>약점</th><th>왜 아직 안 박았나</th><th>다음 단계 후보</th></tr>
+<tr>
+  <td>PC 자체가 죽으면 watchdog 도 죽음</td>
+  <td>로컬 단일 머신 구조의 본질적 한계</td>
+  <td>클라우드 VM 마이그레이션 (Naver Cloud, AWS Seoul), 외부 ping (healthchecks.io)</td>
+</tr>
+<tr>
+  <td>외부 alerting 없음 (봇 죽어도 사용자가 모름)</td>
+  <td>로컬 환경에선 사용자가 직접 dashboard 보는 패턴 운영</td>
+  <td>healthchecks.io / Discord webhook / Telegram bot 알람</td>
+</tr>
+<tr>
+  <td>EOD reconciliation 보고서 없음</td>
+  <td>매 iter sync 가 충분하다고 가정. 누적 drift 검출 메커니즘 부재</td>
+  <td>일별 KIS balance vs state.positions 비교 + JSON 보고서</td>
+</tr>
+<tr>
+  <td>Order timeout monitoring 없음</td>
+  <td>safe_order 의 idempotency check 가 일부 커버하지만 미체결 잔여 주문은 미추적</td>
+  <td>주문 후 N분 내 잔고 변화 미관측 시 알람</td>
+</tr>
+<tr>
+  <td>Dashboard 중복 spawn</td>
+  <td>watchdog 가 old streamlit 정리 없이 새로 spawn — 메모리 누수 / 포트 경합 위험</td>
+  <td>spawn 전 old 프로세스 kill 로직 (오늘 같이 패치 예정)</td>
+</tr>
+</table>
+
+<!-- =========== 6. TL;DR =========== -->
+<div class="tldr">
+<h2>6. 비전공자용 요약 (TL;DR)</h2>
+<ul>
+  <li>이 봇은 <b>11개의 자동 안전장치</b>를 가지고 있고, 그것들은 4계층(데이터 입력 / 주문 실행 / 상태 일관성 / 손실 통제) 으로 분산돼 있다.</li>
+  <li>그 안전장치들은 책에서 베껴온 게 아니라 <b>실제 사고 5건을 거치며 하나씩 박힌 것들</b>이다. 사고 → 진단 → 패치 → 보고서 사이클이 git history 와 docs/ 에 남아있다.</li>
+  <li>예를 들어 매일 09:00 KIS 모의서버가 빈 응답을 주는 패턴을 알아낸 뒤, 직전 거래일 데이터로 시초 22분을 메우는 fallback cache 를 직접 만들었다 (사고 #3).</li>
+  <li>또 한 종목을 매도하려다 KIS 가 거절했지만 봇이 모르고 "팔린 줄로 알던" silent drift 사고가 났을 때, 매 iter 마다 KIS 실잔고와 봇 state 를 자동 정렬하는 sync 룰을 박았다 (사고 #1).</li>
+  <li>"백테스트 Sharpe 가 얼마"보다 <b>"이 봇이 6주 동안 사고를 5번 겪고도 정상 운영 중"</b> 이 더 강한 portfolio 신호다.</li>
+  <li>아직 한계 있다 — PC 자체가 꺼지면 watchdog 도 못 돈다. 다음 단계는 외부 모니터링 또는 클라우드 마이그레이션.</li>
+</ul>
+</div>
+
+<!-- =========== 7. 관련 파일 =========== -->
+<h2>7. 관련 파일 / 커밋</h2>
+<ul>
+  <li>메인 runner: <code>scripts/run_dual_paper_trading.py</code> (1300+ 라인, 위 메커니즘 대부분 보유)</li>
+  <li>Watchdog: <code>scripts/watchdog_dual_runner.py</code></li>
+  <li>Fallback cache: <code>packages/autotrader/src/autotrader/market/foreign_inst_realtime.py</code></li>
+  <li>유동성 필터: <code>packages/autotrader/src/autotrader/market/liquidity_filter.py</code></li>
+  <li>사고 보고서:
+    <ul>
+      <li><a href="../2026-05-26/시초데이터공백_fallback.html">5/19~26 시초 공백 → fallback cache</a></li>
+      <li><a href="../2026-05-26/코스피_underperform_강제청산.html">5/26 손실 종목 → KOSPI underperform 청산</a></li>
+      <li><a href="../2026-05-26/포지션cap_동적확장.html">강한 신호 다발 → CAP 동적 확장</a></li>
+    </ul>
+  </li>
+  <li>주요 fix 커밋: <code>git log --grep=fix --oneline</code></li>
+</ul>
+
+<!-- =========== 8. 용어 정리집 =========== -->
+<h2>8. 용어 정리집</h2>
+<table class="glossary">
+<tr><th>용어</th><th>한 줄 설명</th><th>이 보고서에서의 역할</th></tr>
+<tr><td>Defense in depth</td><td>한 계층이 뚫려도 다음 계층이 받아내는 다층 방어</td><td>이 봇의 reliability 전체 구조</td></tr>
+<tr><td>Idempotency</td><td>같은 요청을 여러 번 보내도 결과가 같음 (중복 영향 없음)</td><td>safe_order 의 핵심 — 500 후 잔고 확인으로 중복 주문 방지</td></tr>
+<tr><td>Circuit breaker</td><td>실패가 일정 임계를 넘으면 자동으로 작동을 일시 중단</td><td>L2. KIS API 폭풍 시 매매 5분 차단</td></tr>
+<tr><td>Heartbeat</td><td>"나 살아있다" 신호를 주기적으로 남기는 메커니즘</td><td>L3. 봇 → 파일, watchdog → 파일 mtime 확인</td></tr>
+<tr><td>Watchdog</td><td>다른 프로세스의 생존을 감시하고 죽으면 재기동</td><td>L3. 봇이 hang/crash 시 자동복구</td></tr>
+<tr><td>MDD (Maximum Drawdown)</td><td>고점 대비 최악으로 빠진 비율</td><td>L4 손실 통제의 핵심 지표 — 임계 -25%</td></tr>
+<tr><td>Silent drift</td><td>봇이 알고 있는 상태와 실제(KIS) 상태가 조용히 어긋남</td><td>5/12, 5/18 사고의 본질 — KIS sync 로 해결</td></tr>
+<tr><td>Phantom / Missing</td><td>state 엔 있는데 KIS 엔 없음(phantom) / KIS 엔 있는데 state 엔 없음(missing)</td><td>매 iter sync 가 자동 정정</td></tr>
+<tr><td>Fallback cache</td><td>주 데이터 소스 실패 시 사용하는 백업 데이터</td><td>5/19~26 시초 500 사고 대응책</td></tr>
+<tr><td>dry_only</td><td>실주문 없이 신호와 가상 포지션 갱신만 — 배포 게이트</td><td>새 룰 라이브 투입 전 신호 정상 여부 검증</td></tr>
+<tr><td>KIS vts</td><td>Korea Investment Securities virtual trading server (모의투자 서버)</td><td>이 봇이 거래하는 환경</td></tr>
+<tr><td>gajiphap (가집계)</td><td>장중 1분 단위 외국인/기관 매매 추정 데이터</td><td>이 봇의 1차 신호 소스 (top-30 한정)</td></tr>
+</table>
+
+<p class="meta" style="margin-top:36px">생성: Claude Code · 2026-06-05 · 자급자족 단일 HTML (외부 의존 없음)</p>
+
+</body>
+</html>
