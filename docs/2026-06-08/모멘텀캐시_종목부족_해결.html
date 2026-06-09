@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>모멘텀 캐시 "종목 부족" 진단과 해결 (2026-06-08)</title>
+<style>
+  body{font-family:-apple-system,"Segoe UI",Roboto,"Malgun Gothic",sans-serif;
+       line-height:1.7;max-width:920px;margin:0 auto;padding:32px 24px;color:#1a1a1a;background:#fafafa}
+  h1{font-size:1.7rem;border-bottom:3px solid #2563eb;padding-bottom:8px}
+  h2{font-size:1.3rem;margin-top:2.4em;color:#1e3a8a;border-left:5px solid #2563eb;padding-left:10px}
+  h3{font-size:1.08rem;color:#334155;margin-top:1.6em}
+  code{background:#eef2ff;padding:2px 6px;border-radius:4px;font-size:0.88em;color:#3730a3}
+  pre{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:8px;overflow-x:auto;font-size:0.84rem;line-height:1.5}
+  pre code{background:none;color:inherit;padding:0}
+  table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:0.9rem;background:#fff}
+  th,td{border:1px solid #cbd5e1;padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#1e3a8a;color:#fff;font-weight:600}
+  tr:nth-child(even){background:#f1f5f9}
+  .callout{padding:14px 18px;border-radius:8px;margin:1.3em 0}
+  .callout.result{background:#ecfdf5;border-left:6px solid #10b981}
+  .callout.warn{background:#fff7ed;border-left:6px solid #f97316}
+  .callout.key{background:#eff6ff;border-left:6px solid #2563eb}
+  .tldr{background:#1e293b;color:#f1f5f9;padding:18px 22px;border-radius:10px}
+  .tldr h2{color:#fff;border-left-color:#38bdf8}
+  .ok{color:#059669;font-weight:700}.bad{color:#dc2626;font-weight:700}
+  figcaption{font-size:0.82rem;color:#64748b;text-align:center;margin-top:4px}
+  .diagram{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin:1.2em 0}
+</style>
+</head>
+<body>
+
+<h1>모멘텀 캐시 "종목 부족" 진단과 해결</h1>
+<p style="color:#64748b">2026-06-08 · dual paper trading 봇 · ai_pricing</p>
+
+<div class="callout result">
+<strong>한 줄 결과:</strong> 봇이 매수 후보를 찾고도 못 사던 원인은 "데이터 비공개"가 아니라
+<strong>매수 판단에 쓰는 로컬 가격 캐시가 40종목·38일 전(2026-04-29)에 멈춰 있었기 때문</strong>이었다.
+캐시를 넓게·자동으로 채우는 갱신 스크립트(①)와, 캐시에 없으면 그 자리에서 1회 받아오는
+fallback(②)을 추가해, 후보 종목이 더 이상 "데이터없음"으로 차단되지 않도록 했다.
+</div>
+
+<h2>1. 배경 — "종목 부족"이 무슨 뜻이었나</h2>
+
+<p>이 봇은 매수 직전 <strong>모멘텀 필터</strong>를 통과한 종목만 산다. 모멘텀 필터란 한 줄로 말하면
+<em>"외국인·기관이 사고 있고(수급), 동시에 지난 60일 가격 추세도 플러스인 종목만 진입"</em>이라는 규칙이다
+(폭락장에 떨어지는 칼날을 잡지 않기 위한 안전장치 — 이를 <code>falling-knife 차단</code>이라 부른다).</p>
+
+<p>문제는 그 "지난 60일 가격 추세"를 계산하는 함수 <code>_get_momentum()</code>이
+<strong>미리 내려받아 둔 로컬 파일(<code>data/krx_cache/{종목}_combined.parquet</code>)만 읽고,
+파일이 없으면 그냥 포기</strong>하도록 되어 있었다는 점이다.</p>
+
+<div class="callout key">
+<strong>도서관 비유:</strong> 네이버 금융(=도서관)에는 전 종목의 일별 시세가 무료로 다 있다.
+그런데 봇은 매수할 때 도서관에 가지 않고, 한 달 전 자기 책상에 복사해 둔 40권만 본다.
+오늘 필요한 책이 그 40권에 없으면 "그 책 없네" 하고 포기한다 — 도서관에 책이 없는 게 아니라.
+이것이 "종목 부족"의 정체였다. <strong>데이터는 공개되어 있고 접근도 가능</strong>했다.
+</div>
+
+<h2>2. 무엇이 실패했고 왜 — 매수가 막히는 사슬</h2>
+
+<p>2026-06-08 오전, 데이터 피드가 잠깐 살아나 매수 후보 2종이 떴는데도 매수가 0건이었다. 로그:</p>
+<pre><code>11:10  매수 후보 2종 / 매도 후보 2종
+11:10  [모멘텀60일] 통과 0/2종 (데이터없음 2, 추세음수 0)   ← 핵심
+11:10  모멘텀 필터 통과 0종 — 매수 없음</code></pre>
+
+<p>탈락 사유가 <strong>"추세음수 0"</strong>(추세가 나빠서 걸린 게 아님)이고
+<strong>"데이터없음 2"</strong>(가격 시계열 자체를 못 구함)였다. 원인을 한 단계씩 추적한 결과:</p>
+
+<table>
+<tr><th>단계</th><th>관찰</th><th>판정</th></tr>
+<tr><td>데이터 공개 여부</td><td>네이버 금융에 전 종목 일별 시세·수급 무료 공개</td><td class="ok">정상 — 비공개 아님</td></tr>
+<tr><td>매수 판단 함수</td><td><code>_get_momentum()</code>이 로컬 캐시만 읽음. 캐시 없으면 <code>None</code> 반환 → 차단</td><td class="bad">read-only, 자가 보강 없음</td></tr>
+<tr><td>캐시 커버 종목</td><td><strong>40종목만</strong> 적재</td><td class="bad">유니버스 협소</td></tr>
+<tr><td>캐시 최신성</td><td>마지막 거래일 <strong>2026-04-29</strong> (38일 전)</td><td class="bad">stale — 갱신 스크립트 부재</td></tr>
+<tr><td>당일 후보</td><td>오늘 후보 2종이 40종목 밖 → 파일 없음 → <code>None</code></td><td class="bad">상시 매수 차단</td></tr>
+</table>
+
+<div class="callout warn">
+<strong>숨은 2차 피해:</strong> 캐시가 4/29까지라, 60일 매수 모멘텀뿐 아니라
+<strong>10일 단기모멘텀 기반 A3 매도 룰까지 한 달 전 가격으로 계산</strong>되고 있었다.
+즉 진입·청산 신호 양쪽이 모두 과거 데이터로 작동 중이었다.
+</div>
+
+<div class="diagram">
+<figure>
+<svg width="860" height="210" viewBox="0 0 860 210" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="12">
+  <!-- before -->
+  <text x="20" y="20" font-weight="700" fill="#dc2626">[변경 전]</text>
+  <rect x="20" y="32" width="140" height="44" rx="6" fill="#dbeafe" stroke="#2563eb"/>
+  <text x="90" y="52" text-anchor="middle">KIS 가집계</text><text x="90" y="68" text-anchor="middle">매수 후보 2종</text>
+  <line x1="160" y1="54" x2="210" y2="54" stroke="#475569" marker-end="url(#a)"/>
+  <rect x="210" y="32" width="150" height="44" rx="6" fill="#fee2e2" stroke="#dc2626"/>
+  <text x="285" y="50" text-anchor="middle">_get_momentum</text><text x="285" y="66" text-anchor="middle">캐시 40종·4/29</text>
+  <line x1="360" y1="54" x2="410" y2="54" stroke="#475569" marker-end="url(#a)"/>
+  <rect x="410" y="32" width="150" height="44" rx="6" fill="#fee2e2" stroke="#dc2626"/>
+  <text x="485" y="50" text-anchor="middle">파일 없음 → None</text><text x="485" y="66" text-anchor="middle">"데이터없음"</text>
+  <line x1="560" y1="54" x2="610" y2="54" stroke="#475569" marker-end="url(#a)"/>
+  <rect x="610" y="32" width="150" height="44" rx="6" fill="#fecaca" stroke="#991b1b"/>
+  <text x="685" y="58" text-anchor="middle" fill="#991b1b" font-weight="700">매수 0건 ✕</text>
+  <!-- after -->
+  <text x="20" y="120" font-weight="700" fill="#059669">[변경 후]</text>
+  <rect x="20" y="132" width="140" height="44" rx="6" fill="#dbeafe" stroke="#2563eb"/>
+  <text x="90" y="152" text-anchor="middle">KIS 가집계</text><text x="90" y="168" text-anchor="middle">매수 후보 2종</text>
+  <line x1="160" y1="154" x2="210" y2="154" stroke="#475569" marker-end="url(#a)"/>
+  <rect x="210" y="132" width="150" height="44" rx="6" fill="#dcfce7" stroke="#059669"/>
+  <text x="285" y="150" text-anchor="middle">ensure_combined</text><text x="285" y="166" text-anchor="middle">신선? 아니면 재수집</text>
+  <line x1="360" y1="154" x2="410" y2="154" stroke="#475569" marker-end="url(#a)"/>
+  <rect x="410" y="132" width="150" height="44" rx="6" fill="#dcfce7" stroke="#059669"/>
+  <text x="485" y="150" text-anchor="middle">네이버 1회 보강</text><text x="485" y="166" text-anchor="middle">최신 시세 적재</text>
+  <line x1="560" y1="154" x2="610" y2="154" stroke="#475569" marker-end="url(#a)"/>
+  <rect x="610" y="132" width="150" height="44" rx="6" fill="#bbf7d0" stroke="#166534"/>
+  <text x="685" y="158" text-anchor="middle" fill="#166534" font-weight="700">모멘텀 판정 ✓</text>
+  <defs><marker id="a" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#475569"/></marker></defs>
+</svg>
+<figcaption>그림 1. 매수 의사결정 흐름 — 변경 전(캐시 미스 = 차단) vs 변경 후(캐시 미스 = 보강 후 판정)</figcaption>
+</figure>
+</div>
+
+<h2>3. 어떻게 해결했는지 — ①주력 + ②보조</h2>
+
+<p>"평소엔 미리 넓게 채워두고(①), 그래도 빠진 종목은 그 자리에서 메운다(②)"는 2단 구조로 풀었다.
+공통 로직은 <code>krx_investor.ensure_combined()</code> 한 곳에 모았다.</p>
+
+<h3>공통: ensure_combined — "신선하면 쓰고, 아니면 다시 받는다"</h3>
+<pre><code>def ensure_combined(symbol, *, max_age_days=3, min_rows=61, max_pages=60,
+                    allow_fetch=True, ...):
+    # 캐시가 있고 마지막 거래일이 max_age_days 이내 + 행 충분 → "fresh" 반환
+    # 오래됐거나 없음:
+    #   allow_fetch=False → ("stale"/"missing", 빈 df)   # 쿨다운 중 호출
+    #   allow_fetch=True  → 네이버 재수집 후 "refetched"  # 또는 "failed"</code></pre>
+
+<h3>① (주력) refresh_momentum_cache.py — 유니버스 캐시 일괄 갱신</h3>
+<p>갱신 대상 = <strong>기존 캐시 ∪ 보유 종목 ∪ SEED 대형주(49종) ∪ (옵션) KIS 가집계 상위 60종</strong>.
+매일(장 전) 한 번 돌리면 봇이 그날 볼 후보 대부분이 최신 상태로 캐시에 들어온다.</p>
+<pre><code>python scripts/refresh_momentum_cache.py            # stale/미적재만 갱신
+python scripts/refresh_momentum_cache.py --with-kis # + 오늘 KIS 후보까지
+python scripts/refresh_momentum_cache.py --force    # 전종목 강제 재수집</code></pre>
+
+<h3>② (보조) _get_momentum on-demand fallback</h3>
+<p>①이 못 메운 종목만, 매수 판단 순간에 <strong>1회</strong> 네이버에서 받아 캐시에 적재한다.
+실패한 종목은 30분 쿨다운을 둬 폭락장에서 같은 종목을 반복 조회하느라 느려지는 일을 막는다.</p>
+<pre><code>df, action = ensure_combined(sym, max_age_days=3, min_rows=lookback+1,
+                             max_pages=12, allow_fetch=not in_cooldown)
+# refetched → 캐시 보강 완료 / failed → 쿨다운 기록 후 None(보수적 차단)</code></pre>
+
+<h2>4. 최종 결과 — 검증</h2>
+
+<table>
+<tr><th>테스트</th><th>변경 전</th><th>변경 후</th></tr>
+<tr><td>005930 캐시 마지막 거래일</td><td class="bad">2026-04-29</td><td class="ok">2026-06-05 (자동 재수집)</td></tr>
+<tr><td>005930 60일 모멘텀</td><td class="bad">계산 불가/과거값</td><td class="ok">+89.6% (랠리 반영)</td></tr>
+<tr><td>없는 종목(999999)</td><td>None (영구 차단)</td><td class="ok">1회 시도 → 실패 시 None + 30분 쿨다운</td></tr>
+<tr><td>refresh 스크립트(3종 스모크)</td><td>—</td><td class="ok">refetched 3 / failed 0 (12s)</td></tr>
+<tr><td>SEED 유니버스 규모</td><td class="bad">40종</td><td class="ok">49종 + 보유 + KIS 후보(옵션)</td></tr>
+</table>
+
+<figure>
+<svg width="640" height="220" viewBox="0 0 640 220" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="12">
+  <line x1="160" y1="20" x2="160" y2="170" stroke="#94a3b8" stroke-dasharray="4 3"/>
+  <text x="160" y="186" text-anchor="middle" fill="#64748b" font-size="11">기준선: 오늘(06-08)</text>
+  <!-- before bar -->
+  <text x="20" y="60" font-size="12">변경 전</text>
+  <rect x="80" y="46" width="0.1" height="26"/>
+  <rect x="80" y="46" width="380" height="26" fill="#fca5a5"/>
+  <text x="466" y="64" font-size="11" fill="#991b1b">04-29 (38일 전, 시세 멈춤)</text>
+  <!-- after bar -->
+  <text x="20" y="120" font-size="12">변경 후</text>
+  <rect x="80" y="106" width="540" height="26" fill="#86efac"/>
+  <text x="86" y="124" font-size="11" fill="#166534">06-05 (최신 거래일까지 자동 추종)</text>
+  <text x="80" y="205" font-size="11" fill="#475569">← 캐시 시세 데이터가 커버하는 최종 시점 (오른쪽일수록 최신)</text>
+</svg>
+<figcaption>그림 2. 캐시 시세 최신성 — 변경 전(4/29에서 멈춤) vs 변경 후(최신 거래일까지 따라옴)</figcaption>
+</figure>
+
+<div class="callout result">
+<strong>운영 효과:</strong> 이제 봇은 후보가 캐시에 없어도 그 자리에서 시세를 받아 모멘텀을 판정한다.
+"데이터없음"으로 인한 상시 매수 차단이 해소되고, 동시에 A3 매도 룰도 최신 가격으로 작동한다.
+단 폭락장 자체의 falling-knife 차단(추세 음수면 진입 안 함)은 그대로 유지된다 — 이건 의도된 방어다.
+</div>
+
+<div class="callout warn">
+<strong>배포 주의:</strong> 현재 떠 있는 데몬은 <em>예전 코드</em>를 메모리에 들고 돌고 있어,
+이 변경은 <strong>데몬 재시작 후</strong> 적용된다. 권장 순서: ① <code>refresh_momentum_cache.py --with-kis</code>로
+캐시 먼저 채우기 → ② 데몬 재시작.
+</div>
+
+<h2>5. 비전공자용 요약 (TL;DR)</h2>
+<div class="tldr">
+<h2>TL;DR</h2>
+<ul>
+<li>봇이 매수 후보를 찾고도 안 산 건 고장이 아니라, <strong>가격 데이터를 미리 받아둔 메모장이 한 달 전·40종목에서 멈춰</strong> 있어서였다.</li>
+<li>데이터는 네이버 금융에 무료로 공개돼 있다. 봇이 안 가져왔을 뿐이다.</li>
+<li>해결: <strong>①</strong> 매일 넓게 미리 채우는 갱신 스크립트 + <strong>②</strong> 빠진 종목은 살 때 그 자리에서 1회 받아오기.</li>
+<li>검증 완료(삼성전자 캐시 4/29→6/5 자동 갱신). 적용은 봇 재시작 후.</li>
+</ul>
+</div>
+
+<h2>6. 관련 파일 / 커밋</h2>
+<ul>
+<li>신설: <code>scripts/refresh_momentum_cache.py</code> — ① 유니버스 캐시 일괄 갱신</li>
+<li>수정: <code>packages/autotrader/src/autotrader/data/krx_investor.py</code> — <code>ensure_combined</code>, <code>combined_last_date</code>, <code>combined_cache_path</code> 추가</li>
+<li>수정: <code>scripts/run_dual_paper_trading.py</code> — <code>_get_momentum</code> on-demand fallback(②) + 쿨다운</li>
+<li>관련 진단 로그: <code>data/dual_trading.log</code> (11:10 "데이터없음 2", 11:29 #5 underperform 청산)</li>
+</ul>
+
+<h2>용어 정리집</h2>
+<table>
+<tr><th>용어</th><th>한 줄 설명</th><th>본문에서의 역할</th></tr>
+<tr><td>모멘텀 (momentum)</td><td>일정 기간(예 60일) 가격이 오른/내린 비율</td><td>이 값이 플러스여야 매수 — 캐시가 없으면 계산 불가라 매수 차단의 발화점</td></tr>
+<tr><td>모멘텀 캐시</td><td>종목별 일별 시세를 담은 로컬 파일(<code>*_combined.parquet</code>)</td><td>40종·4/29에서 멈춰 "종목 부족"을 일으킨 장본인</td></tr>
+<tr><td>falling-knife 차단</td><td>"떨어지는 칼날을 잡지 말라" — 추세가 음수면 진입 안 하는 안전장치</td><td>오늘 폭락장에선 오히려 보호 역할. 이번 수정 후에도 유지</td></tr>
+<tr><td>stale (스테일)</td><td>데이터가 오래돼 현재를 반영하지 못하는 상태</td><td>4/29 캐시 = stale. 신선도(max_age_days) 판정의 대상</td></tr>
+<tr><td>on-demand fallback</td><td>필요한 순간에 즉석에서 데이터를 받아오는 보조 경로</td><td>②번. 캐시에 없는 후보를 살 때 1회 보강</td></tr>
+<tr><td>유니버스 (universe)</td><td>봇이 후보로 고려하는 종목 집합</td><td>①이 미리 캐시를 채워둘 대상 목록(기존+보유+SEED+KIS)</td></tr>
+<tr><td>쿨다운 (cooldown)</td><td>같은 작업을 일정 시간 다시 하지 않게 막는 대기</td><td>재수집 실패 종목을 30분간 재시도 안 해 폭락장 지연을 방지</td></tr>
+<tr><td>#5 underperform 청산</td><td>보유 종목이 매수 후 코스피 대비 -5% 넘게 뒤처지면 강제 매도</td><td>오늘 11:29 KB금융을 -10.2%에 청산 — 매도 방어는 정상 작동 중임을 입증</td></tr>
+</table>
+
+</body>
+</html>

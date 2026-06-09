@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>매수→즉시매도 churn(휩쏘) 진단과 매수 단기추세 가드 (2026-06-09)</title>
+<style>
+  body{font-family:-apple-system,"Segoe UI",Roboto,"Malgun Gothic",sans-serif;line-height:1.7;max-width:940px;margin:0 auto;padding:32px 24px;color:#1a1a1a;background:#fafafa}
+  h1{font-size:1.65rem;border-bottom:3px solid #7c3aed;padding-bottom:8px}
+  h2{font-size:1.3rem;margin-top:2.3em;color:#5b21b6;border-left:5px solid #7c3aed;padding-left:10px}
+  h3{font-size:1.05rem;color:#334155;margin-top:1.5em}
+  code{background:#f1edff;padding:2px 6px;border-radius:4px;font-size:0.88em;color:#5b21b6}
+  pre{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:8px;overflow-x:auto;font-size:0.83rem;line-height:1.5}
+  pre code{background:none;color:inherit;padding:0}
+  table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:0.89rem;background:#fff}
+  th,td{border:1px solid #cbd5e1;padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#5b21b6;color:#fff}
+  tr:nth-child(even){background:#f5f3ff}
+  .callout{padding:14px 18px;border-radius:8px;margin:1.3em 0}
+  .result{background:#ecfdf5;border-left:6px solid #10b981}
+  .warn{background:#fff7ed;border-left:6px solid #f97316}
+  .key{background:#f5f3ff;border-left:6px solid #7c3aed}
+  .tldr{background:#1e293b;color:#f1f5f9;padding:18px 22px;border-radius:10px}
+  .tldr h2{color:#fff;border-left-color:#a78bfa}
+  .win{color:#059669;font-weight:700}.bad{color:#dc2626;font-weight:700}
+  figcaption{font-size:0.82rem;color:#64748b;text-align:center;margin-top:4px}
+  .diagram{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin:1.2em 0}
+</style>
+</head>
+<body>
+
+<h1>매수→즉시매도 churn(휩쏘) 진단과 "매수 단기추세 가드"</h1>
+<p style="color:#64748b">2026-06-09 · dual paper trading 봇 · ai_pricing</p>
+
+<div class="callout result">
+<strong>한 줄 결과:</strong> 봇이 종목을 사자마자 11분 만에 되팔아 수수료만 날리는 churn(휩쏘)의 원인은
+<strong>매수는 60일 추세, 매도(A3)는 10일 추세를 봐서 생긴 "시간축 불일치"</strong>였다.
+매수 게이트에 <strong>10일 추세 ≥ −5% 가드</strong>를 추가(A3 매도 룰은 불변)해, 4년 백테스트에서
+churn −18% · 수익 +205%→+225% · Calmar 0.63→0.69 개선을 확인하고 라이브에 반영했다.
+</div>
+
+<h2>1. 배경 — 11분 만에 사고 판 028050</h2>
+
+<p>2026-06-09, 봇이 삼성E&A(028050)를 사자마자 되팔았다:</p>
+<pre><code>09:57:24  매수 028050 삼성E&A @ 45,300원  (외인 +12.39% / 기관 +7.32%, 60일 추세 +42%)
+10:08:47  A3 매도 @ 45,200원  (10일 수익률 -13.35% < -5% + 손실영역)  → -0.22% (-7,500원)</code></pre>
+
+<p>듀얼 신호(외인+기관 동반 매수)도 강했고 60일 추세도 +42%라 매수 게이트를 통과했는데, 11분 뒤
+A3 매도(10일 −13.35%)가 즉시 청산했다. 사고 판 게 같은 종목이라 <strong>왕복 수수료(-0.22%)만 손실</strong>.
+이런 churn 이 반복되면 수수료로 자본이 깎인다.</p>
+
+<div class="callout key">
+<strong>핵심 용어 — churn / 휩쏘(whipsaw):</strong> 산 직후 되팔아(또는 그 반대) 방향 없이 사고팔기만
+반복하며 수수료·슬리피지로 손실이 누적되는 현상. 여기선 "산 지 2거래일 이내 매도"를 churn 으로 측정.
+</div>
+
+<h2>2. 무엇이 문제였나 — 매수와 매도의 "시간축 불일치"</h2>
+
+<table>
+<tr><th>룰</th><th>보는 기간</th><th>028050 값</th><th>판정</th></tr>
+<tr><td>매수 게이트 (모멘텀 confluence)</td><td><strong>60일</strong> 추세</td><td>+42.2%</td><td>통과 → 매수</td></tr>
+<tr><td>A3 매도 (단기 모멘텀)</td><td><strong>10일</strong> 추세</td><td>−13.35%</td><td>발동 → 매도</td></tr>
+</table>
+
+<p>삼성E&A는 <strong>장기(60일) 상승 추세지만 최근 2주(10일) −13% 급락 중</strong>인 종목이었다. 매수는 60일만
+보고 "사자" 했고, A3는 10일을 보고 "뱉어" 했다. 즉 <strong>A3 매도는 정상 작동</strong>했고(사면 안 될 falling-knife를
+잘 청산), 진짜 문제는 <strong>"이미 단기 급락 중인 종목을 사들인 매수 게이트"</strong>였다.</p>
+
+<div class="diagram">
+<figure>
+<svg width="880" height="170" viewBox="0 0 880 170" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="12">
+  <text x="20" y="20" font-weight="700" fill="#dc2626">[변경 전] churn 발생</text>
+  <rect x="20" y="34" width="150" height="42" rx="6" fill="#ede9fe" stroke="#7c3aed"/>
+  <text x="95" y="52" text-anchor="middle">듀얼 신호 통과</text><text x="95" y="68" text-anchor="middle">외인+기관 매수</text>
+  <line x1="170" y1="55" x2="214" y2="55" stroke="#475569" marker-end="url(#a)"/>
+  <rect x="214" y="34" width="150" height="42" rx="6" fill="#ede9fe" stroke="#7c3aed"/>
+  <text x="289" y="52" text-anchor="middle">60일 추세 +42%</text><text x="289" y="68" text-anchor="middle">통과 → 매수 ✓</text>
+  <line x1="364" y1="55" x2="408" y2="55" stroke="#475569" marker-end="url(#a)"/>
+  <rect x="408" y="34" width="170" height="42" rx="6" fill="#fee2e2" stroke="#dc2626"/>
+  <text x="493" y="52" text-anchor="middle">11분 뒤 A3 매도</text><text x="493" y="68" text-anchor="middle">10일 -13% → 매도</text>
+  <line x1="578" y1="55" x2="622" y2="55" stroke="#475569" marker-end="url(#a)"/>
+  <rect x="622" y="34" width="160" height="42" rx="6" fill="#fecaca" stroke="#991b1b"/>
+  <text x="702" y="60" text-anchor="middle" fill="#991b1b" font-weight="700">수수료만 손실 ✕</text>
+
+  <text x="20" y="116" font-weight="700" fill="#059669">[변경 후] 매수 단기추세 가드</text>
+  <rect x="20" y="130" width="150" height="34" rx="6" fill="#ede9fe" stroke="#7c3aed"/>
+  <text x="95" y="151" text-anchor="middle">60일 +42% 통과</text>
+  <line x1="170" y1="147" x2="214" y2="147" stroke="#475569" marker-end="url(#a)"/>
+  <rect x="214" y="130" width="180" height="34" rx="6" fill="#dcfce7" stroke="#059669"/>
+  <text x="304" y="151" text-anchor="middle">10일 ≥ -5% 인가?</text>
+  <line x1="394" y1="147" x2="438" y2="147" stroke="#475569" marker-end="url(#a)"/>
+  <rect x="438" y="130" width="200" height="34" rx="6" fill="#bbf7d0" stroke="#166534"/>
+  <text x="538" y="151" text-anchor="middle" fill="#166534" font-weight="700">10일 -13% → 매수 보류 ✓</text>
+  <defs><marker id="a" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#475569"/></marker></defs>
+</svg>
+<figcaption>그림 1. churn 메커니즘과 가드 — 매수 게이트가 A3와 같은 10일을 보게 해 "즉시 뱉을 종목"을 안 삼</figcaption>
+</figure>
+</div>
+
+<h2>3. 어떻게 해결했나 — 백테스트로 변형 비교 후 반영</h2>
+
+<p>A3 매도(사용자가 유지를 원한 "30위 밖 추세매도")는 손대지 않고, <strong>매수 쪽만</strong> 손봤다.
+두 후보를 4년(2022-05~2026-06, 진짜 하락장 포함) 40종 백테스트로 비교 — 모든 변형에서 A3·replacement·MDD cap 공통.</p>
+
+<table>
+<tr><th>변형</th><th>수익률</th><th>MDD</th><th>Calmar</th><th>churn(≤2일)</th></tr>
+<tr><td>baseline (현 운영)</td><td>+204.5%</td><td>−51.3%</td><td>0.63</td><td>67</td></tr>
+<tr><td>Fix1 가드 −3% (빡빡)</td><td>+191.2%</td><td>−49.2%</td><td>0.63</td><td>49</td></tr>
+<tr style="background:#dcfce7"><td><strong>Fix1 가드 −5% (채택)</strong></td><td class="win">+224.7%</td><td>−50.1%</td><td class="win">0.69</td><td>55</td></tr>
+<tr><td>Fix1 가드 −7% (느슨)</td><td>+246.3%</td><td class="bad">−55.0%</td><td>0.67</td><td>62</td></tr>
+<tr><td>Fix2 재매수쿨다운 3일 (단독)</td><td class="bad">+122.1%</td><td>−54.2%</td><td class="bad">0.41</td><td>63</td></tr>
+<tr><td>Fix1+2 가드−5%+쿨3일</td><td>+265.2%</td><td>−48.7%</td><td>0.79</td><td>49</td></tr>
+</table>
+
+<div class="callout warn">
+<strong>왜 쿨다운(Fix2)은 단독으로 쓰면 해로운가:</strong> 강한 종목을 잠깐 dip 에 팔았다가
+반등할 때 다시 못 들어가게 막아 좋은 재진입을 버린다(수익 +205%→+122%). churn 도 거의 못 줄인다
+— churn 은 대부분 "재매수"가 아니라 "처음부터 falling-knife 를 산 것"이라 쿨다운이 못 잡는다.
+Fix1+2 조합이 숫자는 최고지만, 단독으로 해로운 요소가 조합에서만 좋아지는 건 과최적화 위험이 있어 보류.
+</div>
+
+<h3>채택 — Fix1 가드 −5% (코드)</h3>
+<pre><code># run_dual_paper_trading.py  매수 게이트 (5a-2)
+# 60일 통과 후보 중 10일 단기수익률 < -5% 면 매수 보류 (A3가 즉시 뱉을 종목 회피)
+short_moms = {s: _get_momentum(s, lookback=SHORT_MOM_LOOKBACK)   # 10일
+              for s in buy_cands_sorted["symbol"]}
+buy_cands_sorted = buy_cands_sorted[buy_cands_sorted["symbol"].apply(
+    lambda s: short_moms.get(s) is not None
+              and short_moms.get(s) >= BUY_SHORT_MOM_THRESHOLD   # -0.05
+)]</code></pre>
+
+<h2>4. 최종 결과</h2>
+
+<figure>
+<svg width="680" height="220" viewBox="0 0 680 220" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="12">
+  <!-- churn bars -->
+  <text x="20" y="20" font-weight="700">churn(산 지 2일 이내 매도) 건수 — 낮을수록 좋음</text>
+  <text x="40" y="60">baseline</text>
+  <rect x="120" y="48" width="335" height="20" fill="#fca5a5"/><text x="462" y="63" fill="#991b1b">67</text>
+  <text x="40" y="92" font-weight="700">가드 -5%</text>
+  <rect x="120" y="80" width="275" height="20" fill="#86efac"/><text x="402" y="95" fill="#166534" font-weight="700">55 (-18%)</text>
+  <!-- calmar -->
+  <text x="20" y="140" font-weight="700">Calmar (수익÷최대낙폭) — 높을수록 좋음</text>
+  <text x="40" y="178">baseline</text>
+  <rect x="120" y="166" width="252" height="20" fill="#cbd5e1"/><text x="380" y="181">0.63</text>
+  <text x="40" y="206" font-weight="700">가드 -5%</text>
+  <rect x="120" y="194" width="276" height="20" fill="#86efac"/><text x="404" y="209" fill="#166534" font-weight="700">0.69</text>
+</svg>
+<figcaption>그림 2. baseline vs 가드 −5% (4년 40종) — churn 줄고 위험대비수익은 오히려 개선</figcaption>
+</figure>
+
+<div class="callout result">
+<strong>반영 결과:</strong> 매수 게이트가 A3와 같은 10일 추세(≥ −5%)를 보게 되어, falling-knife 진입이 차단된다.
+A3 매도 룰은 <strong>전혀 바뀌지 않아</strong> 보유 종목이 나중에 꺾이면 그대로 청산한다(사용자가 원한 동작 유지).
+라이브 데몬 재시작 완료(pid 36608), 가드 차단 시 <code>[매수가드10일] N종 차단</code> 로그가 남는다.
+</div>
+
+<div class="callout warn">
+<strong>경계 — 이건 churn(효율) 개선이지 MDD 개선이 아니다:</strong> 4년 MDD 는 여전히 −50%대(2022 약세장).
+하락장 손실 자체를 줄이는 건 별개 과제다. 같은 날 인버스 헤지(순수/전술 × −1x/−2x)도 백테스트했으나
+모든 조합이 비용 &gt; 효용으로 기각됨 — 하락장 방어는 헤지가 아니라 기존 방어룰 개선이 답.
+</div>
+
+<h2>5. 비전공자용 요약 (TL;DR)</h2>
+<div class="tldr">
+<h2>TL;DR</h2>
+<ul>
+<li>봇이 종목을 사자마자 되파는 건, <strong>살 때는 "두 달 추세"만 보고 팔 때는 "2주 추세"를 봐서</strong> 생긴 엇박자였다.</li>
+<li>살 때도 "2주 추세"를 같이 보게 해서, <strong>이미 급락 중인 종목은 처음부터 안 사게</strong> 했다.</li>
+<li>4년 백테스트: 헛매매 −18%, 수익·위험대비수익(Calmar) 모두 개선. 파는 규칙(A3)은 그대로.</li>
+<li>라이브 반영 + 봇 재시작 완료. 단, 이건 "헛매매" 개선이지 "폭락장 −50% 손실"을 줄이는 건 아니다.</li>
+</ul>
+</div>
+
+<h2>6. 관련 파일 / 변경</h2>
+<ul>
+<li>라이브: <code>scripts/run_dual_paper_trading.py</code> — <code>BUY_SHORT_MOM_THRESHOLD=-0.05</code> + 매수 게이트 5a-2 가드</li>
+<li>엔진: <code>packages/autotrader/src/autotrader/backtest/foreign_flow.py</code> — <code>buy_short_mom_lookback/threshold</code>, <code>rebuy_cooldown_days</code>, 매도기록 <code>hold_days</code></li>
+<li>백테스트: <code>scripts/backtest_buy_guard.py</code> (churn 변형 비교), 결과 <code>data/buy_guard_compare_*.json</code></li>
+<li>관련: <code>scripts/backtest_momentum_gate.py</code>, <code>scripts/backtest_hedge_overlay.py</code> (같은 분석 흐름)</li>
+</ul>
+
+<h2>용어 정리집</h2>
+<table>
+<tr><th>용어</th><th>한 줄 설명</th><th>본문에서의 역할</th></tr>
+<tr><td>churn / 휩쏘(whipsaw)</td><td>방향 없이 사고팔기 반복으로 수수료만 까먹는 현상</td><td>028050이 11분 만에 매수→매도된 그 손실. 이번 수정의 표적</td></tr>
+<tr><td>모멘텀(momentum)</td><td>일정 기간 가격이 오른/내린 비율(추세 강도)</td><td>매수는 60일, A3 매도는 10일을 봐서 엇박자가 남</td></tr>
+<tr><td>매수 단기추세 가드 (Fix1)</td><td>매수 후보의 10일 추세가 −5% 미만이면 매수 보류</td><td>A3가 즉시 뱉을 종목을 처음부터 안 사게 하는 이번 핵심 패치</td></tr>
+<tr><td>A3 매도 룰</td><td>10일 추세 음전 + 손실영역이면 매도(30위 밖 백업 매도)</td><td>정상 작동했고 그대로 유지 — churn 의 원인이 아님</td></tr>
+<tr><td>재매수 쿨다운 (Fix2)</td><td>판 종목을 N일 동안 다시 안 사기</td><td>단독으론 좋은 재진입을 막아 해로움 → 보류</td></tr>
+<tr><td>Calmar</td><td>연환산 수익 ÷ 최대낙폭(MDD). 위험 대비 수익 효율</td><td>가드 −5%가 0.63→0.69로 개선 — "더 안전하게 더 벌었다"의 지표</td></tr>
+<tr><td>MDD (최대낙폭)</td><td>고점 대비 가장 크게 빠진 폭</td><td>4년 −50%대 — 가드로는 안 줄어듦(별개 과제임을 강조)</td></tr>
+<tr><td>falling-knife</td><td>"떨어지는 칼날" — 하락 추세 중인 종목을 잡는 위험</td><td>가드가 막으려는 대상: 단기 급락 중 종목 매수</td></tr>
+</table>
+
+</body>
+</html>
