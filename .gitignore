@@ -28,7 +28,8 @@ models/*.zip
 
 # data/ 전체 제외 — 모든 runtime/backtest/sample/snapshot 산출물.
 # repo 에 데이터는 일절 포함하지 않음 (재현 가능한 산출물 + 외부 fetch).
-data/
+# 루트 앵커(/data/): 소스 패키지의 autotrader/data/ 모듈까지 잡지 않도록.
+/data/
 
 # 로그 (런타임 산출물, 회전 포함)
 *.log
