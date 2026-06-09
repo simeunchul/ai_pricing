@@ -954,6 +954,19 @@ def run_dual_dynamic_backtest_v2(
     # momentum_min: 진입하려면 prev 시점 N일 모멘텀 > 이 값이어야 함 (기본 0 = 양의 추세).
     momentum_lookback: int | None = None,
     momentum_min: float = 0.0,
+    # momentum_soft_factor: 설정 시(예 0.5) 추세 음전(mom <= momentum_min) 종목을
+    #   거부하지 않고 slot_cash × factor 로 축소 진입 (① soft sizing 변형).
+    #   None=기존 하드 게이트(음전 종목 완전 거부). NaN(초기 구간)은 항상 거부.
+    momentum_soft_factor: float | None = None,
+    # ===== 매수 단기추세 가드 (Fix 1 — buy/sell 윈도우 불일치 churn 차단) =====
+    # buy_short_mom_lookback: N일 단기 수익률이 buy_short_mom_threshold 미만이면
+    #   매수 보류. A3 매도(short_mom)가 즉시 뱉어낼 "이미 단기 급락 중인" 종목을
+    #   애초에 안 사게 함. None=비활성(기존 동작). A3 매도 룰 자체는 불변.
+    buy_short_mom_lookback: int | None = None,
+    buy_short_mom_threshold: float = -0.05,
+    # rebuy_cooldown_days: 매도(모든 사유)한 종목을 이 거래일수 동안 재매수 금지
+    #   (핑퐁 차단). 0=비활성.
+    rebuy_cooldown_days: int = 0,
     # ===== replacement rule v2 (P&L 기반 — "횡보·저수익" 포지션만 교체 대상) =====
     # replacement_pnl_max: 보유 종목의 unrealized P&L 이 이 값 미만이면 교체 후보로 분류.
     #   None = 비활성. 예: 0.01 → +1% 미만(즉 손실·횡보)만 교체 대상.
@@ -1035,6 +1048,11 @@ def run_dual_dynamic_backtest_v2(
     if short_mom_lookback is not None:
         for _df in sym_data.values():
             _df["_short_ret"] = _df["close"].pct_change(short_mom_lookback)
+
+    # 매수 단기추세 가드용 (Fix 1): N일 수익률 사전계산
+    if buy_short_mom_lookback is not None:
+        for _df in sym_data.values():
+            _df["_buy_short_ret"] = _df["close"].pct_change(buy_short_mom_lookback)
 
     positions: dict[str, dict] = {}
     cash: float = initial_cash
@@ -1158,20 +1176,31 @@ def run_dual_dynamic_backtest_v2(
                 continue
             qty = positions[sym]["qty"]
             avg_entry = positions[sym]["avg_entry"]
+            hold_days = (today - positions[sym]["entry_date"]).days
             proceeds = qty * today_open * (1 - cost_per_side)
             cash += proceeds
             pnl = (today_open - avg_entry) / avg_entry if avg_entry > 0 else 0.0
             sell_reasons.append({
                 "date": today, "symbol": sym, "reason": reason,
                 "pnl": pnl, "avg_entry": avg_entry, "exit_price": today_open,
+                "hold_days": hold_days,
             })
             del positions[sym]
 
         # 매수 후보 (cooldown skip)
         buy_candidates = []
         if cooldown_remaining <= 0:
+            # 재매수 쿨다운(Fix 2): 최근 rebuy_cooldown_days 내 매도한 종목 집합.
+            recent_sold = set()
+            if rebuy_cooldown_days > 0 and sell_reasons:
+                recent_sold = {
+                    s["symbol"] for s in sell_reasons
+                    if 0 <= (today - pd.Timestamp(s["date"])).days < rebuy_cooldown_days
+                }
             for sym, df in sym_data.items():
                 if sym in positions:
+                    continue
+                if sym in recent_sold:
                     continue
                 if prev not in df.index or today not in df.index:
                     continue
@@ -1180,13 +1209,25 @@ def run_dual_dynamic_backtest_v2(
                 inst = float(prev_row["inst_ratio"])
                 if flow > enter_threshold and inst > enter_threshold:
                     # 모멘텀 confluence: 추세도 같은 방향(상승)일 때만 진입.
-                    # NaN(초기 구간) 은 `not (mom > min)` 이 True → 자동 탈락.
+                    # NaN(초기 구간) 은 항상 탈락. momentum_soft_factor 설정 시
+                    # 추세 음전 종목은 거부 대신 size_factor 축소로 진입 (① soft sizing).
+                    size_factor = 1.0
                     if momentum_lookback is not None:
                         mom = float(prev_row["_mom"])
+                        if mom != mom:  # NaN → 데이터 부족, 거부
+                            continue
                         if not (mom > momentum_min):
+                            if momentum_soft_factor is None:
+                                continue
+                            size_factor = momentum_soft_factor
+                    # 매수 단기추세 가드(Fix 1): 이미 단기 급락 중이면 매수 보류.
+                    # (A3 매도가 즉시 뱉어낼 종목을 애초에 안 사게 — churn 차단)
+                    if buy_short_mom_lookback is not None:
+                        bsr = float(prev_row["_buy_short_ret"])
+                        if bsr != bsr or bsr < buy_short_mom_threshold:  # NaN 또는 급락
                             continue
                     strength = min(flow, inst)
-                    buy_candidates.append((sym, strength, flow, inst))
+                    buy_candidates.append((sym, strength, flow, inst, size_factor))
 
         free_slots = max_concurrent - len(positions)
         buy_candidates.sort(key=lambda x: -x[1])
@@ -1210,7 +1251,7 @@ def run_dual_dynamic_backtest_v2(
                 pnl_now = (float(df_h.loc[prev, "close"]) - avg_entry) / avg_entry
                 if pnl_now < replacement_pnl_max:
                     eligible[sym_h] = pnl_now
-            for cand_sym, _cand_strength, _, _ in buy_candidates[free_slots:]:
+            for cand_sym, _cand_strength, _, _, _ in buy_candidates[free_slots:]:
                 if not eligible:
                     break
                 weakest_sym = min(eligible, key=eligible.get)
@@ -1234,12 +1275,12 @@ def run_dual_dynamic_backtest_v2(
                 del eligible[weakest_sym]
                 free_slots += 1
 
-        for sym, strength, flow, inst in buy_candidates[:free_slots]:
+        for sym, strength, flow, inst, size_factor in buy_candidates[:free_slots]:
             df = sym_data[sym]
             today_open = float(df.loc[today, "open"])
             if today_open <= 0:
                 continue
-            slot_cash = cash / max(1, free_slots)
+            slot_cash = (cash / max(1, free_slots)) * size_factor
             px_with_cost = today_open * (1 + cost_per_side)
             qty = int(slot_cash // px_with_cost)
             if qty <= 0:
