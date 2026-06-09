@@ -40,6 +40,7 @@ from autotrader.market.liquidity_filter import (
     evaluate_liquidity, MIN_TRADING_VALUE_KRW, MAX_SPREAD_BPS,
 )
 from autotrader.paper.dual_state import DualPaperState, Position
+from autotrader.data.krx_investor import ensure_combined
 
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -85,6 +86,12 @@ REPLACEMENT_MIN_HOLD = 7
 # 추세분석(EMA)과 TP는 backtest에서 더 나빴음 — A3가 데이터로 검증된 winner.
 SHORT_MOM_LOOKBACK = 10
 SHORT_MOM_THRESHOLD = -0.05
+
+# 매수 단기추세 가드 (Fix 1, 2026-06-09): 매수 후보의 SHORT_MOM_LOOKBACK(10)일
+# 수익률이 이 값 미만이면 매수 보류. A3 매도가 즉시 뱉어낼 falling-knife(60일은 +
+# 인데 10일은 급락 중인 종목)를 애초에 안 사 churn 차단. A3 매도 룰 자체는 불변.
+# 백테스트(4년 40종): churn -18%, 수익 +205%→+225%, Calmar 0.63→0.69.
+BUY_SHORT_MOM_THRESHOLD = -0.05
 
 
 def _append_trade(state_path: Path, *, ts: str, side: str, code: str,
@@ -379,21 +386,56 @@ def _days_between(entry_date_iso: str, today: datetime | None = None) -> int:
     return max(0, (today_d - entry).days)
 
 
+# on-demand 모멘텀 보강(②) 파라미터. ①(refresh_momentum_cache.py)이 평소 캐시를
+# 채우는 주력이고, 캐시 미스/stale 종목만 이 함수가 그 자리에서 1회 네이버에서 받아
+# 캐시에 적재한다. 실패 종목은 쿨다운 동안 재시도하지 않아 폭락장 지연/네이버 부담을 막는다.
+_MOM_STALE_DAYS = 3                 # 캐시 마지막 거래일이 이보다 오래되면 stale → 재수집
+_MOM_ONDEMAND_MAX_PAGES = 12       # on-demand 재수집 깊이(≈120영업일, 60일 룩백에 충분)
+_MOM_FETCH_COOLDOWN_SEC = 1800     # 재수집 실패 종목 재시도 쿨다운(30분)
+_MOM_FAILED_AT: dict[str, float] = {}
+
+
 def _get_momentum(sym: str, lookback: int = MOMENTUM_LOOKBACK) -> float | None:
     """N일(default 60) 가격 수익률 반환 — data/krx_cache/_combined.parquet 사용.
 
-    캐시 없거나 데이터 부족 → None. 보수적으로 처리: caller 는 None 이면 매수 차단
-    (모멘텀 미확인 종목은 진입 안 함).
-
-    데일리 캐시 freshness 는 별도 갱신 스크립트가 담당 (이 함수는 read-only).
+    캐시가 신선하면 그대로, 없거나 stale 하면 on-demand 로 1회 재수집(②)한다.
+    재수집도 실패하면 None → caller 는 보수적으로 매수 차단(모멘텀 미확인 종목은
+    진입 안 함). 평소 캐시 적재는 refresh_momentum_cache.py(①)가 담당.
     """
-    cache_path = ROOT / "data" / "krx_cache" / f"{sym}_combined.parquet"
-    if not cache_path.exists():
-        return None
+    now = time.time()
+    failed_at = _MOM_FAILED_AT.get(sym)
+    in_cooldown = failed_at is not None and (now - failed_at) < _MOM_FETCH_COOLDOWN_SEC
     try:
-        import pandas as pd
-        df = pd.read_parquet(cache_path)
-        if df.empty or len(df) < lookback + 1:
+        df, action = ensure_combined(
+            sym,
+            max_age_days=_MOM_STALE_DAYS,
+            min_rows=lookback + 1,
+            max_pages=_MOM_ONDEMAND_MAX_PAGES,
+            allow_fetch=not in_cooldown,
+        )
+    except Exception as e:
+        _MOM_FAILED_AT[sym] = now
+        logging.getLogger(__name__).warning(
+            f"  [모멘텀] {sym} 재수집 예외: {type(e).__name__} — 차단(쿨다운)"
+        )
+        return None
+
+    if action == "failed":
+        _MOM_FAILED_AT[sym] = now
+        logging.getLogger(__name__).warning(
+            f"  [모멘텀] {sym} 데이터 없음 — 재수집 실패(쿨다운 {_MOM_FETCH_COOLDOWN_SEC//60}분)"
+        )
+        return None
+    if action in ("stale", "missing"):
+        return None  # 쿨다운 중 — 조용히 차단
+    if action == "refetched":
+        _MOM_FAILED_AT.pop(sym, None)
+        logging.getLogger(__name__).info(f"  [모멘텀] {sym} on-demand 캐시 보강 완료")
+    else:  # fresh
+        _MOM_FAILED_AT.pop(sym, None)
+
+    try:
+        if df is None or df.empty or len(df) < lookback + 1:
             return None
         close = df["close"].iloc[-(lookback + 1):].values
         if close[0] <= 0:
@@ -977,6 +1019,24 @@ def run_one_iteration(client: KISClient, args, log):
         if n_pre_mom > 0:
             log.info(f"  [모멘텀{MOMENTUM_LOOKBACK}일] 통과 {len(buy_cands_sorted)}/{n_pre_mom}종 "
                      f"(데이터없음 {n_no_data}, 추세음수 {n_neg})")
+
+        # ===== 5a-2. 매수 단기추세 가드 (Fix 1, 2026-06-09) =====
+        # 60일은 +라 통과해도, 10일 단기 수익률이 BUY_SHORT_MOM_THRESHOLD 미만이면
+        # A3 매도가 즉시 뱉어낼 falling-knife → 매수 보류 (churn 차단). 데이터없음(None)도 보류.
+        if not buy_cands_sorted.empty:
+            n_pre_guard = len(buy_cands_sorted)
+            short_moms = {s: _get_momentum(s, lookback=SHORT_MOM_LOOKBACK)
+                          for s in buy_cands_sorted["symbol"].tolist()}
+            buy_cands_sorted = buy_cands_sorted[
+                buy_cands_sorted["symbol"].apply(
+                    lambda s: short_moms.get(s) is not None
+                    and short_moms.get(s) >= BUY_SHORT_MOM_THRESHOLD
+                )
+            ].copy()
+            n_guard_blocked = n_pre_guard - len(buy_cands_sorted)
+            if n_guard_blocked > 0:
+                log.info(f"  [매수가드{SHORT_MOM_LOOKBACK}일] {n_guard_blocked}종 차단 "
+                         f"(10일 < {BUY_SHORT_MOM_THRESHOLD*100:.0f}% — A3 즉시매도 회피)")
 
         free_slots = cap_effective - len(state.positions)
 
