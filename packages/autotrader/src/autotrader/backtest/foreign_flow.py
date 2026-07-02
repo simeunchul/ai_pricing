@@ -967,6 +967,9 @@ def run_dual_dynamic_backtest_v2(
     # rebuy_cooldown_days: 매도(모든 사유)한 종목을 이 거래일수 동안 재매수 금지
     #   (핑퐁 차단). 0=비활성.
     rebuy_cooldown_days: int = 0,
+    # 거래 구간 제한 (walk-forward / per-period). None=전체. 지표는 전체 df 로 계산.
+    start_date: str | None = None,
+    end_date: str | None = None,
     # ===== replacement rule v2 (P&L 기반 — "횡보·저수익" 포지션만 교체 대상) =====
     # replacement_pnl_max: 보유 종목의 unrealized P&L 이 이 값 미만이면 교체 후보로 분류.
     #   None = 비활성. 예: 0.01 → +1% 미만(즉 손실·횡보)만 교체 대상.
@@ -1027,9 +1030,13 @@ def run_dual_dynamic_backtest_v2(
     if rng is None:
         return PortfolioBacktestResult(pd.DataFrame(), pd.DataFrame(), {})
     common_start, common_end = rng
+    # 선택적 날짜 구간 제한 (walk-forward / per-period 용). 지표(_mom 등)는 전체 df
+    # 로 사전계산되므로 윈도우 시작 직전 가격이 있어 워밍업 손실 없음.
+    win_start = max(common_start, pd.Timestamp(start_date)) if start_date else common_start
+    win_end = min(common_end, pd.Timestamp(end_date)) if end_date else common_end
     all_dates = sorted([
         d for d in set().union(*[set(df.index) for df in sym_data.values()])
-        if common_start <= d <= common_end
+        if win_start <= d <= win_end
     ])
 
     # 모멘텀 confluence 게이트: 각 종목 close 의 N일 수익률 사전계산.
