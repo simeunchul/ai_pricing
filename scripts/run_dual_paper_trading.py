@@ -633,6 +633,7 @@ def run_one_iteration(client: KISClient, args, log):
     # KIS 기준으로 재정렬 (KIS 가 truth — 봇이 잘못 알고 있으면 잘못된 결정 함).
     # 5/12 의 sell-order-failed 누락 + 5/18 의 buy-order-failed (008700) 같은
     # silent drift 를 매 iter 마다 catch.
+    kis_total_eval = None   # KIS 총평가금액(순자산) — MDD truth. sync 성공 시 채움.
     try:
         bal = client.balance()
         if isinstance(bal, dict) and bal.get("rt_cd") == "0":
@@ -733,12 +734,27 @@ def run_one_iteration(client: KISClient, args, log):
             # tolerance 초과 시 정정. in-flight 주문 흡수용으로 10K 임계.
             out2 = bal.get("output2") or []
             if out2 and isinstance(out2[0], dict):
-                kis_cash = _f(out2[0].get("dnca_tot_amt"))
+                o2 = out2[0]
+                # ===== phantom margin / T+2 정산 왜곡 방어 (2026-06-17) =====
+                # KIS VTS 는 매수 후 예수금(dnca_tot_amt)을 음수로 반환(phantom margin
+                # debt) 하고, 매도 후에도 T+2 정산 전까지 옛 값을 줘서 dnca 를 그대로
+                # 믿으면 cash 가 망가짐 → 가짜 폭락 → 잘못된 MDD 청산(06-05/11/12/17 재발).
+                # KIS 의 총평가금액(tot_evlu_amt)은 phantom/정산을 net 한 진짜 순자산이므로
+                # 이걸 truth 로 삼고, 순현금 = 총평가 - 보유평가 로 역산한다.
+                kis_total_eval = _f(o2.get("tot_evlu_amt"))
+                kis_hold_eval = sum(_f(h.get("evlu_amt")) for h in out1
+                                    if _i(h.get("hldg_qty")) > 0)
+                if kis_total_eval > 0:
+                    kis_cash = kis_total_eval - kis_hold_eval        # 순현금 (phantom net)
+                    src = f"총평가 {kis_total_eval:,.0f} - 보유평가 {kis_hold_eval:,.0f}"
+                else:
+                    kis_cash = _f(o2.get("dnca_tot_amt"))            # fallback (구버전)
+                    src = "dnca_tot_amt (총평가 없음)"
                 cash_diff = state.cash - kis_cash
                 if abs(cash_diff) > 10_000:
                     log.warning(
                         f"[sync] cash drift {cash_diff:+,.0f}원 — "
-                        f"봇 {state.cash:,.0f} vs KIS {kis_cash:,.0f} → KIS 기준 정정"
+                        f"봇 {state.cash:,.0f} → 순현금 {kis_cash:,.0f} ({src}) 정정"
                     )
                     state.cash = kis_cash
                     state.save(state_path)
@@ -769,8 +785,21 @@ def run_one_iteration(client: KISClient, args, log):
             portfolio_total += pos.qty * pos.avg_entry
 
     # ===== 2. MDD Cap 체크 =====
-    dd = (portfolio_total - state.portfolio_peak) / state.portfolio_peak if state.portfolio_peak > 0 else 0
-    if dd <= -MDD_CAP:
+    # 평가는 KIS 총평가금액(순자산)을 truth 로 — phantom margin/T+2 왜곡 차단.
+    # 없으면 cash+holdings 재구성값(portfolio_total) fallback.
+    mdd_total = kis_total_eval if (kis_total_eval and kis_total_eval > 0) else portfolio_total
+    # 손상 peak 복구: phantom cascade 로 음수/0 이 된 경우 현재 순자산으로 리셋.
+    if state.portfolio_peak <= 0:
+        log.warning(f"[peak-fix] 손상된 peak({state.portfolio_peak:,.0f}) → {mdd_total:,.0f} 복구")
+        state.portfolio_peak = mdd_total
+        state.save(state_path)
+    dd = (mdd_total - state.portfolio_peak) / state.portfolio_peak if state.portfolio_peak > 0 else 0
+    # Sanity 가드: 순자산이 음수거나 한 iter 에 -50% 초과 급락 = phantom/정산왜곡 의심
+    # → 강제청산 보류 + 경보 (실제 -50%+ 폭락이면 다음 iter 들에서 정상 MDD 가 잡음).
+    if mdd_total <= 0 or dd <= -0.50:
+        log.error(f"!!! [MDD-guard] 비정상 평가 (순자산 {mdd_total:,.0f}원, dd {dd*100:.1f}%) "
+                  f"— phantom/정산왜곡 의심, 강제청산 보류 (peak {state.portfolio_peak:,.0f})")
+    elif dd <= -MDD_CAP:
         log.warning(f"!!! MDD CAP 발동 ({dd*100:.2f}% < -{MDD_CAP*100:.0f}%) — 전종목 청산")
         for sym, pos in list(state.positions.items()):
             cur_px, _ = pos_values.get(sym, (pos.avg_entry, 0))
